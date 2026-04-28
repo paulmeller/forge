@@ -64,3 +64,18 @@ export function pauseMission(missionId: string): Promise<Mission> {
 export function resumeMission(missionId: string): Promise<Mission> {
   return transitionMission(missionId, 'paused', 'running', 'mission.resumed');
 }
+
+export async function cancelMission(missionId: string): Promise<Mission> {
+  const [current] = await db.select().from(missions).where(eq(missions.id, missionId)).limit(1);
+  if (!current) throw new MissionTransitionError('mission not found', 'NOT_FOUND');
+  if (current.status !== 'running' && current.status !== 'paused') {
+    throw new MissionTransitionError(
+      `expected mission in running or paused, got ${current.status}`,
+      'WRONG_STATUS',
+    );
+  }
+
+  return transitionMission(missionId, current.status, 'cancelled', 'mission.cancelled', {
+    completedAt: new Date(),
+  });
+}
