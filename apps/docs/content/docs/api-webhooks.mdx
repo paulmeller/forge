@@ -1,0 +1,197 @@
+---
+title: "API: Webhooks"
+description: Incoming webhook endpoints for backend events and GitHub integration.
+---
+
+Forge exposes two webhook endpoints: one for receiving backend session events (from the gateway) and one for GitHub events (issue comments and check suite results).
+
+## Backend webhook
+
+```
+POST /api/forge/webhook/:missionId
+```
+
+Receives events from the AgentStep Gateway for a specific Mission. This endpoint is used when the gateway is configured to push events rather than relying on polling.
+
+### Authentication
+
+Events are verified using HMAC-SHA256. The Mission's `webhookSecret` (generated at creation time) is used as the signing key.
+
+| Header | Description |
+|---|---|
+| `x-forge-signature` | Hex-encoded HMAC-SHA256 of the raw request body, signed with the Mission's `webhookSecret`. |
+
+### Verification
+
+The handler computes `HMAC-SHA256(webhookSecret, rawBody)` and compares it to the provided signature using a timing-safe comparison.
+
+### Request body
+
+The request body is the raw event payload from the gateway. The handler currently receives and acknowledges the event; parsing, Ledger append, and Task state updates are deferred to the next tick cycle.
+
+### Response
+
+| Status | Body | Condition |
+|---|---|---|
+| `200` | `{ "received": true }` | Event received and signature verified. |
+| `401` | `{ "error": "invalid signature" }` | Missing or invalid `x-forge-signature` header. |
+| `404` | `{ "error": "mission not found" }` | No Mission with the given ID. |
+
+### Example
+
+```bash
+# Compute the HMAC signature
+SIGNATURE=$(echo -n "$BODY" | openssl dgst -sha256 -hmac "$WEBHOOK_SECRET" | cut -d' ' -f2)
+
+curl -X POST https://forge.example.com/api/forge/webhook/msn_abc123 \
+  -H "Content-Type: application/json" \
+  -H "x-forge-signature: $SIGNATURE" \
+  -d "$BODY"
+```
+
+> **Note:** In production, the gateway computes and sends the signature automatically. You only need to ensure the gateway is configured with the correct webhook URL and the Mission's webhook secret.
+
+## GitHub webhook
+
+```
+POST /api/forge/github/webhook
+```
+
+Receives GitHub webhook events. Currently handles two event types: `issue_comment` (for `@forge` command dispatch) and `check_suite` (for self-healing CI).
+
+### Authentication
+
+Events are verified using GitHub's standard webhook signature mechanism.
+
+| Header | Description |
+|---|---|
+| `x-hub-signature-256` | GitHub's HMAC-SHA256 signature of the request body, prefixed with `sha256=`. |
+| `x-github-event` | The event type (e.g., `issue_comment`, `check_suite`). |
+
+The webhook secret is configured via the `GITHUB_WEBHOOK_SECRET` environment variable on forge-web. If this variable is not set, the endpoint returns `503`.
+
+### Event: `issue_comment`
+
+Triggers when a comment is created on a GitHub issue or pull request. Forge looks for `@forge` or `/forge` directives in the comment body.
+
+**Supported directive formats:**
+
+```
+@forge bump fast-glob to ^3.3.2
+/forge add OTel spans to every HTTP handler
+```
+
+The directive can appear on any line of the comment. The text after `@forge` or `/forge` becomes the Mission's goal.
+
+**What happens:**
+
+1. Forge parses the `@forge` directive from the comment body.
+2. Creates a one-Task Mission scoped to the repository where the comment was posted.
+3. The Mission goes `draft` -> `planning` -> `running` in a single transaction.
+4. The Task is `queued` and will be dispatched on the next tick.
+
+**Ignored when:**
+
+- The comment `action` is not `created` (e.g., edits and deletions are ignored).
+- No `@forge` or `/forge` directive is found in the comment body.
+
+**Response** `201`
+
+```json
+{
+  "missionId": "msn_...",
+  "taskId": "tsk_...",
+  "missionUrl": "/missions/msn_..."
+}
+```
+
+| Status | Condition |
+|---|---|
+| `201` | Mission and Task created from the directive. |
+| `200` | Event ignored (no directive, wrong action, etc.). Returns `{ "ignored": true, "reason": "..." }`. |
+| `400` | Missing `repository.full_name` or invalid JSON. |
+| `401` | Invalid webhook signature. |
+| `503` | `GITHUB_WEBHOOK_SECRET` is not configured. |
+
+### Event: `check_suite`
+
+Triggers when a GitHub check suite completes. Forge uses this for self-healing CI: when a check suite fails on a pull request, Forge automatically creates a Mission to fix the lint errors.
+
+**What happens:**
+
+1. Forge receives a `check_suite` event with `action: "completed"` and `conclusion: "failure"`.
+2. Only acts on failures associated with a pull request (direct pushes to main are ignored).
+3. Creates a one-Task Mission with a goal that instructs the agent to run eslint, read the errors, fix them, and push a fix commit.
+4. The Mission targets the PR's branch (not `main`), so the fix commit lands on the existing PR.
+
+**Ignored when:**
+
+- `action` is not `completed`.
+- `conclusion` is not `failure` (success, neutral, etc.).
+- No pull request is associated with the check suite.
+
+**Response** `201`
+
+```json
+{
+  "missionId": "msn_...",
+  "taskId": "tsk_...",
+  "trigger": "check_suite.failure",
+  "branch": "feature/my-branch",
+  "prNumber": 42
+}
+```
+
+| Status | Condition |
+|---|---|
+| `201` | CI-fix Mission created. |
+| `200` | Event ignored. Returns `{ "ignored": true, ... }`. |
+| `400` | Invalid JSON or missing repository info. |
+| `401` | Invalid webhook signature. |
+| `503` | `GITHUB_WEBHOOK_SECRET` is not configured. |
+
+## Setting up GitHub webhooks
+
+To enable the GitHub webhook integration:
+
+1. **Set the webhook secret** in forge-web's environment:
+
+```dotenv
+GITHUB_WEBHOOK_SECRET=your-random-secret
+FORGE_DEFAULT_AGENT_ID=agent_abc123
+FORGE_DEFAULT_GITHUB_VAULT_ID=vault_xyz  # optional, for PR creation
+```
+
+2. **Configure the webhook in GitHub** (repository or organization settings):
+
+| Setting | Value |
+|---|---|
+| Payload URL | `https://forge.example.com/api/forge/github/webhook` |
+| Content type | `application/json` |
+| Secret | Same value as `GITHUB_WEBHOOK_SECRET` |
+| Events | Select "Issue comments" and "Check suites" |
+
+3. **Create an agent** on your backend (Managed Agents or gateway) and set `FORGE_DEFAULT_AGENT_ID` to its ID. GitHub-dispatched Missions use this agent.
+
+## Health check
+
+```
+GET /api/health
+```
+
+Simple health check endpoint. No authentication required.
+
+**Response** `200`
+
+```json
+{
+  "status": "ok",
+  "service": "forge-web"
+}
+```
+
+## Webhook design principles
+
+- **Thin handlers:** Webhook receivers verify the signature, persist to the Ledger, and return fast. All heavy processing (state transitions, session creation, PR opening) happens asynchronously on the next tick.
+- **HMAC verification:** Both webhook endpoints use timing-safe HMAC comparison to prevent signature bypass attacks.
+- **Idempotency:** The Ledger uses a unique index on `(taskId, sourceEventId)` to prevent duplicate event processing across ticks.

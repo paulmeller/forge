@@ -1,0 +1,336 @@
+---
+title: "API: Missions"
+description: REST API reference for Mission CRUD, planning, lifecycle transitions, and retrospectives.
+---
+
+All Mission endpoints require authentication. Requests must include a valid session cookie or bearer token from better-auth.
+
+Base path: `/api/missions`
+
+## List Missions
+
+```
+GET /api/missions
+```
+
+Returns all Missions owned by the authenticated user, ordered by creation date (newest first).
+
+**Response** `200`
+
+```json
+{
+  "missions": [
+    {
+      "id": "msn_abc123...",
+      "userId": "user_...",
+      "name": "Bump fast-glob",
+      "goal": "Upgrade fast-glob to ^3.3.2 everywhere",
+      "status": "running",
+      "backend": "managed-agents",
+      "agentId": "agent_...",
+      "plannerStrategy": "rule-based",
+      "targetRepos": ["acme/api", "acme/web"],
+      "concurrencyCap": 5,
+      "budgetUsd": 200,
+      "budgetTokens": null,
+      "budgetThresholdPct": 80,
+      "spentUsd": 42,
+      "spentTokens": 0,
+      "autoMergePolicy": null,
+      "webhookSecret": "...",
+      "githubInstallationId": null,
+      "githubVaultId": null,
+      "skillId": null,
+      "aiReviewEnabled": false,
+      "createdAt": "2026-04-28T10:00:00.000Z",
+      "updatedAt": "2026-04-28T10:05:00.000Z",
+      "startedAt": "2026-04-28T10:01:00.000Z",
+      "completedAt": null
+    }
+  ]
+}
+```
+
+## Get Mission
+
+```
+GET /api/missions/:missionId
+```
+
+Returns a single Mission by ID.
+
+**Response** `200`
+
+```json
+{
+  "mission": { ... }
+}
+```
+
+| Status | Condition |
+|---|---|
+| `200` | Mission found. |
+| `404` | Mission not found. |
+
+## Create Mission
+
+```
+POST /api/missions
+```
+
+Creates a new Mission in `draft` status.
+
+**Request body**
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `name` | `string` | yes | -- | Mission name (1-200 chars). |
+| `goal` | `string` | yes | -- | Natural-language goal prompt (1-10,000 chars). Use `{{var}}` for template variables. |
+| `backend` | `string` | yes | -- | Execution backend: `managed-agents` or `gateway`. |
+| `agentId` | `string` | yes | -- | Agent ID on the chosen backend (1-200 chars). |
+| `plannerStrategy` | `string` | no | `rule-based` | Planner strategy: `rule-based`, `llm`, or `graph`. |
+| `targetRepos` | `string[]` | no | `[]` | List of target repos in `owner/repo` format (max 500). |
+| `concurrencyCap` | `number` | no | `5` | Max concurrent Tasks (1-100). |
+| `budgetUsd` | `number` | no | `null` | Budget cap in USD (positive integer). |
+| `budgetTokens` | `number` | no | `null` | Budget cap in tokens (positive integer). |
+| `budgetThresholdPct` | `number` | no | `80` | Auto-pause threshold as percentage of budget (1-100). |
+| `githubInstallationId` | `string` | no | `null` | GitHub App installation ID for repo access. |
+| `githubVaultId` | `string` | no | `null` | GitHub MCP vault ID for PR creation tool calls. |
+| `skillId` | `string` | no | `null` | Skill to attach to this Mission. |
+| `aiReviewEnabled` | `boolean` | no | `false` | Enable AI-powered review of agent PRs. |
+
+**Example request**
+
+```json
+{
+  "name": "Bump fast-glob",
+  "goal": "Bump {{package}} to {{target_version}} in {{repo}} on {{base_branch}}.",
+  "backend": "managed-agents",
+  "agentId": "agent_abc123",
+  "targetRepos": ["acme/api", "acme/web"],
+  "concurrencyCap": 10,
+  "budgetUsd": 200,
+  "skillId": "skl_dependency_bump"
+}
+```
+
+**Response** `201`
+
+```json
+{
+  "mission": {
+    "id": "msn_abc123...",
+    "status": "draft",
+    ...
+  }
+}
+```
+
+| Status | Condition |
+|---|---|
+| `201` | Mission created. |
+| `400` | Invalid JSON or validation error. Returns `{ "error": "validation failed", "issues": [...] }`. |
+
+## Plan Mission
+
+```
+POST /api/missions/:missionId/plan
+```
+
+Runs the planner on a Mission, generating Tasks from the target repos and goal template. Transitions the Mission from `draft` to `planning`.
+
+**Response** `200`
+
+```json
+{
+  "mission": { ... },
+  "taskCount": 87
+}
+```
+
+| Status | Condition |
+|---|---|
+| `200` | Planning completed. |
+| `404` | Mission not found (`code: "MISSION_NOT_FOUND"`). |
+| `409` | Mission is not in a plannable state (`code` varies by reason). |
+
+## Start Mission
+
+```
+POST /api/missions/:missionId/start
+```
+
+Transitions a planned Mission to `running`. The dispatcher will begin claiming queued Tasks on the next tick.
+
+**Response** `200`
+
+```json
+{
+  "mission": { ... }
+}
+```
+
+| Status | Condition |
+|---|---|
+| `200` | Mission started. |
+| `404` | Mission not found (`code: "NOT_FOUND"`). |
+| `409` | Invalid state transition (`code` varies). For example, starting a Mission that hasn't been planned yet. |
+
+## Cancel Mission
+
+```
+POST /api/missions/:missionId/cancel
+```
+
+Cancels a Mission. Queued Tasks are abandoned; in-flight Tasks run to completion.
+
+**Response** `200`
+
+```json
+{
+  "mission": { ... }
+}
+```
+
+| Status | Condition |
+|---|---|
+| `200` | Mission cancelled. |
+| `404` | Mission not found (`code: "NOT_FOUND"`). |
+| `409` | Invalid state transition (e.g., cancelling a completed Mission). |
+
+## Get Retrospective
+
+```
+GET /api/missions/:missionId/retrospect
+```
+
+Returns the retrospective analysis and proposals for a Mission, if one exists.
+
+**Response** `200`
+
+```json
+{
+  "retrospective": {
+    "id": "ret_...",
+    "missionId": "msn_...",
+    "status": "completed",
+    "sessionId": "sess_...",
+    "analysis": "...",
+    "requestedBy": "user_...",
+    "createdAt": "2026-04-28T12:00:00.000Z",
+    "completedAt": "2026-04-28T12:05:00.000Z"
+  },
+  "proposals": [
+    {
+      "id": "prp_...",
+      "retrospectiveId": "ret_...",
+      "type": "skill_diff",
+      "status": "pending",
+      "content": {
+        "skillSlug": "dependency-bump",
+        "diff": "...",
+        "rationale": "..."
+      },
+      "evidenceEventIds": ["lev_..."],
+      "reviewedBy": null,
+      "reviewedAt": null,
+      "createdAt": "2026-04-28T12:05:00.000Z"
+    }
+  ]
+}
+```
+
+If no retrospective exists, returns `{ "retrospective": null, "proposals": [] }`.
+
+## Create Retrospective
+
+```
+POST /api/missions/:missionId/retrospect
+```
+
+Initiates a retrospective analysis on a completed Mission. Spawns a read-only agent session to analyze the Ledger and produce skill diffs and memory entry proposals.
+
+**Response** `201`
+
+```json
+{
+  "retrospective": {
+    "id": "ret_...",
+    "missionId": "msn_...",
+    "status": "pending",
+    ...
+  }
+}
+```
+
+| Status | Condition |
+|---|---|
+| `201` | Retrospective created. |
+| `404` | Mission not found (`code: "MISSION_NOT_FOUND"`). |
+| `409` | A retrospective already exists for this Mission (`code: "ALREADY_EXISTS"`). |
+| `422` | Mission is not in a valid state for retrospection. |
+
+## Review Proposal
+
+```
+PATCH /api/proposals/:proposalId
+```
+
+Review a retrospective proposal. This endpoint is under `/api/proposals/`, not under `/api/missions/`.
+
+**Request body**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `decision` | `string` | yes | One of: `accepted`, `rejected`, `edited`. |
+| `editedContent` | `object` | no | Required when `decision` is `edited`. The modified proposal content. |
+
+**Example request**
+
+```json
+{
+  "decision": "accepted"
+}
+```
+
+**Response** `200`
+
+```json
+{
+  "proposal": { ... }
+}
+```
+
+| Status | Condition |
+|---|---|
+| `200` | Proposal reviewed. |
+| `400` | Invalid decision value or malformed JSON. |
+| `404` | Proposal not found. |
+
+## Mission status values
+
+| Status | Description |
+|---|---|
+| `draft` | Created but not yet planned. |
+| `planning` | Planner is generating Tasks. |
+| `running` | Tasks are being dispatched and executed. |
+| `paused` | No new dispatches; in-flight Tasks complete. Auto-triggered at budget threshold. |
+| `completed` | All Tasks have reached a terminal state. |
+| `cancelled` | Operator cancelled the Mission. |
+
+## Auto-merge policy shape
+
+When providing `autoMergePolicy` in the create request, use this shape:
+
+```json
+{
+  "enabled": true,
+  "maxAdditions": 20,
+  "maxDeletions": 10,
+  "maxFilesChanged": 5,
+  "requiredChecks": ["ci/tests", "ci/lint"],
+  "allowedPathPatterns": ["*.json", "*.lock"]
+}
+```
+
+All fields except `enabled` are optional. When `autoMergePolicy` is `null` (default), Forge never auto-merges PRs.
