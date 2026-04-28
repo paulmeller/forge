@@ -1,0 +1,161 @@
+---
+title: Testing
+description: How to run tests, the no-mocking philosophy, and how to write new tests.
+---
+
+## Test runner
+
+Forge uses [Vitest](https://vitest.dev/) with explicit imports (no globals). Both `apps/web` and `apps/tick` have identical Vitest configs:
+
+```ts
+// vitest.config.ts
+import { defineConfig } from 'vitest/config';
+
+export default defineConfig({
+  test: {
+    globals: false,
+    environment: 'node',
+    setupFiles: ['./vitest.setup.ts'],
+  },
+});
+```
+
+`globals: false` means every test file must explicitly import from `vitest`:
+
+```ts
+import { describe, expect, it } from 'vitest';
+```
+
+## Running tests
+
+```bash
+# All packages
+pnpm test
+
+# Single package
+pnpm --filter @forge/tick test
+pnpm --filter @forge/web test
+
+# Single file (from the package directory)
+cd apps/tick && npx vitest run src/state.test.ts
+```
+
+Always run `pnpm -r test` before pushing.
+
+## The "no mocking" philosophy
+
+Forge tests avoid mocks, stubs, and spies. Instead, the codebase is structured so that core logic lives in **pure functions** that take plain data in and return plain data out. This makes tests:
+
+- **Deterministic** -- same input always produces the same output.
+- **Fast** -- no setup/teardown, no network, no database.
+- **Resilient** -- refactoring internals doesn't break tests.
+
+### Example: state machine
+
+The `transition` function in `apps/tick/src/state.ts` is a pure function. Tests pass a status string and a synthetic event, then assert the returned state patch:
+
+```ts
+import { describe, expect, it } from 'vitest';
+import { transition } from './state';
+
+describe('transition', () => {
+  it('dispatching → running on session.status_running', () => {
+    const event = {
+      id: 'sevt_test',
+      type: 'session.status_running',
+      processedAt: new Date(),
+      raw: { type: 'session.status_running', id: 'sevt_fixture' },
+    };
+    const t = transition('dispatching', event);
+    expect(t).toEqual({ status: 'running' });
+  });
+});
+```
+
+No HTTP client to mock, no database to seed, no adapter to stub.
+
+### Example: budget computation
+
+`computeBudgetPct` in `apps/tick/src/budgets.ts` takes a plain object and returns percentages:
+
+```ts
+it('computes token percentage correctly', () => {
+  const result = computeBudgetPct({
+    spentTokens: 800_000,
+    budgetTokens: 1_000_000,
+    budgetUsd: null,
+  });
+  expect(result.tokenPct).toBe(80);
+  expect(result.maxPct).toBe(80);
+});
+```
+
+### Example: adapter contracts
+
+`apps/tick/src/adapters/adapter-contract.test.ts` verifies that both `ManagedAgentsAdapter` and `GatewayAdapter` implement the full `BackendAdapter` interface. It instantiates each adapter with dummy config (no real API calls) and asserts every required method exists:
+
+```ts
+function adapterSuite(name: string, create: () => BackendAdapter) {
+  describe(`${name} contract`, () => {
+    it('implements createSession', () => {
+      expect(typeof create().createSession).toBe('function');
+    });
+    // ... sendTurn, listEvents, getSession, cancelSession, confirmToolUse
+  });
+}
+```
+
+## Writing new tests
+
+### Where to put them
+
+Test files live **next to the source file** they test, using the `.test.ts` suffix:
+
+```
+apps/tick/src/
+├── state.ts
+├── state.test.ts
+├── budgets.ts
+├── budgets.test.ts
+├── adapters/
+│   ├── types.ts
+│   ├── managed-agents.ts
+│   ├── gateway.ts
+│   └── adapter-contract.test.ts
+```
+
+### How to structure them
+
+1. **Extract a pure function** -- if the logic you want to test is tangled with I/O, pull it into a standalone function that takes data in and returns data out.
+2. **Import from `vitest`** -- `import { describe, expect, it } from 'vitest';`
+3. **Build plain fixtures inline** -- construct test data inside the test. No shared fixture files, no factory libraries.
+4. **Assert return values** -- use `expect(...).toEqual(...)` or `expect(...).toBe(...)`. Avoid testing implementation details.
+
+### Checklist for a new test
+
+- [ ] File is named `<module>.test.ts` and sits next to `<module>.ts`
+- [ ] Imports `describe`, `expect`, `it` from `vitest` (not globals)
+- [ ] Tests pure functions with plain data -- no mocks, no stubs
+- [ ] Passes when run in isolation: `npx vitest run src/<module>.test.ts`
+- [ ] Passes as part of the full suite: `pnpm -r test`
+
+## Existing test files
+
+| File | What it tests |
+|---|---|
+| `apps/tick/src/state.test.ts` | Task state machine transitions |
+| `apps/tick/src/budgets.test.ts` | Budget percentage computation |
+| `apps/tick/src/ci.test.ts` | CI status logic |
+| `apps/tick/src/auto-merge.test.ts` | Auto-merge decision logic |
+| `apps/tick/src/poller.test.ts` | Event polling logic |
+| `apps/tick/src/dispatcher.test.ts` | Task dispatch logic |
+| `apps/tick/src/reconciler.test.ts` | State reconciliation |
+| `apps/tick/src/prompt.test.ts` | Prompt construction |
+| `apps/tick/src/memory.test.ts` | Memory/context handling |
+| `apps/tick/src/dag.test.ts` | DAG (dependency graph) logic |
+| `apps/tick/src/agents-md.test.ts` | AGENTS.md generation |
+| `apps/tick/src/ai-review.test.ts` | AI review logic |
+| `apps/tick/src/adapters/adapter-contract.test.ts` | Adapter interface contract |
+| `apps/web/src/lib/event-roles.test.ts` | Event classification and labeling |
+| `apps/web/src/lib/api-auth.test.ts` | API authentication |
+| `apps/web/src/lib/dispatch-from-github.test.ts` | GitHub webhook dispatch |
