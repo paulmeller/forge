@@ -236,10 +236,19 @@ async function tryOpenPr(
           return true;
         }
 
-        // Open a new PR
-        const title = mission.name.startsWith('GH:')
-          ? mission.name.replace(/^GH:\s*\S+\s*—\s*/, '')
-          : `Forge: ${mission.name}`;
+        // Derive PR title from the linked issue (if any) or the mission name
+        let title = `Forge: ${mission.name}`;
+        if (task.issueRef) {
+          const issueNum = task.issueRef.split('#')[1];
+          if (issueNum) {
+            try {
+              const { data: issue } = await gh().issues.get({ owner, repo, issue_number: Number(issueNum) });
+              title = issue.title;
+            } catch { /* fall back to mission name */ }
+          }
+        } else if (mission.name.startsWith('GH:')) {
+          title = mission.name.replace(/^GH:\s*\S+\s*—\s*/, '');
+        }
 
         const { data: pr } = await gh().pulls.create({
           owner,

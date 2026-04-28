@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Forge — Landing Page Preview</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #09090b; color: #fafafa; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; -webkit-font-smoothing: antialiased; }
+
+  /* Nav */
+  nav { display: flex; justify-content: space-between; align-items: center; padding: 16px 48px; border-bottom: 1px solid #1a1a1e; position: sticky; top: 0; background: rgba(9,9,11,0.85); backdrop-filter: blur(12px); z-index: 100; }
+  nav .logo { font-size: 16px; font-weight: 700; letter-spacing: -0.5px; }
+  nav .nav-links { display: flex; gap: 24px; align-items: center; }
+  nav .nav-links a { color: #71717a; text-decoration: none; font-size: 13px; }
+  nav .nav-links a:hover { color: #a1a1aa; }
+  nav .gh-btn { background: #fafafa; color: #09090b; padding: 6px 14px; border-radius: 6px; font-size: 13px; font-weight: 500; text-decoration: none; }
+
+  /* Sections */
+  section { max-width: 960px; margin: 0 auto; padding: 0 48px; }
+
+  /* Hero */
+  .hero { padding-top: 80px; padding-bottom: 80px; display: flex; justify-content: space-between; align-items: flex-start; gap: 48px; }
+  .hero-text { flex: 1; }
+  .hero-badge { display: inline-block; font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: #a1a1aa; border: 1px solid #27272a; padding: 4px 10px; border-radius: 100px; margin-bottom: 16px; }
+  .hero h1 { font-size: 52px; font-weight: 600; line-height: 1.08; letter-spacing: -1.5px; margin-bottom: 20px; }
+  .hero p { font-size: 17px; color: #71717a; line-height: 1.6; max-width: 440px; margin-bottom: 32px; }
+  .hero-buttons { display: flex; gap: 12px; }
+  .btn-primary { background: #fafafa; color: #09090b; padding: 10px 20px; border-radius: 6px; font-size: 14px; font-weight: 500; text-decoration: none; border: none; cursor: pointer; }
+  .btn-secondary { border: 1px solid #27272a; color: #a1a1aa; padding: 10px 20px; border-radius: 6px; font-size: 14px; text-decoration: none; background: none; cursor: pointer; }
+
+  /* Console mock */
+  .console-mock { width: 260px; flex-shrink: 0; background: #18181b; border-radius: 10px; padding: 20px; border: 1px solid #27272a; }
+  .console-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #52525b; margin-bottom: 16px; }
+  .console-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+  .console-row .name { font-size: 12px; color: #a1a1aa; }
+  .console-row .stat { font-size: 11px; }
+  .stat-green { color: #22c55e; }
+  .stat-blue { color: #3b82f6; }
+  .stat-amber { color: #f59e0b; }
+  .progress-bar { height: 3px; background: #27272a; border-radius: 2px; overflow: hidden; margin-bottom: 14px; }
+  .progress-fill { height: 100%; border-radius: 2px; }
+  .console-divider { height: 1px; background: #27272a; margin: 14px 0; }
+  .console-budget { display: flex; justify-content: space-between; font-size: 11px; }
+  .console-budget .label { color: #52525b; }
+  .console-budget .value { color: #a1a1aa; }
+
+  /* Divider */
+  .divider { height: 1px; background: #1a1a1e; max-width: 960px; margin: 0 auto; }
+
+  /* Value props */
+  .value-props { padding-top: 72px; padding-bottom: 72px; }
+  .value-prop { display: flex; align-items: baseline; gap: 20px; margin-bottom: 32px; }
+  .value-prop:last-child { margin-bottom: 0; }
+  .value-prop .word { color: #fafafa; font-size: 32px; font-weight: 600; letter-spacing: -1px; line-height: 1; flex-shrink: 0; }
+  .value-prop .desc { color: #71717a; font-size: 15px; line-height: 1.5; }
+
+  /* Mission flow */
+  .mission-flow { padding-top: 72px; padding-bottom: 72px; }
+  .mission-flow h2 { font-size: 24px; font-weight: 600; letter-spacing: -0.5px; text-align: center; margin-bottom: 8px; }
+  .mission-flow .subtitle { color: #71717a; font-size: 14px; text-align: center; margin-bottom: 40px; }
+  .flow-steps { display: flex; align-items: flex-start; gap: 12px; }
+  .flow-step { flex: 1; text-align: center; }
+  .flow-step-box { background: #18181b; border: 1px solid #27272a; border-radius: 8px; padding: 18px 12px; margin-bottom: 10px; }
+  .flow-step-num { font-size: 18px; font-weight: 600; color: #52525b; margin-bottom: 4px; }
+  .flow-step-name { font-size: 14px; font-weight: 600; color: #fafafa; }
+  .flow-step p { color: #52525b; font-size: 11px; line-height: 1.4; }
+  .flow-arrow { color: #27272a; font-size: 20px; margin-top: 26px; flex-shrink: 0; }
+
+  /* Why open */
+  .why-open { padding-top: 72px; padding-bottom: 72px; }
+  .why-open h2 { font-size: 24px; font-weight: 600; letter-spacing: -0.5px; margin-bottom: 24px; }
+  .why-open .narrative { margin-bottom: 24px; }
+  .why-open .narrative p { font-size: 15px; line-height: 1.65; margin-bottom: 16px; }
+  .why-open .narrative p:first-child { color: #fafafa; }
+  .why-open .narrative p:last-child { color: #a1a1aa; margin-bottom: 0; }
+  .why-open blockquote { border-left: 2px solid #27272a; padding-left: 16px; }
+  .why-open blockquote p { color: #71717a; font-size: 13px; line-height: 1.5; font-style: italic; }
+  .why-open blockquote cite { color: #52525b; font-size: 12px; font-style: normal; display: block; margin-top: 6px; }
+
+  /* Footer CTA */
+  .footer-cta { padding-top: 80px; padding-bottom: 100px; text-align: center; }
+  .footer-cta h2 { font-size: 36px; font-weight: 600; letter-spacing: -1px; margin-bottom: 12px; }
+  .footer-cta p { color: #71717a; font-size: 15px; margin-bottom: 32px; }
+  .footer-cta .hero-buttons { justify-content: center; }
+
+  /* Bottom bar */
+  .bottom-bar { border-top: 1px solid #1a1a1e; padding: 20px 48px; display: flex; justify-content: space-between; align-items: center; max-width: 960px; margin: 0 auto; }
+  .bottom-bar span { color: #52525b; font-size: 12px; }
+  .bottom-bar a { color: #52525b; font-size: 12px; text-decoration: none; }
+</style>
+</head>
+<body>
+
+<!-- Nav -->
+<nav>
+  <div class="logo">Forge</div>
+  <div class="nav-links">
+    <a href="#">Docs</a>
+    <a href="#">GitHub</a>
+    <a href="#" class="gh-btn">★ Star</a>
+  </div>
+</nav>
+
+<!-- Hero -->
+<section class="hero">
+  <div class="hero-text">
+    <span class="hero-badge">MIT Licensed</span>
+    <h1>The open-source<br>software factory.</h1>
+    <p>Orchestrate fleet-scale autonomous code changes. Every action in a ledger you own. Every dollar tracked.</p>
+    <div class="hero-buttons">
+      <button class="btn-primary">★ Star on GitHub</button>
+      <button class="btn-secondary">Quickstart →</button>
+    </div>
+  </div>
+  <div class="console-mock">
+    <div class="console-label">Mission Control</div>
+    <div class="console-row">
+      <span class="name">bump fast-glob</span>
+      <span class="stat stat-green">● 138/140</span>
+    </div>
+    <div class="progress-bar"><div class="progress-fill" style="width: 98%; background: #22c55e;"></div></div>
+    <div class="console-row">
+      <span class="name">add OTel spans</span>
+      <span class="stat stat-blue">● 24/67</span>
+    </div>
+    <div class="progress-bar"><div class="progress-fill" style="width: 36%; background: #3b82f6;"></div></div>
+    <div class="console-row">
+      <span class="name">fix CVE-2024-4067</span>
+      <span class="stat stat-amber">● 8/22</span>
+    </div>
+    <div class="progress-bar"><div class="progress-fill" style="width: 36%; background: #f59e0b;"></div></div>
+    <div class="console-divider"></div>
+    <div class="console-budget">
+      <span class="label">Budget</span>
+      <span class="value">$12.40 / $50.00</span>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- Value Props -->
+<section class="value-props">
+  <div class="value-prop">
+    <span class="word">Auditable.</span>
+    <span class="desc">Every action in an append-only ledger. Every state change queryable. You own the record.</span>
+  </div>
+  <div class="value-prop">
+    <span class="word">Budgeted.</span>
+    <span class="desc">Per-mission spend caps in dollars and tokens. Auto-pause before overrun. No surprises.</span>
+  </div>
+  <div class="value-prop">
+    <span class="word">Portable.</span>
+    <span class="desc">Claude Managed Agents or self-hosted gateway. Swap with one env var. No lock-in.</span>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- Mission Flow -->
+<section class="mission-flow">
+  <h2>How a Mission runs</h2>
+  <p class="subtitle">"Bump fast-glob to ^3.3.2 across 140 repos"</p>
+  <div class="flow-steps">
+    <div class="flow-step">
+      <div class="flow-step-box">
+        <div class="flow-step-num">1</div>
+        <div class="flow-step-name">Plan</div>
+      </div>
+      <p>Define target repos.<br>Preview tasks.<br>Set budget.</p>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step">
+      <div class="flow-step-box">
+        <div class="flow-step-num">2</div>
+        <div class="flow-step-name">Dispatch</div>
+      </div>
+      <p>Parallel agent sessions.<br>One per repo.<br>Concurrency-controlled.</p>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step">
+      <div class="flow-step-box">
+        <div class="flow-step-num">3</div>
+        <div class="flow-step-name">Gate</div>
+      </div>
+      <p>Open PRs.<br>Wait for CI.<br>Retry on failure.</p>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-step">
+      <div class="flow-step-box">
+        <div class="flow-step-num">4</div>
+        <div class="flow-step-name">Merge</div>
+      </div>
+      <p>Auto-merge on pass.<br>Flag for review.<br>Track in Ledger.</p>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- Why Open Source -->
+<section class="why-open">
+  <h2>Why open source</h2>
+  <div class="narrative">
+    <p>Stripe runs 1,300 autonomous PRs per week with an internal tool their engineers built. That capability shouldn't require a $200/mo subscription and a proprietary black box.</p>
+    <p>Forge is MIT-licensed fleet orchestration. The Ledger is in your database. The budget controls are in your config. The agent adapter is a single interface you can swap, extend, or replace.</p>
+  </div>
+  <blockquote>
+    <p>"The primary reason the Minions work has almost nothing to do with the AI model. It has everything to do with the infrastructure."</p>
+    <cite>— Patrick Collison, Stripe CEO</cite>
+  </blockquote>
+</section>
+
+<div class="divider"></div>
+
+<!-- Footer CTA -->
+<section class="footer-cta">
+  <h2>Start a Mission.</h2>
+  <p>First Mission running in under 10 minutes. MIT licensed. Free forever.</p>
+  <div class="hero-buttons">
+    <button class="btn-primary">★ Star on GitHub</button>
+    <button class="btn-secondary">Quickstart →</button>
+  </div>
+</section>
+
+<!-- Bottom -->
+<div class="divider"></div>
+<div class="bottom-bar">
+  <span>MIT License · Forge</span>
+  <a href="#">GitHub</a>
+</div>
+
+</body>
+</html>
