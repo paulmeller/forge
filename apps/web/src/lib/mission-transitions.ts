@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 
-import { ledgerEvents, missions, type Mission, type MissionStatus } from '@forge/db';
+import { ledgerEvents, missions, tasks, type Mission, type MissionStatus } from '@forge/db';
 
 import { db } from './db';
 
@@ -77,5 +77,50 @@ export async function cancelMission(missionId: string): Promise<Mission> {
 
   return transitionMission(missionId, current.status, 'cancelled', 'mission.cancelled', {
     completedAt: new Date(),
+  });
+}
+
+export async function retryMission(
+  missionId: string,
+): Promise<{ mission: Mission; retriedCount: number }> {
+  const now = new Date();
+
+  return db.transaction(async (tx) => {
+    const resetTasks = await tx
+      .update(tasks)
+      .set({
+        status: 'queued',
+        lastError: null,
+        completedAt: null,
+        sessionId: null,
+        updatedAt: now,
+      })
+      .where(and(eq(tasks.missionId, missionId), inArray(tasks.status, ['failed', 'abandoned'])))
+      .returning({ id: tasks.id });
+
+    const [mission] = await tx
+      .update(missions)
+      .set({ status: 'running', completedAt: null, updatedAt: now })
+      .where(and(eq(missions.id, missionId), eq(missions.status, 'completed')))
+      .returning();
+
+    if (!mission) {
+      const [row] = await tx.select().from(missions).where(eq(missions.id, missionId)).limit(1);
+      if (!row) throw new MissionTransitionError('mission not found', 'NOT_FOUND');
+      throw new MissionTransitionError(
+        `expected mission in completed, got ${row.status}`,
+        'WRONG_STATUS',
+      );
+    }
+
+    await tx.insert(ledgerEvents).values({
+      id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
+      missionId: mission.id,
+      eventType: 'mission.retried',
+      payload: { from: 'completed', to: 'running', retriedCount: resetTasks.length },
+      createdAt: now,
+    });
+
+    return { mission, retriedCount: resetTasks.length };
   });
 }
