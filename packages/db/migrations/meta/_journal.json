@@ -50,6 +50,13 @@
       "when": 1745625600000,
       "tag": "0007_dag_ai_review",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1777412391236,
+      "tag": "0007_aromatic_supreme_intelligence",
+      "breakpoints": true
     }
   ]
 }

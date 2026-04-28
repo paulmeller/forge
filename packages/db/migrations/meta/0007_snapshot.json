@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "d24ca72a-eaf9-41c3-b65d-19a4143cd4d0",
-  "prevId": "e367705f-bb08-4996-9e14-f6757a9df22c",
+  "id": "2cd2f960-3063-407c-a373-7e0540d8b59b",
+  "prevId": "d24ca72a-eaf9-41c3-b65d-19a4143cd4d0",
   "tables": {
     "ledger_events": {
       "name": "ledger_events",
@@ -244,6 +244,89 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "mission_templates": {
+      "name": "mission_templates",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "goal_template": {
+          "name": "goal_template",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "default_backend": {
+          "name": "default_backend",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "default_concurrency_cap": {
+          "name": "default_concurrency_cap",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 5
+        },
+        "default_budget_usd": {
+          "name": "default_budget_usd",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "skill_id": {
+          "name": "skill_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "missions": {
       "name": "missions",
       "columns": {
@@ -393,6 +476,14 @@
           "notNull": false,
           "autoincrement": false
         },
+        "ai_review_enabled": {
+          "name": "ai_review_enabled",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -422,14 +513,6 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
-        },
-        "ai_review_enabled": {
-          "name": "ai_review_enabled",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": false
         }
       },
       "indexes": {},
@@ -769,6 +852,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "depends_on_ids": {
+          "name": "depends_on_ids",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "status": {
           "name": "status",
           "type": "text",
@@ -827,6 +917,14 @@
           "autoincrement": false,
           "default": 0
         },
+        "ai_review_retry_count": {
+          "name": "ai_review_retry_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
         "last_error": {
           "name": "last_error",
           "type": "text",
@@ -879,21 +977,6 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
-        },
-        "depends_on_ids": {
-          "name": "depends_on_ids",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "ai_review_retry_count": {
-          "name": "ai_review_retry_count",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
         }
       },
       "indexes": {

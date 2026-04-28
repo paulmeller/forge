@@ -2,13 +2,15 @@ import Link from 'next/link';
 
 import { Button } from '@/components/ui/button';
 import { listSkills } from '@/lib/skills';
+import { listTemplates } from '@/lib/templates';
 
 import { NewMissionForm } from './new-mission-form';
+import { TemplateCards } from './template-cards';
 
 export const dynamic = 'force-dynamic';
 
 export default async function NewMissionPage() {
-  const skills = await listSkills();
+  const [skills, templates] = await Promise.all([listSkills(), listTemplates()]);
 
   return (
     <main className="container max-w-3xl py-10">
@@ -22,6 +24,20 @@ export default async function NewMissionPage() {
           dispatching any Tasks.
         </p>
       </div>
+      {templates.length > 0 && (
+        <TemplateCards
+          templates={templates.map((t) => ({
+            id: t.id,
+            name: t.name,
+            description: t.description,
+            goalTemplate: t.goalTemplate,
+            defaultBackend: t.defaultBackend,
+            defaultConcurrencyCap: t.defaultConcurrencyCap,
+            defaultBudgetUsd: t.defaultBudgetUsd,
+            skillId: t.skillId,
+          }))}
+        />
+      )}
       <NewMissionForm
         availableSkills={skills.map((s) => ({ id: s.id, name: s.name, slug: s.slug, description: s.description }))}
       />

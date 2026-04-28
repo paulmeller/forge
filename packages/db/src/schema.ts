@@ -271,6 +271,28 @@ export const memories = sqliteTable(
 export type Memory = typeof memories.$inferSelect;
 export type NewMemory = typeof memories.$inferInsert;
 
+// ── Mission Templates ──────────────────────────────────────────────
+
+export const missionTemplates = sqliteTable('mission_templates', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  description: text('description').notNull(),
+  goalTemplate: text('goal_template').notNull(),
+  defaultBackend: text('default_backend', { enum: backend }).notNull(),
+  defaultConcurrencyCap: integer('default_concurrency_cap').notNull().default(5),
+  defaultBudgetUsd: integer('default_budget_usd'),
+  skillId: text('skill_id'),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' })
+    .notNull()
+    .default(sql`(unixepoch() * 1000)`),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+    .notNull()
+    .default(sql`(unixepoch() * 1000)`),
+});
+
+export type MissionTemplate = typeof missionTemplates.$inferSelect;
+export type NewMissionTemplate = typeof missionTemplates.$inferInsert;
+
 export type AutoMergePolicy = {
   enabled: boolean;
   maxAdditions?: number;
