@@ -150,7 +150,7 @@ git commit -m "refactor: use route groups to separate marketing and app layouts"
 
 ### Task 2: Build the landing page
 
-Create the marketing layout and landing page with all five sections from the spec.
+Create the marketing layout and landing page with all six sections from the spec. The page positions Forge as "fleet orchestration for Claude Managed Agents."
 
 **Files:**
 - Create: `apps/web/src/app/(marketing)/layout.tsx`
@@ -277,16 +277,18 @@ export default function LandingPage() {
       <section className="mx-auto flex max-w-[960px] items-start justify-between gap-12 px-12 pb-20 pt-20">
         <div className="flex-1">
           <span className="mb-4 inline-block rounded-full border border-[#27272a] px-2.5 py-1 text-[11px] uppercase tracking-wide text-[#a1a1aa]">
-            MIT Licensed
+            Built on Claude Managed Agents
           </span>
           <h1 className="mb-5 text-[52px] font-semibold leading-[1.08] tracking-[-1.5px]">
-            The open-source
+            Fleet orchestration
             <br />
-            software factory.
+            for Claude
+            <br />
+            Managed Agents.
           </h1>
           <p className="mb-8 max-w-[440px] text-[17px] leading-relaxed text-[#71717a]">
-            Orchestrate fleet-scale autonomous code changes. Every action in a
-            ledger you own. Every dollar tracked.
+            Plan missions. Dispatch agents in parallel. Gate on CI. Auto-merge.
+            Track every dollar.
           </p>
           <div className="flex gap-3">
             <Link
@@ -311,9 +313,9 @@ export default function LandingPage() {
       {/* Value Props */}
       <section className="mx-auto max-w-[960px] px-12 py-[72px]">
         {[
-          ['Auditable.', 'Every action in an append-only ledger. Every state change queryable. You own the record.'],
-          ['Budgeted.', 'Per-mission spend caps in dollars and tokens. Auto-pause before overrun. No surprises.'],
-          ['Portable.', 'Claude Managed Agents or self-hosted gateway. Swap with one env var. No lock-in.'],
+          ['Auditable.', 'Managed Agents doesn\u2019t log what happened across your fleet. Forge does. Every action, every state change, in a ledger you own.'],
+          ['Budgeted.', 'CMA bills per session-hour. Forge caps spend per mission. Auto-pause at 80%. No fleet-wide cost surprises.'],
+          ['Portable.', 'Claude Managed Agents today. Self-hosted gateway tomorrow. Swap with one env var. No lock-in.'],
         ].map(([word, desc]) => (
           <div key={word} className="mb-8 flex items-baseline gap-5 last:mb-0">
             <span className="shrink-0 text-[32px] font-semibold tracking-tight">
@@ -324,6 +326,44 @@ export default function LandingPage() {
             </span>
           </div>
         ))}
+      </section>
+
+      <hr className="mx-auto max-w-[960px] border-[#1a1a1e]" />
+
+      {/* Where Forge Fits */}
+      <section className="mx-auto max-w-[960px] px-12 py-[72px]">
+        <h2 className="mb-2 text-center text-2xl font-semibold tracking-tight">
+          Where Forge fits
+        </h2>
+        <p className="mb-10 text-center text-sm text-[#71717a]">
+          Managed Agents runs the agent. Forge runs the fleet.
+        </p>
+        <div className="mx-auto flex max-w-[520px] flex-col gap-2">
+          <div className="rounded-lg bg-[#1a1a1e] px-6 py-4">
+            <div className="mb-1 text-[10px] uppercase tracking-widest text-[#52525b]">
+              You
+            </div>
+            <p className="text-sm text-[#71717a]">
+              &ldquo;Bump fast-glob across 140 repos&rdquo;
+            </p>
+          </div>
+          <div className="rounded-lg border border-[#3f3f46] bg-[#18181b] px-6 py-4">
+            <div className="mb-1 text-[10px] uppercase tracking-widest text-[#a1a1aa]">
+              Forge
+            </div>
+            <p className="text-sm text-[#fafafa]">
+              Plan → Dispatch → Gate → Merge
+            </p>
+          </div>
+          <div className="rounded-lg bg-[#1a1a1e] px-6 py-4">
+            <div className="mb-1 text-[10px] uppercase tracking-widest text-[#52525b]">
+              Claude Managed Agents
+            </div>
+            <p className="text-sm text-[#71717a]">
+              Single agent, single container, single task
+            </p>
+          </div>
+        </div>
       </section>
 
       <hr className="mx-auto max-w-[960px] border-[#1a1a1e]" />
@@ -372,9 +412,9 @@ export default function LandingPage() {
             $200/mo subscription and a proprietary black box.
           </p>
           <p className="text-[15px] leading-relaxed text-[#a1a1aa]">
-            Forge is MIT-licensed fleet orchestration. The Ledger is in your
-            database. The budget controls are in your config. The agent adapter
-            is a single interface you can swap, extend, or replace.
+            Forge is MIT-licensed fleet orchestration built on Anthropic&rsquo;s
+            Managed Agents API. The engine is world-class. Forge is the fleet
+            management system it was missing.
           </p>
         </div>
         <blockquote className="border-l-2 border-[#27272a] pl-4">
@@ -436,13 +476,13 @@ export default function LandingPage() {
 cd apps/web && pnpm dev
 ```
 
-Open http://localhost:3100 — verify the landing page renders with all five sections, dark theme, sticky nav. Verify http://localhost:3100/missions still loads the app with its own header.
+Open http://localhost:3100 — verify the landing page renders with all six sections, dark theme, sticky nav. Verify http://localhost:3100/missions still loads the app with its own header.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add apps/web/src/app/\(marketing\)/
-git commit -m "feat: add landing page — the open-source software factory"
+git commit -m "feat: add landing page — fleet orchestration for Claude Managed Agents"
 ```
 
 ---
@@ -523,6 +563,7 @@ To:
 
 In `apps/web/src/app/(marketing)/page.tsx`, apply `px-6 md:px-12` to:
 - Value props section
+- Where Forge fits section
 - Mission flow section
 - Why open source section
 - Footer CTA section

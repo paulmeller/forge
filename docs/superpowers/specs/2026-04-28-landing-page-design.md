@@ -2,7 +2,7 @@
 
 ## Goal
 
-Drive GitHub adoption (stars, forks, clones) and establish Forge as the credible open-source alternative to Factory Missions. Sign-up is secondary — the repo is the product.
+Drive GitHub adoption (stars, forks, clones) and establish Forge as the purpose-built orchestration layer for Claude Managed Agents. Sign-up is secondary — the repo is the product.
 
 ## Audience
 
@@ -12,7 +12,7 @@ Three visitors, one page:
 2. **Engineering manager/director** — deciding whether to adopt fleet-scale agents
 3. **Open-source developer** — clicked through from HN/Twitter, deciding if it's interesting
 
-The hero is written for all three via the "software factory" positioning — it speaks to the paradigm, not the tactical pain point.
+The hero anchors on the relationship to Claude Managed Agents — what Forge is, what it's built on, and what CMA doesn't provide.
 
 ## Tone
 
@@ -20,13 +20,15 @@ Calm authority. Linear-style. No exclamation marks, no "revolutionary," no hype.
 
 ## Positioning
 
-- **Primary frame:** "The open-source software factory"
-- **Competitive target:** Factory (the company) — referenced indirectly via "$200/mo subscription and a proprietary black box"
+- **Primary frame:** "Fleet orchestration for Claude Managed Agents" — Forge is the orchestration layer Anthropic didn't build
+- **Relationship to CMA:** CMA provides the execution primitive (single agent, single container, single task). Forge provides everything above that — planning, dispatch, gating, budgets, audit.
+- **Competitive angle:** Factory built their own agent engine and charge $200/mo. Forge builds on Anthropic's and is open-source.
 - **Validation anchor:** Stripe Minions (1,300 PRs/week) + Patrick Collison quote as proof the approach works
+- **Ecosystem signal:** "Built on Claude Managed Agents" — like Vercel on Next.js, Supabase on Postgres
 
 ## Page Structure
 
-The page is a single-scroll, dark-themed landing page with five sections and a sticky nav. All content lives within the existing Next.js app at the root route (`/`).
+The page is a single-scroll, dark-themed landing page with six sections and a sticky nav. All content lives within the existing Next.js app at the root route (`/`).
 
 ### Nav (sticky)
 
@@ -40,9 +42,9 @@ The page is a single-scroll, dark-themed landing page with five sections and a s
 **Layout:** Two-column. Hero text left, Console mock right.
 
 **Left column:**
-- Badge: "MIT Licensed" (pill, uppercase, 11px, border)
-- Headline: "The open-source software factory." (52px, weight 600, tight letter-spacing)
-- Subline: "Orchestrate fleet-scale autonomous code changes. Every action in a ledger you own. Every dollar tracked." (17px, zinc-500)
+- Badge: "Built on Claude Managed Agents" (pill, uppercase, 11px, border)
+- Headline: "Fleet orchestration for Claude Managed Agents." (52px, weight 600, tight letter-spacing)
+- Subline: "Plan missions. Dispatch agents in parallel. Gate on CI. Auto-merge. Track every dollar." (17px, zinc-500)
 - Buttons: "★ Star on GitHub" (primary) + "Quickstart →" (secondary/outline)
 
 **Right column: Console Mock**
@@ -65,13 +67,32 @@ The page is a single-scroll, dark-themed landing page with five sections and a s
 **Layout:** Left-aligned, stacked vertically. Each prop is a flex row: bold word + explanation.
 
 Three props:
-1. **Auditable.** — "Every action in an append-only ledger. Every state change queryable. You own the record."
-2. **Budgeted.** — "Per-mission spend caps in dollars and tokens. Auto-pause before overrun. No surprises."
-3. **Portable.** — "Claude Managed Agents or self-hosted gateway. Swap with one env var. No lock-in."
+1. **Auditable.** — "Managed Agents doesn't log what happened across your fleet. Forge does. Every action, every state change, in a ledger you own."
+2. **Budgeted.** — "CMA bills per session-hour. Forge caps spend per mission. Auto-pause at 80%. No fleet-wide cost surprises."
+3. **Portable.** — "Claude Managed Agents today. Self-hosted gateway tomorrow. Swap with one env var. No lock-in."
 
 **Typography:** Word is 32px, weight 600, white. Description is 15px, zinc-500. Baseline-aligned.
 
-### Section 3: How a Mission Runs
+### Section 3: How It Fits
+
+**NEW SECTION.** A simple three-layer stack showing where Forge sits in the architecture.
+
+**Layout:** Centered heading, then a vertical stack of three labeled layers.
+
+- Heading: "Where Forge fits" (24px, centered)
+- Subline: "Managed Agents runs the agent. Forge runs the fleet." (14px, zinc-500, centered)
+
+**Three layers (top to bottom):**
+
+| Layer | Label | Description | Visual |
+|-------|-------|-------------|--------|
+| Top | **You** | "Bump fast-glob across 140 repos" | zinc-700 background, text-dim |
+| Middle | **Forge** | Plan → Dispatch → Gate → Merge | surface background, white text, highlighted border |
+| Bottom | **Claude Managed Agents** | Single agent, single container, single task | zinc-800 background, text-dim |
+
+The middle layer (Forge) is visually emphasized — brighter border, white text. The other two are dimmed. This makes it instantly clear Forge is the orchestration layer between the user and CMA.
+
+### Section 4: How a Mission Runs
 
 **Layout:** Centered heading + subtitle, then horizontal 4-step pipeline.
 
@@ -92,16 +113,16 @@ Steps:
 3. **Gate** — Open PRs. Wait for CI. Retry on failure.
 4. **Merge** — Auto-merge on pass. Flag for review. Track in Ledger.
 
-### Section 4: Why Open Source
+### Section 5: Why Open Source
 
 **Layout:** Left-aligned heading, two narrative paragraphs, blockquote.
 
 - Heading: "Why open source" (24px, weight 600)
 - Paragraph 1 (white, 15px): "Stripe runs 1,300 autonomous PRs per week with an internal tool their engineers built. That capability shouldn't require a $200/mo subscription and a proprietary black box."
-- Paragraph 2 (zinc-400, 15px): "Forge is MIT-licensed fleet orchestration. The Ledger is in your database. The budget controls are in your config. The agent adapter is a single interface you can swap, extend, or replace."
+- Paragraph 2 (zinc-400, 15px): "Forge is MIT-licensed fleet orchestration built on Anthropic's Managed Agents API. The engine is world-class. Forge is the fleet management system it was missing."
 - Blockquote (zinc-500, 13px, italic, left border 2px zinc-800): "The primary reason the Minions work has almost nothing to do with the AI model. It has everything to do with the infrastructure." — Patrick Collison, Stripe CEO
 
-### Section 5: Footer CTA
+### Section 6: Footer CTA
 
 **Layout:** Full-width, centered.
 
@@ -122,13 +143,13 @@ Steps:
 | Token | Value | Usage |
 |-------|-------|-------|
 | bg | #09090b | Page background |
-| surface | #18181b | Cards, console mock |
+| surface | #18181b | Cards, console mock, Forge layer |
 | border | #27272a | Borders, dividers |
 | text-primary | #fafafa | Headlines, bold words |
 | text-secondary | #a1a1aa | Body copy |
 | text-muted | #71717a | Descriptions, subtitles |
 | text-dim | #52525b | Labels, step numbers, citations |
-| accent-green | #22c55e | Success states, MIT badge in table |
+| accent-green | #22c55e | Success states |
 | accent-blue | #3b82f6 | In-progress states |
 | accent-amber | #f59e0b | Pending/warning states |
 
@@ -152,7 +173,7 @@ Steps:
 
 ### Components
 
-Uses existing shadcn/ui Button component for CTAs. Console mock is a custom component. Everything else is standard HTML/CSS with Tailwind classes.
+Uses existing shadcn/ui Button component for CTAs. Console mock is a custom component. Stack diagram is a custom component. Everything else is standard HTML/CSS with Tailwind classes.
 
 ### Interactivity
 
@@ -166,7 +187,7 @@ Uses existing shadcn/ui Button component for CTAs. Console mock is a custom comp
 - Replaces the existing minimal `apps/web/src/app/page.tsx`
 - Dark theme only for the landing page (no theme toggle needed — the app dashboard retains its toggle)
 - No new dependencies required — uses existing Tailwind + shadcn/ui setup
-- Responsive behavior: stack hero columns on mobile, stack pipeline steps vertically on narrow screens
+- Responsive behavior: stack hero columns on mobile, stack pipeline steps vertically on narrow screens, stack diagram layers remain vertical (already mobile-friendly)
 - GitHub star count: not displayed in v1 (avoid stale counts and API complexity). The "★ Star on GitHub" button text is sufficient.
 - Links: "Star on GitHub" → repo URL, "Quickstart" → README or docs quickstart section, "Docs" → docs route
 
