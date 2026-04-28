@@ -1,6 +1,7 @@
 import Link from 'next/link';
 
 import { ConsoleMock } from './_components/console-mock';
+import { RotatingMissions } from './_components/rotating-missions';
 
 const GITHUB_URL = 'https://github.com/anthropics/forge';
 
@@ -21,15 +22,15 @@ export default function LandingPage() {
             Built on Claude Managed Agents
           </span>
           <h1 className="mb-5 text-[36px] font-semibold leading-[1.08] tracking-[-1.5px] md:text-[52px]">
-            Fleet orchestration
+            Software Factory
             <br />
             for Claude
             <br />
             Managed Agents.
           </h1>
           <p className="mb-8 max-w-[440px] text-[17px] leading-relaxed text-[#71717a]">
-            Plan missions. Dispatch agents in parallel. Gate on CI. Auto-merge.
-            Track every dollar.
+            Plan missions. Dispatch agents in parallel. Auto-merge. Full
+            ledger. Track every dollar.
           </p>
           <div className="flex gap-3">
             <Link
@@ -60,7 +61,7 @@ export default function LandingPage() {
           ['Budgeted.', 'CMA bills per session-hour. Forge caps spend per mission. Auto-pause at 80%. No fleet-wide cost surprises.'],
           ['Portable.', 'Claude Managed Agents today. Self-hosted gateway tomorrow. Swap with one env var. No lock-in.'],
         ].map(([word, desc]) => (
-          <div key={word} className="mb-8 flex items-baseline gap-5 last:mb-0">
+          <div key={word} className="mb-8 flex items-center gap-5 last:mb-0">
             <span className="shrink-0 text-[32px] font-semibold tracking-tight">
               {word}
             </span>
@@ -73,41 +74,8 @@ export default function LandingPage() {
 
       <hr className="mx-auto max-w-[960px] border-[#1a1a1e]" />
 
-      {/* Where Forge Fits */}
-      <section className="mx-auto max-w-[960px] px-6 py-[72px] md:px-12">
-        <h2 className="mb-2 text-center text-2xl font-semibold tracking-tight">
-          Where Forge fits
-        </h2>
-        <p className="mb-10 text-center text-sm text-[#71717a]">
-          Managed Agents runs the agent. Forge runs the fleet.
-        </p>
-        <div className="mx-auto flex max-w-[520px] flex-col gap-2">
-          <div className="rounded-lg bg-[#1a1a1e] px-6 py-4">
-            <div className="mb-1 text-[10px] uppercase tracking-widest text-[#52525b]">
-              You
-            </div>
-            <p className="text-sm text-[#71717a]">
-              &ldquo;Bump fast-glob across 140 repos&rdquo;
-            </p>
-          </div>
-          <div className="rounded-lg border border-[#3f3f46] bg-[#18181b] px-6 py-4">
-            <div className="mb-1 text-[10px] uppercase tracking-widest text-[#a1a1aa]">
-              Forge
-            </div>
-            <p className="text-sm text-[#fafafa]">
-              Plan → Dispatch → Gate → Merge
-            </p>
-          </div>
-          <div className="rounded-lg bg-[#1a1a1e] px-6 py-4">
-            <div className="mb-1 text-[10px] uppercase tracking-widest text-[#52525b]">
-              Claude Managed Agents
-            </div>
-            <p className="text-sm text-[#71717a]">
-              Single agent, single container, single task
-            </p>
-          </div>
-        </div>
-      </section>
+      {/* Rotating Missions */}
+      <RotatingMissions />
 
       <hr className="mx-auto max-w-[960px] border-[#1a1a1e]" />
 
