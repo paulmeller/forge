@@ -1,0 +1,244 @@
+---
+title: Deploying to Cloud Run
+description: Deploy Forge to Google Cloud Run with Turso, Cloud Scheduler, and Secret Manager.
+---
+
+Forge is designed to run as two small Cloud Run services against a single remote libSQL database, with no durable-execution vendor dependency. This guide walks through a production deployment.
+
+## Architecture overview
+
+```
+┌─────────────────┐     HTTPS      ┌──────────────────┐
+│  Cloud Scheduler │──────────────▸ │  forge-tick       │
+│  (every 60s)     │   OIDC auth   │  Cloud Run        │
+└─────────────────┘                │  POST /tick       │
+                                   └────────┬─────────┘
+                                            │
+                                            ▼
+┌─────────────────┐                ┌──────────────────┐
+│  Users / GitHub  │──────────────▸ │  forge-web        │
+│  webhooks        │    HTTPS      │  Cloud Run        │
+└─────────────────┘                │  Next.js          │
+                                   └────────┬─────────┘
+                                            │
+                                            ▼
+                                   ┌──────────────────┐
+                                   │  Turso (libSQL)   │
+                                   │  remote database  │
+                                   └──────────────────┘
+```
+
+- **forge-web** — Next.js (App Router). Hosts the Console, the REST API, and the webhook receiver. Autoscales, scale-to-zero allowed.
+- **forge-tick** — Node.js service exposing `POST /tick`. Invoked by Cloud Scheduler every 60 seconds. Runs one tick of work (claim Tasks, poll sessions, run Gate, check budgets) and returns. Scale-to-zero between invocations.
+- **Turso** — remote libSQL database over HTTP. Both services connect to the same database.
+
+## Prerequisites
+
+- [Google Cloud CLI](https://cloud.google.com/sdk/docs/install) (`gcloud`)
+- A GCP project with Cloud Run, Cloud Scheduler, and Secret Manager APIs enabled
+- A [Turso](https://turso.tech) account and database
+- Docker (for building images locally, or use Cloud Build)
+
+## 1. Create the Turso database
+
+```bash
+turso db create forge-prod
+turso db tokens create forge-prod
+```
+
+Save the connection URL and auth token. You'll need them for environment variables.
+
+Run migrations against the production database:
+
+```bash
+DATABASE_URL="libsql://forge-prod-<your-org>.turso.io" \
+DATABASE_AUTH_TOKEN="<your-token>" \
+pnpm --filter @forge/db db:migrate
+```
+
+## 2. Build Docker images
+
+Forge ships Dockerfiles for both services. The web service uses Next.js standalone output mode (`output: 'standalone'` in `next.config.ts`), which produces a minimal self-contained Node.js server.
+
+### forge-web
+
+```bash
+docker build -t gcr.io/$PROJECT_ID/forge-web -f apps/web/Dockerfile .
+docker push gcr.io/$PROJECT_ID/forge-web
+```
+
+The Dockerfile uses a multi-stage build:
+
+1. **deps** — installs dependencies with pnpm (frozen lockfile).
+2. **builder** — runs `pnpm --filter @forge/web build`, producing the standalone output.
+3. **runner** — copies only the standalone output (`server.js`, static assets, public files). Runs as a non-root user on port 3000.
+
+### forge-tick
+
+```bash
+docker build -t gcr.io/$PROJECT_ID/forge-tick -f apps/tick/Dockerfile .
+docker push gcr.io/$PROJECT_ID/forge-tick
+```
+
+The tick Dockerfile copies the source directly (no build step needed for a Node.js/TypeScript service) and runs on port 8080.
+
+## 3. Store secrets
+
+Use Google Secret Manager for sensitive values:
+
+```bash
+echo -n "sk-ant-..." | gcloud secrets create ANTHROPIC_API_KEY --data-file=-
+echo -n "libsql://forge-prod-xxx.turso.io" | gcloud secrets create DATABASE_URL --data-file=-
+echo -n "<turso-token>" | gcloud secrets create DATABASE_AUTH_TOKEN --data-file=-
+echo -n "<random-32-chars>" | gcloud secrets create BETTER_AUTH_SECRET --data-file=-
+echo -n "<github-token>" | gcloud secrets create GITHUB_APP_TOKEN --data-file=-
+```
+
+## 4. Deploy forge-web
+
+```bash
+gcloud run deploy forge-web \
+  --image gcr.io/$PROJECT_ID/forge-web \
+  --region $REGION \
+  --platform managed \
+  --allow-unauthenticated \
+  --port 3000 \
+  --set-secrets="DATABASE_URL=DATABASE_URL:latest,\
+DATABASE_AUTH_TOKEN=DATABASE_AUTH_TOKEN:latest,\
+BETTER_AUTH_SECRET=BETTER_AUTH_SECRET:latest,\
+ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest" \
+  --set-env-vars="BETTER_AUTH_URL=https://forge-web-xxx.a.run.app,\
+FORGE_BACKEND=managed-agents"
+```
+
+Replace `BETTER_AUTH_URL` with the actual Cloud Run service URL after the first deploy. You may need to update and redeploy.
+
+### Optional env vars for forge-web
+
+| Variable | Purpose |
+|---|---|
+| `GATEWAY_URL` | Required if `FORGE_BACKEND=gateway`. URL of your AgentStep Gateway. |
+| `GITHUB_WEBHOOK_SECRET` | Enables GitHub webhook dispatch (issue comment and CI-fix triggers). |
+| `FORGE_DEFAULT_AGENT_ID` | Agent ID used by GitHub-dispatched missions. |
+| `FORGE_DEFAULT_GITHUB_VAULT_ID` | GitHub MCP vault ID for GitHub-dispatched missions. |
+
+## 5. Deploy forge-tick
+
+```bash
+gcloud run deploy forge-tick \
+  --image gcr.io/$PROJECT_ID/forge-tick \
+  --region $REGION \
+  --platform managed \
+  --no-allow-unauthenticated \
+  --port 8080 \
+  --set-secrets="DATABASE_URL=DATABASE_URL:latest,\
+DATABASE_AUTH_TOKEN=DATABASE_AUTH_TOKEN:latest,\
+ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,\
+GITHUB_APP_TOKEN=GITHUB_APP_TOKEN:latest" \
+  --set-env-vars="TICK_EXPECTED_AUDIENCE=https://forge-tick-xxx.a.run.app"
+```
+
+The tick service uses `--no-allow-unauthenticated` because only Cloud Scheduler should call it. OIDC token verification ensures this.
+
+### Tick-specific env vars
+
+| Variable | Purpose | Default |
+|---|---|---|
+| `TICK_EXPECTED_AUDIENCE` | Cloud Run service URL, used to verify OIDC tokens from Cloud Scheduler. | _(required in production)_ |
+| `TICK_EXPECTED_ISSUER_EMAIL` | Service account email that Cloud Scheduler uses. Optional but adds a second layer of defense. | _(none)_ |
+| `TASK_RETRY_MAX` | Maximum CI-failure retries before a Task is marked `failed`. | `3` |
+| `FORGE_MA_ENVIRONMENT_ID` | Managed Agents environment ID. Required when using `managed-agents` backend. | _(none)_ |
+| `GATEWAY_URL` | Required when using `gateway` backend. | _(none)_ |
+| `GATEWAY_API_KEY` | API key for the gateway. Required when using `gateway` backend. | _(none)_ |
+
+## 6. Set up Cloud Scheduler
+
+Create a Cloud Scheduler job that POSTs to the tick service every 60 seconds:
+
+```bash
+# Create a service account for the scheduler
+gcloud iam service-accounts create forge-scheduler \
+  --display-name "Forge Tick Scheduler"
+
+# Grant it permission to invoke the tick service
+gcloud run services add-iam-policy-binding forge-tick \
+  --region $REGION \
+  --member "serviceAccount:forge-scheduler@$PROJECT_ID.iam.gserviceaccount.com" \
+  --role "roles/run.invoker"
+
+# Create the scheduler job
+gcloud scheduler jobs create http forge-tick-job \
+  --location $REGION \
+  --schedule "* * * * *" \
+  --http-method POST \
+  --uri "https://forge-tick-xxx.a.run.app/tick" \
+  --oidc-service-account-email "forge-scheduler@$PROJECT_ID.iam.gserviceaccount.com" \
+  --oidc-token-audience "https://forge-tick-xxx.a.run.app"
+```
+
+The scheduler sends an OIDC token with each request. The tick service verifies the token against `TICK_EXPECTED_AUDIENCE` before executing.
+
+### Sub-minute cadence
+
+If you need sub-minute tick cadence in the future, flip `forge-tick` to `--min-instances=1` and run an in-process loop. No architectural changes are needed — the same code path works either way.
+
+## 7. Verify the deployment
+
+```bash
+# Health check
+curl https://forge-web-xxx.a.run.app/api/health
+# Expected: {"status":"ok","service":"forge-web"}
+
+# Trigger a tick manually
+curl -X POST https://forge-tick-xxx.a.run.app/tick \
+  -H "Authorization: Bearer $(gcloud auth print-identity-token)"
+```
+
+Open the Console URL in your browser and create a test Mission.
+
+## Environment variable summary
+
+| Variable | forge-web | forge-tick | Description |
+|---|---|---|---|
+| `DATABASE_URL` | required | required | Turso connection string |
+| `DATABASE_AUTH_TOKEN` | required | required | Turso auth token |
+| `BETTER_AUTH_SECRET` | required | -- | Session signing secret |
+| `BETTER_AUTH_URL` | required | -- | Public URL of forge-web |
+| `FORGE_BACKEND` | required | -- | `managed-agents` or `gateway` |
+| `ANTHROPIC_API_KEY` | conditional | conditional | Required for `managed-agents` backend |
+| `FORGE_MA_ENVIRONMENT_ID` | -- | conditional | Required for `managed-agents` backend |
+| `GATEWAY_URL` | conditional | conditional | Required for `gateway` backend |
+| `GATEWAY_API_KEY` | -- | conditional | Required for `gateway` backend |
+| `GITHUB_APP_TOKEN` | -- | required | For repo cloning and Checks API polling |
+| `TICK_EXPECTED_AUDIENCE` | -- | recommended | OIDC audience verification |
+| `TICK_EXPECTED_ISSUER_EMAIL` | -- | optional | OIDC issuer verification |
+
+## Deploying updates
+
+On merge to `main`, rebuild and redeploy both images:
+
+```bash
+docker build -t gcr.io/$PROJECT_ID/forge-web -f apps/web/Dockerfile .
+docker build -t gcr.io/$PROJECT_ID/forge-tick -f apps/tick/Dockerfile .
+docker push gcr.io/$PROJECT_ID/forge-web
+docker push gcr.io/$PROJECT_ID/forge-tick
+
+gcloud run deploy forge-web --image gcr.io/$PROJECT_ID/forge-web --region $REGION
+gcloud run deploy forge-tick --image gcr.io/$PROJECT_ID/forge-tick --region $REGION
+```
+
+Cloud Run performs zero-downtime rolling deploys. The Ledger's append-only design means no data is lost across deploys.
+
+## Alternative platforms
+
+While Cloud Run is the reference deployment target, the same Docker images run on any container platform:
+
+- **Fly.io** — deploy both services, use a cron machine for the tick.
+- **Railway** — deploy from the repo, configure a cron job for tick.
+- **Kubernetes** — deploy as two Deployments with a CronJob for tick.
+- **Embedded libSQL** — for local or single-machine deployments, use `file:./forge.db` instead of Turso. No remote database needed.
+
+## Next steps
+
+- [Configuration](/docs/configuration) — full environment variable reference.
+- [Connecting a Gateway](/docs/connecting-gateway) — swap to a self-hosted agent backend.

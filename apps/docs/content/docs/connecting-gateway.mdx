@@ -1,0 +1,158 @@
+---
+title: Connecting a Gateway
+description: Use AgentStep Gateway as a drop-in replacement for Anthropic Managed Agents.
+---
+
+Forge supports two execution backends: **Anthropic Managed Agents** (the default) and **AgentStep Gateway** (a self-hosted, API-compatible alternative). Switching between them is a single-env-var change — no code modifications, no schema changes.
+
+## What is AgentStep Gateway?
+
+[AgentStep Gateway](https://www.agentstep.com) is an open-source, self-hosted agent runtime that exposes the same `/v1/sessions/*` HTTP surface as Anthropic Managed Agents. It provides:
+
+- **Self-hosted execution** — code never leaves your network (compliance, air-gapped environments).
+- **Cheaper sandboxes** — run on your own compute instead of Anthropic's hosted infrastructure.
+- **API compatibility** — Forge's gateway adapter is a plain HTTP client against the same OpenAPI surface, no SDK dependency required.
+
+Both adapters implement the same `BackendAdapter` interface. Callers (dispatcher, poller, Gate) don't know which backend is underneath.
+
+## Configuration
+
+### forge-web
+
+Set two environment variables:
+
+```dotenv
+FORGE_BACKEND=gateway
+GATEWAY_URL=https://gateway.internal
+```
+
+| Variable | Description |
+|---|---|
+| `FORGE_BACKEND` | Set to `gateway` to use the gateway as the default backend for new Missions. |
+| `GATEWAY_URL` | The base URL of your AgentStep Gateway instance. |
+
+### forge-tick
+
+The tick service needs the gateway URL and an API key:
+
+```dotenv
+GATEWAY_URL=https://gateway.internal
+GATEWAY_API_KEY=your-gateway-api-key
+```
+
+| Variable | Description |
+|---|---|
+| `GATEWAY_URL` | Must match the URL set in forge-web. |
+| `GATEWAY_API_KEY` | API key for authenticating with the gateway. Sent as an `x-api-key` header on every request. |
+
+When the tick service initializes the gateway adapter, it validates that both `GATEWAY_URL` and `GATEWAY_API_KEY` are present. Missing either will throw at startup.
+
+## Per-Mission backend selection
+
+The `backend` field is set per-Mission. You can run some Missions on Managed Agents and others on the gateway simultaneously:
+
+```bash
+# Create a Mission targeting the gateway
+curl -X POST https://forge.example.com/api/missions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Bump lodash (gateway)",
+    "goal": "Upgrade lodash to ^4.17.21",
+    "backend": "gateway",
+    "agentId": "your-gateway-agent-id",
+    "targetRepos": ["acme/api", "acme/web"]
+  }'
+```
+
+The `FORGE_BACKEND` env var only sets the default — each Mission's `backend` field determines which adapter handles that Mission's Tasks.
+
+## Adapter interface
+
+Both adapters implement the `BackendAdapter` interface defined in `apps/tick/src/adapters/types.ts`:
+
+```typescript
+interface BackendAdapter {
+  readonly kind: BackendKind; // 'managed-agents' | 'gateway'
+  createSession(input: CreateSessionInput): Promise<CreateSessionResult>;
+  sendTurn(sessionId: string, text: string): Promise<void>;
+  listEvents(input: ListEventsInput): Promise<ListEventsResult>;
+  getSession(sessionId: string): Promise<GetSessionResult>;
+  cancelSession(sessionId: string): Promise<void>;
+  confirmToolUse(
+    sessionId: string,
+    toolUseEventId: string,
+    decision: ToolConfirmationDecision,
+  ): Promise<void>;
+}
+```
+
+### Key operations
+
+| Method | Gateway HTTP call | Purpose |
+|---|---|---|
+| `createSession` | `POST /v1/sessions` | Create a new agent session with repo resources attached. |
+| `sendTurn` | `POST /v1/sessions/:id/events` | Send a user message (initial prompt or follow-up turn). |
+| `listEvents` | `GET /v1/sessions/:id/events` | Poll for new session events (agent messages, tool use, status changes). |
+| `getSession` | `GET /v1/sessions/:id` | Get current session status (`idle`, `running`, `rescheduling`, `terminated`). |
+| `cancelSession` | `POST /v1/sessions/:id/events` | Send a `user.interrupt` event to cancel the session. |
+| `confirmToolUse` | `POST /v1/sessions/:id/events` | Approve or deny a tool use that requires confirmation. |
+
+## Differences from Managed Agents
+
+| Aspect | Managed Agents | Gateway |
+|---|---|---|
+| **SDK** | Uses `@anthropic-ai/sdk` | Plain `fetch` — no SDK dependency |
+| **Authentication** | `apiKey` via SDK constructor | `x-api-key` header on every request |
+| **Environment** | Uses `FORGE_MA_ENVIRONMENT_ID` | Defaults to `'default'` |
+| **Event pagination** | SDK's `events.list()` (up to 1000 per page) | `after_id` query parameter with `order=asc` |
+| **Webhook push** | Not supported — Forge polls for events | Gateway can push to `POST /api/forge/webhook/:missionId` (HMAC-verified) *and* support polling |
+| **Session cancellation** | SDK's `events.send()` with `user.interrupt` | Same HTTP call via fetch |
+
+Both adapters normalize session status to the same `SessionLifecycle` type (`idle | running | rescheduling | terminated`), so the rest of Forge's state machine works identically regardless of backend.
+
+## Event ingestion paths
+
+Forge supports two event ingestion paths, and both land in the same Ledger:
+
+1. **Polling (both backends):** The tick service calls `listEvents()` on each running Task's session, using a cursor (`afterEventId`) to fetch only new events. This is the primary path for both backends.
+
+2. **Webhook push (gateway only):** The gateway can POST events to `POST /api/forge/webhook/:missionId`. Events are HMAC-verified using the Mission's `webhookSecret` and appended to the Ledger. The webhook handler is intentionally thin — it verifies, records, and returns 200; heavy processing happens on the next tick.
+
+## Contract tests
+
+Forge includes contract tests that verify both adapters implement the full `BackendAdapter` interface with identical behavior. These tests live at `apps/tick/src/adapters/adapter-contract.test.ts`.
+
+The contract tests verify:
+
+- Both adapters expose the correct `kind` property.
+- Both implement every method on the interface: `createSession`, `sendTurn`, `listEvents`, `getSession`, `cancelSession`, `confirmToolUse`.
+- Gateway-specific invariants (e.g., trailing slash stripping, error shape).
+
+Run the contract tests:
+
+```bash
+pnpm --filter @forge/tick test
+```
+
+For integration tests against a live gateway instance, set the gateway env vars and run the integration test suite (gated by environment variables to avoid running in CI without a real endpoint).
+
+## Switching an existing deployment
+
+To migrate an existing Forge deployment from Managed Agents to the gateway:
+
+1. Stand up your AgentStep Gateway instance.
+2. Update the environment variables on both services:
+   ```bash
+   FORGE_BACKEND=gateway
+   GATEWAY_URL=https://gateway.internal
+   GATEWAY_API_KEY=your-api-key
+   ```
+3. Redeploy both `forge-web` and `forge-tick`.
+4. Existing running Missions continue against Managed Agents (their `backend` field is already set). New Missions will use the gateway by default.
+5. The Ledger remains intact — old records reference the original backend, new records reference the gateway.
+
+## Next steps
+
+- [Backend Adapters](/docs/backend-adapters) — deeper dive into the adapter architecture.
+- [Configuration](/docs/configuration) — full environment variable reference.
+- [Deploying to Cloud Run](/docs/deploying-to-cloud-run) — production deployment guide.
