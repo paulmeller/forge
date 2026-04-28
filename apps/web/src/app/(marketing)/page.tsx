@@ -15,12 +15,12 @@ export default function LandingPage() {
   return (
     <main>
       {/* Hero */}
-      <section className="mx-auto flex max-w-[960px] items-start justify-between gap-12 px-12 pb-20 pt-20">
+      <section className="mx-auto flex max-w-[960px] flex-col items-start gap-12 px-6 pb-20 pt-20 md:flex-row md:justify-between md:px-12">
         <div className="flex-1">
           <span className="mb-4 inline-block rounded-full border border-[#27272a] px-2.5 py-1 text-[11px] uppercase tracking-wide text-[#a1a1aa]">
             Built on Claude Managed Agents
           </span>
-          <h1 className="mb-5 text-[52px] font-semibold leading-[1.08] tracking-[-1.5px]">
+          <h1 className="mb-5 text-[36px] font-semibold leading-[1.08] tracking-[-1.5px] md:text-[52px]">
             Fleet orchestration
             <br />
             for Claude
@@ -46,13 +46,15 @@ export default function LandingPage() {
             </Link>
           </div>
         </div>
-        <ConsoleMock />
+        <div className="hidden md:block">
+          <ConsoleMock />
+        </div>
       </section>
 
       <hr className="mx-auto max-w-[960px] border-[#1a1a1e]" />
 
       {/* Value Props */}
-      <section className="mx-auto max-w-[960px] px-12 py-[72px]">
+      <section className="mx-auto max-w-[960px] px-6 py-[72px] md:px-12">
         {[
           ['Auditable.', 'Managed Agents doesn\u2019t log what happened across your fleet. Forge does. Every action, every state change, in a ledger you own.'],
           ['Budgeted.', 'CMA bills per session-hour. Forge caps spend per mission. Auto-pause at 80%. No fleet-wide cost surprises.'],
@@ -72,7 +74,7 @@ export default function LandingPage() {
       <hr className="mx-auto max-w-[960px] border-[#1a1a1e]" />
 
       {/* Where Forge Fits */}
-      <section className="mx-auto max-w-[960px] px-12 py-[72px]">
+      <section className="mx-auto max-w-[960px] px-6 py-[72px] md:px-12">
         <h2 className="mb-2 text-center text-2xl font-semibold tracking-tight">
           Where Forge fits
         </h2>
@@ -110,14 +112,14 @@ export default function LandingPage() {
       <hr className="mx-auto max-w-[960px] border-[#1a1a1e]" />
 
       {/* How a Mission Runs */}
-      <section className="mx-auto max-w-[960px] px-12 py-[72px]">
+      <section className="mx-auto max-w-[960px] px-6 py-[72px] md:px-12">
         <h2 className="mb-2 text-center text-2xl font-semibold tracking-tight">
           How a Mission runs
         </h2>
         <p className="mb-10 text-center text-sm text-[#71717a]">
           &ldquo;Bump fast-glob to ^3.3.2 across 140 repos&rdquo;
         </p>
-        <div className="flex items-start gap-3">
+        <div className="grid grid-cols-2 gap-4 md:flex md:items-start md:gap-3">
           {steps.map((step, i) => (
             <div key={step.name} className="contents">
               <div className="flex-1 text-center">
@@ -132,7 +134,7 @@ export default function LandingPage() {
                 </p>
               </div>
               {i < steps.length - 1 && (
-                <span className="mt-7 shrink-0 text-xl text-[#27272a]">→</span>
+                <span className="mt-7 hidden shrink-0 text-xl text-[#27272a] md:block">→</span>
               )}
             </div>
           ))}
@@ -142,7 +144,7 @@ export default function LandingPage() {
       <hr className="mx-auto max-w-[960px] border-[#1a1a1e]" />
 
       {/* Why Open Source */}
-      <section className="mx-auto max-w-[960px] px-12 py-[72px]">
+      <section className="mx-auto max-w-[960px] px-6 py-[72px] md:px-12">
         <h2 className="mb-6 text-2xl font-semibold tracking-tight">
           Why open source
         </h2>
@@ -173,7 +175,7 @@ export default function LandingPage() {
       <hr className="border-[#1a1a1e]" />
 
       {/* Footer CTA */}
-      <section className="px-12 py-20 text-center">
+      <section className="px-6 py-20 text-center md:px-12">
         <h2 className="mb-3 text-4xl font-semibold tracking-tight">
           Start a Mission.
         </h2>
@@ -197,7 +199,7 @@ export default function LandingPage() {
       </section>
 
       {/* Bottom Bar */}
-      <div className="flex items-center justify-between border-t border-[#1a1a1e] px-12 py-5">
+      <div className="flex items-center justify-between border-t border-[#1a1a1e] px-6 py-5 md:px-12">
         <span className="text-xs text-[#52525b]">MIT License · Forge</span>
         <Link
           href={GITHUB_URL}

@@ -7,7 +7,7 @@ export default function MarketingLayout({
 }) {
   return (
     <div className="dark bg-[#09090b] text-[#fafafa]" style={{ colorScheme: 'dark' }}>
-      <nav className="sticky top-0 z-50 flex items-center justify-between border-b border-[#1a1a1e] bg-[#09090b]/85 px-12 py-4 backdrop-blur-sm">
+      <nav className="sticky top-0 z-50 flex items-center justify-between border-b border-[#1a1a1e] bg-[#09090b]/85 px-6 py-4 backdrop-blur-sm md:px-12">
         <span className="text-base font-bold tracking-tight">Forge</span>
         <div className="flex items-center gap-6">
           <Link
