@@ -73,7 +73,7 @@ export async function runTick(log: FastifyBaseLogger): Promise<TickResult> {
 
   const reconciler = await runReconciler(log).catch((err) => {
     log.error({ err: String(err) }, 'tick:reconciler_crashed');
-    return { missionsChecked: 0, missionsCompleted: 0, tasksAbandoned: 0, tasksCascadeFailed: 0 };
+    return { missionsChecked: 0, missionsCompleted: 0, tasksAbandoned: 0, tasksCascadeFailed: 0, prsOpened: 0 };
   });
 
   const dispatcher = await runDispatcher(log).catch((err) => {

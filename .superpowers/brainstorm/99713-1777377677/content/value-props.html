@@ -1,0 +1,85 @@
+<h2>Value Props Section</h2>
+<p class="subtitle">Three pillars beneath the hero. Which framing lands best?</p>
+
+<div class="cards">
+  <div class="card" data-choice="props-a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="background: #09090b; border-radius: 8px; padding: 40px; font-family: system-ui, -apple-system, sans-serif;">
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 24px;">
+          <div style="border: 1px solid #27272a; border-radius: 8px; padding: 24px;">
+            <div style="font-size: 28px; margin-bottom: 12px;">📖</div>
+            <h3 style="color: #fafafa; font-size: 16px; font-weight: 600; margin: 0 0 8px 0;">Append-only Ledger</h3>
+            <p style="color: #71717a; font-size: 13px; line-height: 1.5; margin: 0;">Every state change, every agent action, every gate decision. Queryable, exportable, yours.</p>
+          </div>
+          <div style="border: 1px solid #27272a; border-radius: 8px; padding: 24px;">
+            <div style="font-size: 28px; margin-bottom: 12px;">💰</div>
+            <h3 style="color: #fafafa; font-size: 16px; font-weight: 600; margin: 0 0 8px 0;">Per-Mission Budgets</h3>
+            <p style="color: #71717a; font-size: 13px; line-height: 1.5; margin: 0;">Set a dollar cap. Auto-pause at 80%. No token black holes. You control the spend.</p>
+          </div>
+          <div style="border: 1px solid #27272a; border-radius: 8px; padding: 24px;">
+            <div style="font-size: 28px; margin-bottom: 12px;">🔌</div>
+            <h3 style="color: #fafafa; font-size: 16px; font-weight: 600; margin: 0 0 8px 0;">Swap Your Backend</h3>
+            <p style="color: #71717a; font-size: 13px; line-height: 1.5; margin: 0;">Claude Managed Agents today. Self-hosted gateway tomorrow. One env var.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Feature Cards (icon + title + blurb)</h3>
+      <p>Classic three-column cards. Clear, scannable, familiar. Emoji icons as placeholders (would be custom SVGs in production).</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="props-b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="background: #09090b; border-radius: 8px; padding: 40px; font-family: system-ui, -apple-system, sans-serif;">
+        <div style="max-width: 520px;">
+          <div style="display: flex; align-items: baseline; gap: 16px; margin-bottom: 28px;">
+            <span style="color: #fafafa; font-size: 32px; font-weight: 600; letter-spacing: -1px; line-height: 1;">Auditable.</span>
+            <span style="color: #71717a; font-size: 15px; line-height: 1.5;">Every action in an append-only ledger. Every state change queryable. You own the record.</span>
+          </div>
+          <div style="display: flex; align-items: baseline; gap: 16px; margin-bottom: 28px;">
+            <span style="color: #fafafa; font-size: 32px; font-weight: 600; letter-spacing: -1px; line-height: 1;">Budgeted.</span>
+            <span style="color: #71717a; font-size: 15px; line-height: 1.5;">Per-mission spend caps in dollars and tokens. Auto-pause before overrun. No surprises.</span>
+          </div>
+          <div style="display: flex; align-items: baseline; gap: 16px;">
+            <span style="color: #fafafa; font-size: 32px; font-weight: 600; letter-spacing: -1px; line-height: 1;">Portable.</span>
+            <span style="color: #71717a; font-size: 15px; line-height: 1.5;">Claude Managed Agents or self-hosted gateway. Swap with one env var. No lock-in.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Bold Words (word + explanation)</h3>
+      <p>Three big words, each with a one-liner. Minimal, typographic, confident. Matches the "calm authority" tone. No icons needed.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="props-c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="background: #09090b; border-radius: 8px; padding: 40px; font-family: system-ui, -apple-system, sans-serif;">
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 32px;">
+          <div>
+            <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; color: #52525b; margin-bottom: 8px;">Auditability</div>
+            <div style="font-size: 36px; font-weight: 700; color: #fafafa; letter-spacing: -1px; margin-bottom: 4px;">100%</div>
+            <p style="color: #71717a; font-size: 13px; line-height: 1.5; margin: 0;">of agent actions recorded in an append-only ledger</p>
+          </div>
+          <div>
+            <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; color: #52525b; margin-bottom: 8px;">Cost Control</div>
+            <div style="font-size: 36px; font-weight: 700; color: #fafafa; letter-spacing: -1px; margin-bottom: 4px;">$0</div>
+            <p style="color: #71717a; font-size: 13px; line-height: 1.5; margin: 0;">surprise bills. Per-mission budgets with auto-pause.</p>
+          </div>
+          <div>
+            <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; color: #52525b; margin-bottom: 8px;">Portability</div>
+            <div style="font-size: 36px; font-weight: 700; color: #fafafa; letter-spacing: -1px; margin-bottom: 4px;">1 env</div>
+            <p style="color: #71717a; font-size: 13px; line-height: 1.5; margin: 0;">var to swap between Managed Agents and self-hosted gateway</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Stats-Forward (number + context)</h3>
+      <p>Leads with a bold number/stat, then explains. Data-dense, credible feel. Matches the console aesthetic.</p>
+    </div>
+  </div>
+</div>
