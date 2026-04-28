@@ -226,6 +226,12 @@ export default async function MissionDetailPage({
               <CardTitle className="text-sm">Execution</CardTitle>
             </CardHeader>
             <CardContent className="space-y-1 text-xs">
+              <Link
+                href={`/missions/${mission.id}/ledger`}
+                className="block border-b py-1.5 text-muted-foreground underline decoration-dotted hover:text-foreground"
+              >
+                View full Ledger &rarr;
+              </Link>
               <Row label="Backend" value={mission.backend} mono />
               <Row label="Agent" value={mission.agentId} mono />
               <Row label="Planner" value={mission.plannerStrategy} />
@@ -278,4 +284,3 @@ function Row({ label, value, mono }: { label: string; value: React.ReactNode; mo
     </div>
   );
 }
-
