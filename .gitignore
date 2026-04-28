@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+.next/
+.turbo/
+out/
+build/
+
+# Env
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+*.swp
+
+# Local data
+*.db
+*.db-journal
+local.db*
+
+# Coverage
+coverage/
+.nyc_output/
+
+# Turbo / Next caches
+.turbo
+.next
+next-env.d.ts
+
+# TypeScript incremental build info
+*.tsbuildinfo

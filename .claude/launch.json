@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "forge-web",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@forge/web", "exec", "next", "dev", "--port", "3100"],
+      "port": 3100
+    }
+  ]
+}

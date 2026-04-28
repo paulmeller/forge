@@ -1,0 +1,10 @@
+{
+  "description": "Minimum toolset for dependency bump tasks",
+  "allowedTools": [
+    "create_pull_request",
+    "create_or_update_file",
+    "get_file_contents",
+    "search_code",
+    "list_commits"
+  ]
+}

@@ -1,0 +1,1 @@
+ALTER TABLE `missions` ADD `target_repos` text;

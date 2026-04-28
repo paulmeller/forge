@@ -1,0 +1,19 @@
+{
+  "name": "@forge/spike-ma-api-audit",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Live probe against the Managed Agents API to validate the bindings Forge's adapter depends on.",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.88.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}
