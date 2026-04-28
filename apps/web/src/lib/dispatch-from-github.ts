@@ -42,7 +42,7 @@ export async function dispatchFromGithub(
         id: missionId,
         userId: GITHUB_SYSTEM_USER_ID,
         name: `GH: ${input.repoFullName} — ${input.goal.split('\n')[0]?.slice(0, 60) ?? 'mission'}`,
-        goal: input.goal,
+        goal: `IMPORTANT: The repo is cloned at /mnt/session/resources/repo_0 — cd there first.\n\n${input.goal}`,
         status: 'running',
         backend: env.FORGE_BACKEND,
         agentId: env.FORGE_DEFAULT_AGENT_ID ?? 'agent_unset',
