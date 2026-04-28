@@ -170,6 +170,93 @@ Uses existing shadcn/ui Button component for CTAs. Console mock is a custom comp
 - GitHub star count: not displayed in v1 (avoid stale counts and API complexity). The "★ Star on GitHub" button text is sufficient.
 - Links: "Star on GitHub" → repo URL, "Quickstart" → README or docs quickstart section, "Docs" → docs route
 
+---
+
+# Docs Site Design Spec
+
+## Goal
+
+Provide comprehensive, searchable documentation for Forge. Serves as the "Docs" link from the landing page nav and the "Quickstart →" CTA destination.
+
+## Framework
+
+**Fumadocs** — Next.js App Router native, MDX, built-in search, shadcn-compatible. Chosen because it fits the existing monorepo stack (Next.js 15, pnpm, Tailwind, shadcn/ui) with no separate build pipeline.
+
+## Location
+
+Separate monorepo package: `apps/docs`. Deployed independently. Intended for a subdomain like `docs.forge.dev`.
+
+## Design
+
+- Dark theme matching the landing page (bg #09090b, same zinc color palette)
+- Sidebar navigation with collapsible sections
+- Full-text search (Fumadocs built-in)
+- Breadcrumbs, prev/next navigation
+- Table of contents sidebar on each page
+- Mobile-responsive with hamburger nav
+
+## Content Structure
+
+### 1. Getting Started
+
+| Page | Content |
+|------|---------|
+| Introduction | What is Forge, who it's for, how it relates to Claude Managed Agents, what it is not |
+| Quickstart | 10-minute first Mission — install, configure .env, run dev, create a Mission, watch it complete |
+| Configuration | .env variables, Anthropic API key, GitHub token, database setup, optional settings |
+
+### 2. Concepts
+
+| Page | Content |
+|------|---------|
+| Missions & Tasks | Lifecycle states, concurrency control, DAG dependencies, the relationship between Mission and Task |
+| The Ledger | Append-only event log, event types, querying, role tags (forge/model/agent/session) |
+| Budget Controls | Per-Mission budgets (USD + tokens), auto-pause threshold, raising/lowering budgets |
+| Skills | Declarative playbooks, goal templates with variables, step-by-step instructions, tool restrictions |
+| Retrospectives & Memory | Post-Mission analysis, skill diff proposals, memory entries, review gate, confidence scoring |
+| Backend Adapters | Managed Agents vs. Gateway, the BackendAdapter interface, swapping via env var |
+
+### 3. Architecture
+
+| Page | Content |
+|------|---------|
+| System Overview | Two services (forge-web + forge-tick), stateless design, Cloud Run deployment model |
+| State Machine | Pure transition functions, Mission and Task lifecycles, state diagrams |
+| Gate Lifecycle | PR creation → CI polling → retry-with-feedback → auto-merge/flag-for-review flow |
+
+### 4. Guides
+
+| Page | Content |
+|------|---------|
+| Writing a Custom Skill | Skill file format, variables, constraints, tool restrictions, testing a Skill locally |
+| Deploying to Cloud Run | Production deployment steps, Cloud Scheduler setup, Turso database, env configuration |
+| Connecting to AgentStep Gateway | Gateway setup, contract tests, switching from Managed Agents |
+
+### 5. API Reference
+
+| Page | Content |
+|------|---------|
+| Missions API | CRUD endpoints, request/response schemas, status transitions |
+| Tasks API | CRUD endpoints, filtering, status updates |
+| Webhooks | Incoming webhook format (from Managed Agents), event types, verification |
+
+### 6. Contributing
+
+| Page | Content |
+|------|---------|
+| Development Setup | Prerequisites, clone, install, env setup, running dev servers |
+| Project Conventions | TypeScript strict, Prettier, conventional commits, testing philosophy (no mocks) |
+| Testing | Vitest, pure function extraction, running tests, writing new tests |
+
+## Technical Notes
+
+- Content authored in MDX files in `apps/docs/content/`
+- Fumadocs handles routing, search indexing, and TOC generation from MDX frontmatter
+- Search: Fumadocs built-in (no Algolia needed in v1)
+- Code blocks: syntax highlighting via Fumadocs/Shiki
+- Links from landing page: "Docs" nav link → docs root, "Quickstart →" → quickstart page
+- Versioning: not needed in v1 (single version, docs evolve with main branch)
+
 ## Mockup Reference
 
-Full-page mockup available at: `.superpowers/brainstorm/99713-1777377677/content/full-page-preview.html`
+Landing page mockup: `.superpowers/brainstorm/99713-1777377677/content/full-page-preview.html`
