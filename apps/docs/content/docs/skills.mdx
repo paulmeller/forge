@@ -1,0 +1,150 @@
+---
+title: Skills
+description: Declarative playbooks that shape how agents execute Missions — instructions, constraints, tool restrictions, and goal templates.
+---
+
+## What a Skill is
+
+A Skill is a **declarative playbook** that tells the agent how to execute a particular class of Mission. It answers questions like: what steps should the agent follow? What should it avoid doing? Which tools does it need?
+
+Skills are the bridge between the operator's goal ("bump fast-glob everywhere") and the agent's behavior. Without a skill, the agent gets only the raw goal prompt. With a skill, it gets structured instructions, constraints, and a narrowed toolset that keeps it on the golden path.
+
+A Mission has an optional `skillId`. When set, Forge prepends the skill's prompt template to the goal before dispatching each Task.
+
+## Skill schema
+
+Skills are stored in the `skills` table:
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | string | Primary key. |
+| `name` | string | Human-readable name (e.g. "Dependency Bump"). |
+| `slug` | string | URL-safe identifier (e.g. `dependency-bump`). Unique. |
+| `version` | string | Semver version string (default `1.0.0`). |
+| `description` | string \| null | Brief description of what the skill does. |
+| `promptTemplate` | string | The full SKILL.md content — the playbook. |
+| `allowedTools` | string[] \| null | Optional list of tool names to restrict the agent's toolset. |
+| `remoteSkillId` | string \| null | If uploaded to the Managed Agents Skills API, the remote ID. |
+| `builtIn` | boolean | `true` for bundled skills, `false` for operator-created. |
+
+## File format: SKILL.md
+
+Each skill is authored as a Markdown file called `SKILL.md`. The file can optionally include YAML frontmatter for metadata. Here is a real example from the codebase — the `dependency-bump` skill:
+
+```markdown
+# dependency-bump
+
+Bump a dependency to a target version across one or more repositories.
+
+## Goal template
+
+\`\`\`
+Bump {{package}} to {{target_version}} in {{repo}} on {{base_branch}}.
+\`\`\`
+
+## Instructions
+
+1. Read the lockfile (package-lock.json, pnpm-lock.yaml, or yarn.lock)
+   to confirm the current version.
+2. Update the dependency in package.json (or the relevant manifest)
+   to the target version.
+3. Run the package manager's install command to regenerate the lockfile.
+4. If there are TypeScript compilation errors caused by the version bump,
+   fix them.
+5. Run the existing test suite. If tests fail due to the version change,
+   fix them.
+6. Open a pull request with a clear title:
+   `chore(deps): bump <package> to <version>`.
+
+## Constraints
+
+- Do NOT bump any other dependencies besides the one specified.
+- Do NOT refactor code unrelated to the version bump.
+- If the bump introduces a breaking change, consult the package's
+  CHANGELOG or migration guide.
+```
+
+Some skills use YAML frontmatter for inline metadata instead of a separate `tools.json`:
+
+```markdown
+---
+name: ci-fix
+description: Fix failing CI checks with minimum changes
+version: "1"
+allowedTools: [bash, read, edit, grep]
+---
+
+# Protocol
+
+1. Read the failing check logs...
+```
+
+## Goal templates with variables
+
+Skills define a **goal template** using `{{variable}}` placeholders. When a Task is dispatched, Forge renders the template by substituting:
+
+- `{{repo}}` — the Task's target repository.
+- `{{base_branch}}` — the Task's base branch.
+- Any custom variables from the Task's `promptVars` field (e.g. `{{package}}`, `{{target_version}}`, `{{codemod_description}}`).
+
+The rendered prompt is what the agent actually receives. The goal template section in the SKILL.md documents which variables the skill expects.
+
+## Constraints
+
+The **Constraints** section of a SKILL.md encodes guardrails — things the agent must not do. These are prompt-level instructions, not enforced programmatically, but they significantly reduce drift:
+
+- "Do NOT bump any other dependencies besides the one specified."
+- "Do NOT refactor code unrelated to the version bump."
+- "Do NOT modify files unrelated to the failure."
+
+Skills that encode strong constraints produce more predictable, reviewable diffs.
+
+## Tool restrictions
+
+A skill can declare an `allowedTools` list that narrows the agent's effective toolset. This is stored either in the skill's database record or in a companion `tools.json` file:
+
+```json
+{
+  "description": "Minimum toolset for dependency bump tasks",
+  "allowedTools": [
+    "create_pull_request",
+    "create_or_update_file",
+    "get_file_contents",
+    "search_code",
+    "list_commits"
+  ]
+}
+```
+
+Restricting tools reduces prompt-cache surface and removes the temptation for the agent to wander into unrelated operations. A dependency bump skill does not need repository search or issue creation tools.
+
+## Bundled skills
+
+Forge ships with these curated skills in the `skills/` directory:
+
+| Skill | Slug | Purpose |
+|---|---|---|
+| **Dependency Bump** | `dependency-bump` | Bump a dependency to a target version across repos. |
+| **Codemod Rollout** | `codemod-rollout` | Apply a codemod or automated transformation across repos. |
+| **CI Fix** | `ci-fix` | Fix failing CI checks with minimum changes. |
+| **Forge Dev** | `forge-dev` | Develop features and fixes in the Forge codebase itself. |
+
+Operators can select a bundled skill when creating a Mission, or paste their own SKILL.md content. Custom skills are stored in the database alongside the Mission.
+
+## Library vs. BYO
+
+- **Library skills** (bundled) are versioned with the Forge repo. They encode cross-fleet knowledge — patterns that work regardless of which operator runs the Mission.
+- **BYO skills** (operator-created) are stored in the `skills` table with `builtIn: false`. They can encode organization-specific conventions.
+
+Skills are per-Mission-class, not per-operator. A skill like "push to `origin`, never to an alternate remote" is true for every Managed Agents-backed Mission, not just a specific operator's.
+
+## How skills are applied
+
+At dispatch time, the dispatcher assembles the agent's prompt in this order:
+
+1. **AGENTS.md** — repo-specific agent instructions (if the target repo has an `AGENTS.md` or `CLAUDE.md`).
+2. **Skill prompt** — the rendered `promptTemplate` from the attached skill.
+3. **Mission goal** — the rendered goal with template variables substituted.
+4. **Memories** — relevant facts from the memory store (if any exist for this repo/backend).
+
+These sections are joined with `---` separators into a single prompt sent as the first turn of the agent session.

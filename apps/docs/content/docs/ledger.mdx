@@ -1,0 +1,105 @@
+---
+title: Ledger
+description: The append-only event log that records every action Forge takes — dispatches, state transitions, gate decisions, budget events, and backend payloads.
+---
+
+## What the Ledger is
+
+The Ledger is Forge's append-only event log. Every meaningful action — a Task dispatch, a state transition, a CI result, a budget pause, a backend event — is recorded as a Ledger entry. It serves as the single source of truth for auditing what happened during a Mission and why.
+
+The Ledger is **not** a queue. Nothing reads from it to drive side effects. It is a record of facts, written after decisions are made, queryable by operators and by the retrospective agent.
+
+## Schema
+
+Each Ledger entry is a row in the `ledger_events` table:
+
+```ts
+{
+  id: string;              // e.g. "lev_abc123..."
+  missionId: string;       // always present — every event belongs to a Mission
+  taskId: string | null;   // present for Task-scoped events, null for Mission-level events
+  eventType: string;       // e.g. "dispatcher.dispatched", "session.status_running"
+  payload: object | null;  // JSON — shape depends on eventType
+  sourceEventId: string | null; // backend event ID, for deduplication
+  createdAt: Date;         // when the event was recorded
+}
+```
+
+## Deduplication
+
+The `sourceEventId` field ties a Ledger entry back to its originating backend event (e.g. Managed Agents' `sevt_...` ID). A unique index on `(taskId, sourceEventId)` ensures the poller is idempotent — if a tick processes the same backend event twice, the second insert is a no-op.
+
+## Event types
+
+Ledger event types follow a `namespace.action` convention. Events fall into four roles:
+
+### Forge events
+
+Events written by Forge's own subsystems. Always expanded in the Console timeline.
+
+| Event type | Source | Payload includes |
+|---|---|---|
+| `planner.emitted` | Planner | Task list |
+| `mission.started` | Mission lifecycle | — |
+| `mission.paused` | Mission lifecycle | reason |
+| `mission.completed` | Reconciler | task counts |
+| `dispatcher.dispatched` | Dispatcher | `sessionId`, `agentId`, `repo`, `baseBranch`, skill info |
+| `dispatcher.failed` | Dispatcher | `reason` |
+| `ci.passed` | CI poller | check details |
+| `ci.failed` | CI poller | failing check logs |
+| `budget.auto_paused` | Budget subsystem | `spentTokens`, `spentUsd`, `thresholdPct`, `crossedAtPct` |
+
+### Session events
+
+Lifecycle events from the backend session.
+
+| Event type | Meaning |
+|---|---|
+| `session.status_running` | Agent session started or resumed. |
+| `session.status_idle` | Agent completed a turn (or is waiting for tool confirmation). |
+| `session.status_rescheduled` | Session was rescheduled by the backend. |
+| `session.status_terminated` | Session ended permanently. |
+| `session.error` | Session encountered an error. |
+
+### Agent events
+
+Events from the agent's activity within a session.
+
+| Event type | Meaning |
+|---|---|
+| `user.message` | User turn sent to the agent. |
+| `agent.message` | Agent's text response. |
+| `agent.thinking` | Agent's internal reasoning (collapsed in UI by default). |
+| `agent.tool_use` | Agent invoked a built-in tool. |
+| `agent.tool_result` | Result of a built-in tool call. |
+| `agent.mcp_tool_use` | Agent invoked an MCP tool (e.g. `create_pull_request`). |
+| `agent.mcp_tool_result` | Result of an MCP tool call. This is where PR URLs appear. |
+| `agent.custom_tool_use` | Agent invoked a custom tool. |
+
+### Model events
+
+Low-level model usage spans. Collapsed in the UI by default; used for cost tracking.
+
+| Event type | Meaning |
+|---|---|
+| `span.model_request_start` | Model inference began. |
+| `span.model_request_end` | Model inference ended. Contains `model_usage` with token counts. |
+
+## Querying
+
+Ledger entries are indexed for efficient querying:
+
+- **By Mission** — `(mission_id, created_at)` index. The primary view for Mission-level audit.
+- **By Task** — `(task_id, created_at)` index. Drills into a single Task's event stream.
+- **By event type** — `(event_type)` index. Useful for finding all budget pauses or all dispatch failures.
+
+In the Console, the Timeline component displays Ledger events grouped by Task, with role-based expand/collapse defaults.
+
+## Why append-only matters
+
+The Ledger is never updated or deleted (except via Mission cascade deletes). This design provides:
+
+- **Auditability** — every decision Forge made is traceable. An operator can reconstruct exactly what happened: which prompt was sent, which tools the agent called, which CI checks passed or failed, and why a PR was merged or abandoned.
+- **Idempotent ingestion** — the poller can safely re-process events without creating duplicates, thanks to the `sourceEventId` unique constraint.
+- **Retrospective input** — the retrospective agent reads the full Ledger stream to propose improvements. Mutating or deleting events would undermine this analysis.
+- **Debuggability** — when something goes wrong, the Ledger is the first place to look. Every state transition has a corresponding event with a payload explaining why it happened.

@@ -1,0 +1,146 @@
+---
+title: Backend Adapters
+description: The adapter interface that lets Forge run on Managed Agents or a self-hosted gateway — swappable per-Mission or via env var.
+---
+
+## The adapter pattern
+
+Forge does not run agent sessions itself. It delegates execution to a **backend** — either Anthropic's hosted Managed Agents service or a self-hosted AgentStep Gateway. The adapter pattern isolates all backend-specific HTTP calls behind a single TypeScript interface so that Forge's orchestration code (dispatcher, poller, gate) never knows which backend is underneath.
+
+## The `BackendAdapter` interface
+
+Both adapters implement this interface, defined in `apps/tick/src/adapters/types.ts`:
+
+```ts
+interface BackendAdapter {
+  readonly kind: BackendKind; // 'managed-agents' | 'gateway'
+
+  createSession(input: CreateSessionInput): Promise<CreateSessionResult>;
+  sendTurn(sessionId: string, text: string): Promise<void>;
+  listEvents(input: ListEventsInput): Promise<ListEventsResult>;
+  getSession(sessionId: string): Promise<GetSessionResult>;
+  cancelSession(sessionId: string): Promise<void>;
+  confirmToolUse(
+    sessionId: string,
+    toolUseEventId: string,
+    decision: ToolConfirmationDecision,
+  ): Promise<void>;
+}
+```
+
+### Methods
+
+| Method | Purpose |
+|---|---|
+| `createSession` | Create a new agent session with a repo resource, initial prompt, and optional GitHub MCP vault. |
+| `sendTurn` | Send a follow-up user message to an existing session (used for retry-with-feedback). |
+| `listEvents` | Fetch new events from the session since a cursor. This is the tick's primary input — the poller calls it for every running Task. |
+| `getSession` | Get the session's current lifecycle status (`idle`, `running`, `rescheduling`, `terminated`). |
+| `cancelSession` | Interrupt a running session. |
+| `confirmToolUse` | Approve or deny a tool call that's blocking the session at `requires_action`. |
+
+### Key types
+
+```ts
+type CreateSessionInput = {
+  agentId: string;
+  repoUrl: string;
+  repoCloneToken: string;
+  baseBranch: string;
+  githubMcpVaultId?: string | null;
+  prompt: string;
+};
+
+type BackendEvent = {
+  id: string;
+  type: BackendEventKind;     // e.g. 'agent.message', 'session.status_running'
+  processedAt: Date | null;
+  raw: Record<string, unknown>;
+};
+
+type ListEventsResult = {
+  events: BackendEvent[];
+  latestEventId?: string;
+  hasMore: boolean;
+};
+
+type SessionLifecycle = 'idle' | 'running' | 'rescheduling' | 'terminated';
+```
+
+## Managed Agents adapter
+
+The default adapter. Talks to Anthropic's hosted Managed Agents API using the official `@anthropic-ai/sdk`.
+
+**Required env vars:**
+- `ANTHROPIC_API_KEY` — your Anthropic API key.
+- `FORGE_MA_ENVIRONMENT_ID` — the Managed Agents environment to create sessions in.
+
+**Implementation details:**
+- `createSession` calls `client.beta.sessions.create` with a `github_repository` resource, then sends the initial prompt as a follow-up turn.
+- `listEvents` calls `client.beta.sessions.events.list` and paginates with `afterEventId` cursor. Pages are up to 1,000 events.
+- `cancelSession` sends a `user.interrupt` event to the session.
+- `confirmToolUse` sends a `user.tool_confirmation` event with an `allow` or `deny` result.
+
+## Gateway adapter
+
+A drop-in alternative for teams that need self-hosting (compliance) or cheaper sandboxes (cost). The AgentStep Gateway exposes the same `/v1/sessions/*` HTTP surface as Managed Agents.
+
+**Required env vars:**
+- `GATEWAY_URL` — the base URL of your gateway instance (e.g. `https://gateway.internal`).
+- `GATEWAY_API_KEY` — API key for the gateway.
+
+**Implementation details:**
+- Uses plain `fetch` — no SDK dependency. All calls go to the gateway's OpenAPI surface.
+- `listEvents` uses `after_id` cursor parameter for pagination, with `order=asc`.
+- `hasMore` is determined by the presence of a `next_page` field in the response.
+- Includes a `GatewayApiError` class that captures HTTP status, method, and path for debugging.
+
+## Choosing a backend
+
+Backend choice happens at two levels:
+
+### Per-Mission
+
+Every Mission has a `backend` field set at creation time:
+
+```ts
+type Backend = 'managed-agents' | 'gateway';
+```
+
+The dispatcher reads this field and calls `getAdapter(mission.backend)` to get the right adapter. Different Missions in the same Forge deployment can use different backends.
+
+### Per-deployment default
+
+The `getAdapter` factory in `apps/tick/src/adapters/index.ts` resolves an adapter by kind and caches it. The required env vars determine which backends are available:
+
+```ts
+// Managed Agents — needs ANTHROPIC_API_KEY + FORGE_MA_ENVIRONMENT_ID
+getAdapter('managed-agents');
+
+// Gateway — needs GATEWAY_URL + GATEWAY_API_KEY
+getAdapter('gateway');
+```
+
+If the required env vars for a backend are not set, `getAdapter` throws at runtime. You only need to configure the backends you actually use.
+
+## Swapping backends
+
+To switch from Managed Agents to a self-hosted gateway:
+
+1. Deploy the AgentStep Gateway to your infrastructure.
+2. Set `GATEWAY_URL` and `GATEWAY_API_KEY` on your `forge-tick` instance.
+3. Create new Missions with `backend: 'gateway'`.
+
+Existing Missions continue using their original backend — the `backend` field is immutable after creation. Old Mission records and their Ledger entries remain intact.
+
+## Contract tests
+
+Both adapters are covered by a shared contract test suite in `apps/tick/src/adapters/adapter-contract.test.ts`. The tests verify that:
+
+- Both adapters expose the correct `kind` value.
+- Both implement every method on the `BackendAdapter` interface: `createSession`, `sendTurn`, `listEvents`, `getSession`, `cancelSession`, `confirmToolUse`.
+- Gateway-specific behaviors (trailing slash stripping, error capture) work correctly.
+
+These are structural tests that run without hitting real APIs. Integration tests against live endpoints are gated by environment variables and run separately.
+
+The contract test suite ensures that swapping backends does not change Forge's observable behavior — both adapters produce the same `BackendEvent` shape, the same `SessionLifecycle` states, and the same error semantics.

@@ -1,0 +1,87 @@
+---
+title: Budget Controls
+description: Per-Mission spending limits in USD and tokens, auto-pause thresholds, and how costs accrue from agent sessions.
+---
+
+## Overview
+
+Every Mission can have a budget — a ceiling on how much it is allowed to spend. Budgets are a first-class primitive in Forge, not an afterthought. When a Mission crosses its threshold, Forge auto-pauses it: no new Tasks are dispatched, in-flight Tasks run to completion, and the operator is notified.
+
+## Budget fields
+
+Budgets are configured per-Mission at creation time:
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `budgetUsd` | integer \| null | `null` | Maximum spend in USD. Null means no USD limit. |
+| `budgetTokens` | integer \| null | `null` | Maximum token usage. Null means no token limit. |
+| `budgetThresholdPct` | integer | `80` | Percentage of budget that triggers auto-pause. |
+| `spentUsd` | integer | `0` | Running total of USD spent (derived from tokens). |
+| `spentTokens` | integer | `0` | Running total of tokens consumed across all Tasks. |
+
+You can set either budget, both, or neither. If neither is set, the Mission runs without spend limits.
+
+## How costs accrue
+
+Cost tracking flows from the backend through the state machine:
+
+1. **Backend emits model usage** — each `span.model_request_end` event includes a `model_usage` object with `input_tokens`, `output_tokens`, `cache_creation_input_tokens`, and `cache_read_input_tokens`.
+
+2. **State machine computes delta** — the task state machine sums all token fields into a `costTokensDelta` and applies it to the Task's `costTokens` counter.
+
+3. **Budget subsystem aggregates** — on each tick, the budget check queries `SUM(tasks.cost_tokens)` across all Tasks in the Mission. This live aggregation means the budget always reflects the true total, regardless of any missed updates.
+
+4. **Token-to-USD conversion** — USD spend is derived from tokens at a fixed rate:
+
+```ts
+const TOKEN_PRICE_USD_PER_1M = 5; // $5 per million tokens
+```
+
+## Auto-pause
+
+On every tick, the budget subsystem checks each running Mission:
+
+1. Compute the current spend percentage against both budget dimensions:
+   - `tokenPct = (spentTokens / budgetTokens) * 100`
+   - `usdPct = (spentUsd / budgetUsd) * 100`
+2. Take the maximum of the two percentages.
+3. If `maxPct >= budgetThresholdPct`, transition the Mission to `paused`.
+
+When a Mission is auto-paused:
+
+- A `budget.auto_paused` Ledger event is recorded with full details:
+  ```json
+  {
+    "spentTokens": 4200000,
+    "spentUsd": 21.0,
+    "budgetTokens": 5000000,
+    "budgetUsd": 25,
+    "thresholdPct": 80,
+    "crossedAtPct": 84.0
+  }
+  ```
+- No new Tasks are dispatched.
+- Tasks already in-flight (`dispatching`, `running`, `turn_ended`, etc.) continue to completion — Forge does not kill active sessions.
+
+## Raising and lowering budgets
+
+An operator can adjust a paused Mission's budget and resume it:
+
+- **Raising** — increase `budgetUsd` or `budgetTokens` to give the Mission more headroom, then resume. The next tick will re-check the threshold against the new ceiling.
+- **Lowering** — you cannot lower a budget below what has already been spent. The Mission has already incurred those costs.
+
+## Threshold tuning
+
+The default threshold is 80%, which means a Mission pauses when it has used 80% of its budget. This gives the operator a buffer to review burn rate before the budget is fully exhausted.
+
+Set a higher threshold (e.g. 95%) for Missions where you are confident in the cost profile. Set a lower threshold (e.g. 50%) for experimental Missions where you want an early checkpoint.
+
+## Cost visibility
+
+In the Console, the Mission detail sidebar displays a **BudgetGauge** showing:
+
+- Current USD and token spend.
+- Budget ceiling.
+- A threshold marker at the auto-pause percentage.
+
+Each Task also tracks its own `costUsd` and `costTokens` fields, so you can see per-Task cost breakdowns in the Task table.
