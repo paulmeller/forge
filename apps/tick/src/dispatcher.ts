@@ -35,10 +35,7 @@ export async function runDispatcher(log: {
   warn: (o: object, m?: string) => void;
   error: (o: object, m?: string) => void;
 }): Promise<DispatchResult> {
-  const runningMissions = await db
-    .select()
-    .from(missions)
-    .where(eq(missions.status, 'running'));
+  const runningMissions = await db.select().from(missions).where(eq(missions.status, 'running'));
 
   let totalClaimed = 0;
   let totalDispatched = 0;
@@ -78,13 +75,11 @@ export async function runDispatcher(log: {
  *   2) UPDATE ... WHERE id IN (...) AND status='queued' RETURNING *
  *      — WHERE guard is the race barrier; two workers can't both win.
  */
-async function claimNextBatch(mission: Mission): Promise<Task[]> {
+export async function claimNextBatch(mission: Mission): Promise<Task[]> {
   const inflightRows = await db
     .select({ count: sql<number>`count(*)` })
     .from(tasks)
-    .where(
-      and(eq(tasks.missionId, mission.id), inArray(tasks.status, INFLIGHT_STATUSES)),
-    );
+    .where(and(eq(tasks.missionId, mission.id), inArray(tasks.status, INFLIGHT_STATUSES)));
   const inflight = Number(inflightRows[0]?.count ?? 0);
   const slots = Math.max(0, mission.concurrencyCap - inflight);
   if (slots === 0) return [];
@@ -127,7 +122,7 @@ async function claimNextBatch(mission: Mission): Promise<Task[]> {
   return claimed;
 }
 
-async function dispatchOne(mission: Mission, task: Task): Promise<void> {
+export async function dispatchOne(mission: Mission, task: Task): Promise<void> {
   const adapter = getAdapter(mission.backend);
 
   if (!mission.githubInstallationId) {
@@ -204,7 +199,9 @@ async function dispatchOne(mission: Mission, task: Task): Promise<void> {
       repo: task.repo,
       baseBranch: task.baseBranch,
       ...(skill ? { skillSlug: skill.slug, skillVersion: skill.version } : {}),
-      ...(agentsMd.file ? { agentsMdFile: agentsMd.file, agentsMdTruncated: agentsMd.truncated } : {}),
+      ...(agentsMd.file
+        ? { agentsMdFile: agentsMd.file, agentsMdTruncated: agentsMd.truncated }
+        : {}),
     },
     createdAt: now,
   });
@@ -218,8 +215,9 @@ async function markFailed(taskId: string, reason: string): Promise<void> {
     .where(eq(tasks.id, taskId));
   await db.insert(ledgerEvents).values({
     id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
-    missionId: (await db.select({ id: tasks.missionId }).from(tasks).where(eq(tasks.id, taskId)))[0]
-      ?.id ?? '',
+    missionId:
+      (await db.select({ id: tasks.missionId }).from(tasks).where(eq(tasks.id, taskId)))[0]?.id ??
+      '',
     taskId,
     eventType: 'dispatcher.failed',
     payload: { reason },
