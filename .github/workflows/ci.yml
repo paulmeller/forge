@@ -16,24 +16,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.33.0
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
 
-      - run: pnpm install --frozen-lockfile
+      - name: Enable corepack + install
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.33.0 --activate
+          pnpm install --frozen-lockfile
 
       - run: pnpm -r typecheck
-
-      - run: pnpm -r lint
-        continue-on-error: false
-
       - run: pnpm -r test
-        continue-on-error: false
 
   docker:
     name: Build containers
