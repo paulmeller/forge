@@ -1,4 +1,32 @@
 {
   "title": "Docs",
-  "pages": ["index"]
+  "pages": [
+    "---Getting Started---",
+    "index",
+    "quickstart",
+    "configuration",
+    "---Concepts---",
+    "missions-and-tasks",
+    "ledger",
+    "budget-controls",
+    "skills",
+    "retrospectives",
+    "backend-adapters",
+    "---Architecture---",
+    "system-overview",
+    "state-machine",
+    "gate-lifecycle",
+    "---Guides---",
+    "writing-a-skill",
+    "deploying-to-cloud-run",
+    "connecting-gateway",
+    "---API Reference---",
+    "api-missions",
+    "api-tasks",
+    "api-webhooks",
+    "---Contributing---",
+    "development-setup",
+    "project-conventions",
+    "testing"
+  ]
 }

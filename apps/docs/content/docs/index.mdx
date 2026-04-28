@@ -3,4 +3,56 @@ title: Introduction
 description: What is Forge, who it's for, and how it works.
 ---
 
-Forge is an open-source orchestration layer for fleet-scale autonomous code changes built on Claude Managed Agents.
+## What is Forge
+
+Forge is an open-source orchestration layer that turns Anthropic's Managed Agents into a fleet of autonomous coding agents. You describe work as a **Mission** — "bump `fast-glob` across 140 repos", "add OTel spans to every HTTP handler", "triage every P3 bug" — and Forge plans it into parallel Tasks, dispatches each to an agent session, opens PRs, gates on CI and review, and merges what's green.
+
+Every action lands in an auditable **Ledger**, gated by per-Mission budgets. Managed Agents is the primary execution backend, but AgentStep Gateway is a drop-in replacement via a single env flag for teams that need self-hosting or cheaper sandboxes.
+
+## Who is Forge for
+
+- **Platform / DevEx engineers** who own the "upgrade all services" problem and want auditability and cost control.
+- **Engineering managers** who care about Mission progress, cost-per-Mission, and success rate.
+- **Open-source maintainers** who need to fleet-fix their own repos (dependency bumps, CI migrations) at low cost.
+
+## What Forge is NOT
+
+- Not a new agent engine — it orchestrates existing ones.
+- Not a sandbox — it delegates execution to Managed Agents or a self-hosted gateway.
+- Not a chat UI for single-task work — use Claude Code or Cursor for that.
+- Not an IDE plugin.
+- Not justified below roughly 10 parallel Tasks — individual developers should use single-agent tools.
+
+## Key concepts
+
+**Mission**
+A top-level unit of work: a goal, a set of target repos, a budget, and a backend to run on. Missions move through a lifecycle: `draft` &rarr; `planning` &rarr; `running` &rarr; `paused` &rarr; `completed` | `cancelled`.
+
+**Task**
+The atomic unit of work: one repo, one branch, one agent session. Tasks are planned from a Mission and move through their own lifecycle from `queued` through `merged` (or `failed` / `abandoned`). Tasks support retry-with-feedback on CI failure and DAG dependencies on other Tasks.
+
+**Ledger**
+An append-only audit log of every event in a Mission: planner output, dispatcher claims, gate decisions, budget events, and webhook payloads. Queryable by Mission, Task, or event type.
+
+**Skill**
+A declarative playbook (Markdown) that tells agents how to execute a class of Mission. Skills encode protocol, invariants, tool discipline, and prompt templates. Forge ships curated skills for common patterns (dependency bumps, codemods, CVE patches) and supports operator-authored skills.
+
+**Gate**
+The decision engine that runs on each tick. It inspects agent output, opens PRs, polls CI, retries failures, and merges passing PRs according to the Mission's auto-merge policy. Every decision is recorded in the Ledger.
+
+**Retrospective**
+An operator-initiated, post-Mission analysis that reads the Ledger and proposes improvements to skills and memory. Proposals go through a human review gate before applying.
+
+## Backend adapters
+
+Forge supports two execution backends, selectable per Mission:
+
+- **`managed-agents`** — Anthropic's hosted Managed Agents API (default). Forge polls for session events on each tick.
+- **`gateway`** — A self-hosted AgentStep Gateway instance. Supports both polling and webhook-based event delivery.
+
+Both adapters implement the same interface (`createSession`, `sendTurn`, `cancelSession`, `listEvents`, `getSession`), so switching backends is a config change, not a code change.
+
+## Next steps
+
+- [Quickstart](/docs/quickstart) — get your first Mission running in 10 minutes.
+- [Configuration](/docs/configuration) — environment variables and setup reference.
