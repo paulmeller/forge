@@ -81,11 +81,11 @@ jobs:
             --allow-unauthenticated
           env_vars: |
             NODE_ENV=production
+            FORGE_BACKEND=gateway
           secrets: |
             DATABASE_URL=forge-database-url:latest
             DATABASE_AUTH_TOKEN=forge-database-auth-token:latest
             BETTER_AUTH_SECRET=forge-better-auth-secret:latest
-            ANTHROPIC_API_KEY=forge-anthropic-api-key:latest
             GITHUB_APP_TOKEN=forge-github-app-token:latest
             GITHUB_WEBHOOK_SECRET=forge-github-webhook-secret:latest
             FORGE_DEFAULT_AGENT_ID=forge-default-agent-id:latest
