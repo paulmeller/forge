@@ -26,6 +26,7 @@ jobs:
           corepack prepare pnpm@10.33.0 --activate
           pnpm install --frozen-lockfile
 
+      - run: pnpm --filter @forge/web exec fumadocs-mdx
       - run: pnpm -r typecheck
       - run: pnpm -r test
 

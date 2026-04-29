@@ -17,7 +17,7 @@ COPY --from=deps /app/apps/web/node_modules ./apps/web/node_modules
 COPY --from=deps /app/packages/db/node_modules ./packages/db/node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN pnpm --filter @forge/web build
+RUN pnpm --filter @forge/web exec fumadocs-mdx && pnpm --filter @forge/web build
 
 FROM node:22-alpine AS runner
 WORKDIR /app
