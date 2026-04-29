@@ -36,7 +36,7 @@ function formatDate(date: Date): string {
 async function getDashboardStats(userId: string) {
   const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
 
-  const [mergedRows, activeRows, spendRows, repoRows] = await Promise.all([
+  const [mergedRows, activeRows, spendRows] = await Promise.all([
     db
       .select({ count: sql<number>`count(*)` })
       .from(tasks)
@@ -62,15 +62,22 @@ async function getDashboardStats(userId: string) {
       .select({ total: sql<number>`coalesce(sum(${missions.spentUsd}), 0)` })
       .from(missions)
       .where(eq(missions.userId, userId)),
-    db
+  ]);
+
+  // Repo count query is separate — table may not exist in dev
+  let repoRows: { count: number }[] = [{ count: 0 }];
+  try {
+    repoRows = await db
       .select({ count: sql<number>`count(*)` })
       .from(githubInstallationRepos)
       .innerJoin(
         githubInstallations,
         eq(githubInstallationRepos.installationId, githubInstallations.id),
       )
-      .where(eq(githubInstallations.userId, userId)),
-  ]);
+      .where(eq(githubInstallations.userId, userId));
+  } catch {
+    // Table doesn't exist yet — that's fine
+  }
 
   return {
     mergedThisWeek: Number(mergedRows[0]?.count ?? 0),
