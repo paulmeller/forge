@@ -57,8 +57,8 @@ export function SessionSidebar({
         <p className="mb-1.5 px-3 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
           Navigation
         </p>
-        <NavLink href="/chat">Chat</NavLink>
         <NavLink href="/missions">Dashboard</NavLink>
+        <NavLink href="/chat">Chat</NavLink>
         <NavLink href="/setup">Setup</NavLink>
       </nav>
 
