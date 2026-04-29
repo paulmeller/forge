@@ -1,5 +1,7 @@
 import Link from 'next/link';
 
+import { RotatingMissions } from './_components/rotating-missions';
+
 const GITHUB_URL = 'https://github.com/paulmeller/forge';
 
 export default function LandingPage() {
@@ -175,9 +177,7 @@ export default function LandingPage() {
           One mission. Hundreds of repos.
         </h2>
         <div className="flex items-center justify-center" style={{ minHeight: '4rem' }}>
-          <p className="text-center text-[28px] font-medium leading-snug tracking-tight text-[#a1a1aa] md:text-[36px]">
-            &ldquo;Migrate 200 services from Express to Fastify.&rdquo;
-          </p>
+          <RotatingMissions />
         </div>
         <p className="mx-auto mt-6 max-w-[480px] text-center text-[14px] leading-relaxed text-[#52525b]">
           One command spawns 200 agents. Each clones a repo, makes the change,
