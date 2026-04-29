@@ -2,41 +2,24 @@ import Link from 'next/link';
 
 const GITHUB_URL = 'https://github.com/paulmeller/forge';
 
-const useCases = [
-  {
-    title: 'Fleet migrations',
-    desc: 'Bump a dependency across 200 repos. One mission, 200 agents, 200 PRs.',
-    example: '@forge bump fast-glob to ^3.3.2',
-  },
-  {
-    title: 'Self-healing CI',
-    desc: 'CI fails on a PR? Forge auto-dispatches an agent to fix it and push.',
-    example: 'Automatic — no command needed',
-  },
-  {
-    title: 'Backlog autopilot',
-    desc: 'Point Forge at your issues. It reads the spec, codes the fix, opens a PR.',
-    example: '@forge implement this',
-  },
-] as const;
-
 export default function LandingPage() {
   return (
     <main>
       {/* Hero */}
       <section className="mx-auto max-w-[960px] px-6 pb-24 pt-24 md:px-12">
         <div className="mx-auto max-w-[680px] text-center">
-          <span className="mb-5 inline-block rounded-full border border-[#27272a] bg-[#18181b] px-3 py-1 text-[11px] uppercase tracking-wider text-[#a1a1aa]">
-            Free during beta
-          </span>
           <h1 className="mb-6 text-[40px] font-semibold leading-[1.05] tracking-[-2px] md:text-[64px]">
             GitHub Issues in.
             <br />
             Pull Requests out.
           </h1>
-          <p className="mx-auto mb-10 max-w-[480px] text-[18px] leading-relaxed text-[#71717a]">
+          <p className="mx-auto mb-4 max-w-[520px] text-[18px] leading-relaxed text-[#a1a1aa]">
+            Stripe runs 1,300 autonomous PRs per week with an internal tool.
+            Forge is that tool — open source.
+          </p>
+          <p className="mx-auto mb-10 max-w-[480px] text-[16px] leading-relaxed text-[#52525b]">
             Connect your repos. Comment{' '}
-            <code className="rounded bg-[#18181b] px-1.5 py-0.5 text-[15px] text-[#a1a1aa]">
+            <code className="rounded bg-[#18181b] px-1.5 py-0.5 text-[14px] text-[#a1a1aa]">
               @forge
             </code>{' '}
             on any issue. Get a pull request back.
@@ -150,57 +133,101 @@ export default function LandingPage() {
 
       <hr className="mx-auto max-w-[960px] border-[#1a1a1e]" />
 
-      {/* Use cases */}
+      {/* The wow — self-healing CI */}
       <section className="mx-auto max-w-[960px] px-6 py-20 md:px-12">
-        <h2 className="mb-4 text-center text-2xl font-semibold tracking-tight">
-          One command. Any scale.
-        </h2>
-        <p className="mb-14 text-center text-sm text-[#71717a]">
-          From a single fix to a fleet-wide migration.
-        </p>
-        <div className="grid gap-6 md:grid-cols-3">
-          {useCases.map((uc) => (
-            <div
-              key={uc.title}
-              className="rounded-lg border border-[#27272a] bg-[#18181b] p-6"
-            >
-              <h3 className="mb-2 text-base font-semibold">{uc.title}</h3>
-              <p className="mb-4 text-[13px] leading-relaxed text-[#71717a]">
-                {uc.desc}
-              </p>
-              <code className="text-xs text-[#52525b]">{uc.example}</code>
+        <div className="mx-auto max-w-[600px]">
+          <h2 className="mb-4 text-2xl font-semibold tracking-tight">
+            CI fails. Forge fixes it.
+          </h2>
+          <p className="mb-6 text-[15px] leading-relaxed text-[#71717a]">
+            When a check suite fails on a pull request, Forge automatically
+            dispatches an agent to read the logs, fix the code, and push.
+            No command needed. No human in the loop.
+          </p>
+          <div className="rounded-lg border border-[#27272a] bg-[#0f0f11] p-5">
+            <div className="flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-red-500" />
+              <span className="font-mono text-xs text-[#a1a1aa]">
+                CI failed on PR #187
+              </span>
             </div>
-          ))}
+            <div className="mt-3 flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-[#f59e0b]" />
+              <span className="font-mono text-xs text-[#71717a]">
+                Forge agent dispatched automatically
+              </span>
+            </div>
+            <div className="mt-3 flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-[#22c55e]" />
+              <span className="font-mono text-xs text-[#71717a]">
+                Fix pushed. CI passing.
+              </span>
+            </div>
+          </div>
         </div>
       </section>
 
       <hr className="mx-auto max-w-[960px] border-[#1a1a1e]" />
 
-      {/* Value props */}
+      {/* Scale — one mission, hundreds of repos */}
       <section className="mx-auto max-w-[960px] px-6 py-20 md:px-12">
-        {[
-          [
-            'Auditable.',
-            'Every action, every state change, every dollar spent — in a ledger you own.',
-          ],
-          [
-            'Budgeted.',
-            'Cap spend per mission. Auto-pause at 80%. No fleet-wide cost surprises.',
-          ],
-          [
-            'Portable.',
-            'Claude, GPT, Gemini, Codex. Swap engines with one setting. No lock-in.',
-          ],
-        ].map(([word, desc]) => (
-          <div key={word} className="mb-8 flex items-center gap-5 last:mb-0">
-            <span className="shrink-0 text-[32px] font-semibold tracking-tight">
-              {word}
+        <h2 className="mb-6 text-center text-2xl font-semibold tracking-tight">
+          One mission. Hundreds of repos.
+        </h2>
+        <div className="flex items-center justify-center" style={{ minHeight: '4rem' }}>
+          <p className="text-center text-[28px] font-medium leading-snug tracking-tight text-[#a1a1aa] md:text-[36px]">
+            &ldquo;Migrate 200 services from Express to Fastify.&rdquo;
+          </p>
+        </div>
+        <p className="mx-auto mt-6 max-w-[480px] text-center text-[14px] leading-relaxed text-[#52525b]">
+          One command spawns 200 agents. Each clones a repo, makes the change,
+          opens a PR. Concurrency-controlled. Budget-capped. Every action in a
+          ledger you own.
+        </p>
+      </section>
+
+      <hr className="mx-auto max-w-[960px] border-[#1a1a1e]" />
+
+      {/* Value props — with contrast */}
+      <section className="mx-auto max-w-[960px] px-6 py-20 md:px-12">
+        <div className="mb-10">
+          <span className="text-[32px] font-semibold tracking-tight">
+            Auditable.
+          </span>
+          <p className="mt-2 text-[15px] leading-relaxed text-[#71717a]">
+            Most agent platforms don&rsquo;t log what happened across your fleet.
+            You find out something went wrong when a customer reports it.{' '}
+            <span className="text-[#a1a1aa]">
+              Forge records every action, every state change, every tool call —
+              in a ledger you own.
             </span>
-            <span className="text-[15px] leading-normal text-[#71717a]">
-              {desc}
+          </p>
+        </div>
+        <div className="mb-10">
+          <span className="text-[32px] font-semibold tracking-tight">
+            Budgeted.
+          </span>
+          <p className="mt-2 text-[15px] leading-relaxed text-[#71717a]">
+            Agent APIs bill per session-hour with no cap. You discover what you
+            spent after the fact.{' '}
+            <span className="text-[#a1a1aa]">
+              Forge caps spend per mission. Auto-pauses at 80%. You set the
+              ceiling before the first agent starts.
             </span>
-          </div>
-        ))}
+          </p>
+        </div>
+        <div>
+          <span className="text-[32px] font-semibold tracking-tight">
+            Portable.
+          </span>
+          <p className="mt-2 text-[15px] leading-relaxed text-[#71717a]">
+            Locked into one model provider? Switch costs are high and growing.{' '}
+            <span className="text-[#a1a1aa]">
+              Forge runs Claude, GPT, Gemini, and Codex. Swap engines with one
+              setting. No lock-in.
+            </span>
+          </p>
+        </div>
       </section>
 
       <hr className="mx-auto max-w-[960px] border-[#1a1a1e]" />
@@ -212,9 +239,10 @@ export default function LandingPage() {
         </h2>
         <div className="mb-6">
           <p className="mb-4 text-[15px] leading-relaxed">
-            Stripe runs 1,300 autonomous PRs per week with an internal tool
-            their engineers built. That capability shouldn&rsquo;t require a
-            $200/mo subscription and a proprietary black box.
+            Stripe&rsquo;s Minions system ships 1,300 PRs per week. It took a
+            dedicated infrastructure team to build. That capability
+            shouldn&rsquo;t require a $200/mo subscription and a proprietary
+            black box.
           </p>
           <p className="text-[15px] leading-relaxed text-[#a1a1aa]">
             Forge is MIT-licensed. Self-host the engine, or use the managed
@@ -239,10 +267,10 @@ export default function LandingPage() {
       {/* Footer CTA */}
       <section className="px-6 py-24 text-center md:px-12">
         <h2 className="mb-3 text-4xl font-semibold tracking-tight">
-          Start shipping faster.
+          Start a Mission.
         </h2>
         <p className="mb-8 text-[15px] text-[#71717a]">
-          Free during beta. No credit card. Connect in 30 seconds.
+          First PR in under 10 minutes. MIT licensed. Free to use.
         </p>
         <div className="flex justify-center gap-3">
           <Link
