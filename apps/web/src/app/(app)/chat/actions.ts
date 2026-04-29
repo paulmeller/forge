@@ -2,7 +2,7 @@
 
 import { randomBytes, randomUUID } from 'node:crypto';
 
-import { eq } from 'drizzle-orm';
+import { eq } from '@forge/db/orm';
 
 import {
   githubInstallationRepos,

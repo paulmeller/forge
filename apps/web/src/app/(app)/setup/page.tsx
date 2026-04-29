@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { eq } from 'drizzle-orm';
+import { eq } from '@forge/db/orm';
 
 import { githubInstallations, githubInstallationRepos } from '@forge/db';
 

@@ -8,7 +8,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./schema": "./src/schema.ts",
-    "./client": "./src/client.ts"
+    "./client": "./src/client.ts",
+    "./orm": "./src/orm.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

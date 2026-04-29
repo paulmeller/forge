@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { eq } from 'drizzle-orm';
+import { eq } from '@forge/db/orm';
 import { NextResponse } from 'next/server';
 
 import { githubInstallations } from '@forge/db';

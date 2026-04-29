@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { eq } from 'drizzle-orm';
+import { eq } from '@forge/db/orm';
 import { NextResponse } from 'next/server';
 
 import { db } from '@/lib/db';
