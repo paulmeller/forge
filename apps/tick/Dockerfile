@@ -11,7 +11,7 @@ COPY packages/db/package.json packages/db/
 RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store \
     pnpm install --frozen-lockfile
 
-FROM node:22-alpine AS runner
+FROM base AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=8080
@@ -24,4 +24,4 @@ COPY --chown=tick:nodejs packages/db ./packages/db
 USER tick
 EXPOSE 8080
 WORKDIR /app/apps/tick
-CMD ["pnpm", "start"]
+CMD ["node", "--import", "tsx", "src/index.ts"]
