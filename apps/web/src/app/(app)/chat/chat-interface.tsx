@@ -1,17 +1,24 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 
-import { createSessionFromChat } from './actions';
+import { createSessionFromChat, listSkills, type SkillSummary } from './actions';
 
 type Message = {
   role: 'user' | 'assistant';
   content: string;
   missionId?: string;
 };
+
+const MCP_TOOLS = [
+  { name: 'GitHub', description: 'PRs, issues, code search', connected: true },
+  { name: 'Linear', description: 'Issues and projects', connected: false },
+  { name: 'Slack', description: 'Send messages and updates', connected: false },
+  { name: 'Google Docs', description: 'Read and edit documents', connected: false },
+];
 
 export function ChatInterface() {
   const router = useRouter();
@@ -20,6 +27,33 @@ export function ChatInterface() {
   const [pending, setPending] = useState(false);
   const [selectedModel, setSelectedModel] = useState('opus');
   const [mode, setMode] = useState<'auto' | 'spec'>('auto');
+  const [showSkills, setShowSkills] = useState(false);
+  const [showMcp, setShowMcp] = useState(false);
+  const [skills, setSkills] = useState<SkillSummary[]>([]);
+  const [selectedSkill, setSelectedSkill] = useState<string | null>(null);
+  const skillsRef = useRef<HTMLDivElement>(null);
+  const mcpRef = useRef<HTMLDivElement>(null);
+
+  // Load skills on first open
+  useEffect(() => {
+    if (showSkills && skills.length === 0) {
+      listSkills().then(setSkills);
+    }
+  }, [showSkills, skills.length]);
+
+  // Close dropdowns on outside click
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (skillsRef.current && !skillsRef.current.contains(e.target as Node)) {
+        setShowSkills(false);
+      }
+      if (mcpRef.current && !mcpRef.current.contains(e.target as Node)) {
+        setShowMcp(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -31,13 +65,13 @@ export function ChatInterface() {
     setPending(true);
 
     try {
-      const result = await createSessionFromChat(userMessage);
+      const result = await createSessionFromChat(userMessage, selectedSkill);
 
       setMessages((prev) => [
         ...prev,
         {
           role: 'assistant',
-          content: `Mission created. Agent dispatched to **${result.repo}**.\n\nTracking as [${result.missionName}](/missions/${result.missionId}).`,
+          content: `Mission created. Agent dispatched to **${result.repo}**.${selectedSkill ? `\n\nUsing skill: **${selectedSkill}**` : ''}\n\nTracking as [${result.missionName}](/missions/${result.missionId}).`,
           missionId: result.missionId,
         },
       ]);
@@ -55,6 +89,7 @@ export function ChatInterface() {
   }
 
   const hasMessages = messages.length > 0;
+  const activeSkill = skills.find((s) => s.slug === selectedSkill);
 
   return (
     <div className="flex h-full flex-col">
@@ -75,7 +110,7 @@ export function ChatInterface() {
         ) : (
           <div className="mx-auto max-w-[720px] px-6 py-8">
             {messages.map((msg, i) => (
-              <div key={i} className={`mb-6 ${msg.role === 'user' ? '' : ''}`}>
+              <div key={i} className="mb-6">
                 <div className="mb-1 flex items-center gap-2">
                   {msg.role === 'user' ? (
                     <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-[10px] font-medium text-primary-foreground">
@@ -152,6 +187,20 @@ export function ChatInterface() {
 
       {/* Prompt bar */}
       <div className="border-t bg-background px-4 pb-4 pt-3">
+        {/* Active skill indicator */}
+        {activeSkill && (
+          <div className="mx-auto mb-2 flex max-w-[720px] items-center gap-2">
+            <span className="flex items-center gap-1.5 rounded-md bg-primary/10 px-2.5 py-1 text-[11px] text-primary">
+              Skill: {activeSkill.name}
+              <button
+                onClick={() => setSelectedSkill(null)}
+                className="ml-1 hover:text-primary/70"
+              >
+                x
+              </button>
+            </span>
+          </div>
+        )}
         <form
           onSubmit={handleSubmit}
           className="mx-auto flex max-w-[720px] items-end gap-2"
@@ -204,13 +253,102 @@ export function ChatInterface() {
           >
             {mode === 'auto' ? 'Auto' : 'Spec Mode'}
           </button>
-          <button className="flex items-center gap-1.5 rounded-md border bg-muted/50 px-2.5 py-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground">
-            <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
-            MCP
-          </button>
-          <button className="flex items-center gap-1.5 rounded-md border bg-muted/50 px-2.5 py-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground">
-            Skills
-          </button>
+
+          {/* MCP dropdown */}
+          <div className="relative" ref={mcpRef}>
+            <button
+              onClick={() => { setShowMcp(!showMcp); setShowSkills(false); }}
+              className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] transition-colors hover:text-foreground ${
+                showMcp ? 'border-primary/50 bg-primary/5 text-foreground' : 'bg-muted/50 text-muted-foreground'
+              }`}
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
+              MCP
+            </button>
+            {showMcp && (
+              <div className="absolute bottom-full left-0 mb-2 w-[260px] rounded-lg border bg-background p-2 shadow-lg">
+                <p className="mb-2 px-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
+                  MCP Connections
+                </p>
+                {MCP_TOOLS.map((tool) => (
+                  <div
+                    key={tool.name}
+                    className="flex items-center justify-between rounded-md px-2 py-1.5 text-[12px] hover:bg-accent"
+                  >
+                    <div>
+                      <p className="font-medium">{tool.name}</p>
+                      <p className="text-[11px] text-muted-foreground">{tool.description}</p>
+                    </div>
+                    {tool.connected ? (
+                      <span className="flex items-center gap-1 text-[10px] text-green-500">
+                        <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
+                        On
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-muted-foreground/50">Off</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Skills dropdown */}
+          <div className="relative" ref={skillsRef}>
+            <button
+              onClick={() => { setShowSkills(!showSkills); setShowMcp(false); }}
+              className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] transition-colors hover:text-foreground ${
+                showSkills || selectedSkill
+                  ? 'border-primary/50 bg-primary/5 text-foreground'
+                  : 'bg-muted/50 text-muted-foreground'
+              }`}
+            >
+              Skills{selectedSkill ? ' (1)' : ''}
+            </button>
+            {showSkills && (
+              <div className="absolute bottom-full left-0 mb-2 w-[280px] rounded-lg border bg-background p-2 shadow-lg">
+                <p className="mb-2 px-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
+                  Available Skills
+                </p>
+                {skills.length === 0 ? (
+                  <p className="px-2 py-3 text-center text-[12px] text-muted-foreground">
+                    No skills configured yet.
+                    <br />
+                    <span className="text-[11px]">Add skills in the database to use them here.</span>
+                  </p>
+                ) : (
+                  skills.map((skill) => (
+                    <button
+                      key={skill.slug}
+                      onClick={() => {
+                        setSelectedSkill(selectedSkill === skill.slug ? null : skill.slug);
+                        setShowSkills(false);
+                      }}
+                      className={`flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-[12px] hover:bg-accent ${
+                        selectedSkill === skill.slug ? 'bg-primary/10' : ''
+                      }`}
+                    >
+                      <div>
+                        <p className="font-medium">{skill.name}</p>
+                        {skill.description && (
+                          <p className="text-[11px] text-muted-foreground">{skill.description}</p>
+                        )}
+                      </div>
+                      {selectedSkill === skill.slug && (
+                        <span className="text-[10px] text-primary">Active</span>
+                      )}
+                    </button>
+                  ))
+                )}
+                {/* Built-in document skills hint */}
+                <div className="mt-2 border-t pt-2">
+                  <p className="px-2 text-[10px] text-muted-foreground/60">
+                    Agents also have access to built-in document skills (docx, pdf, xlsx, pptx).
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

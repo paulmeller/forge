@@ -9,6 +9,7 @@ import {
   githubInstallations,
   ledgerEvents,
   missions,
+  skills,
   tasks,
 } from '@forge/db';
 
@@ -23,12 +24,37 @@ export type ChatSessionResult = {
   repo: string;
 };
 
+export type SkillSummary = {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+};
+
+export async function listSkills(): Promise<SkillSummary[]> {
+  try {
+    const rows = await db
+      .select({
+        id: skills.id,
+        name: skills.name,
+        slug: skills.slug,
+        description: skills.description,
+      })
+      .from(skills)
+      .limit(50);
+    return rows;
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Create a mission from a chat message. Uses the user's first connected repo
  * if available, otherwise falls back to a default.
  */
 export async function createSessionFromChat(
   message: string,
+  skillSlug?: string | null,
 ): Promise<ChatSessionResult> {
   const user = await withAuth();
 
@@ -55,6 +81,17 @@ export async function createSessionFromChat(
     env.FORGE_DEFAULT_GITHUB_VAULT_ID ??
     null;
 
+  // Resolve skill ID from slug
+  let skillId: string | null = null;
+  if (skillSlug) {
+    const [skill] = await db
+      .select({ id: skills.id })
+      .from(skills)
+      .where(eq(skills.slug, skillSlug))
+      .limit(1);
+    skillId = skill?.id ?? null;
+  }
+
   const now = new Date();
   const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 20)}`;
   const taskId = `tsk_${randomUUID().replaceAll('-', '').slice(0, 20)}`;
@@ -75,6 +112,7 @@ export async function createSessionFromChat(
       webhookSecret: randomBytes(32).toString('hex'),
       githubInstallationId: 'chat',
       githubVaultId,
+      skillId,
       createdAt: now,
       updatedAt: now,
       startedAt: now,
