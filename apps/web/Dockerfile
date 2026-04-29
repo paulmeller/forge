@@ -30,6 +30,9 @@ RUN addgroup -S -g 1001 nodejs && adduser -S -u 1001 -G nodejs nextjs
 COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/static ./apps/web/.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/apps/web/public ./apps/web/public
+# Copy native libsql bindings (not included in standalone output)
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules/.pnpm/libsql@*/node_modules/libsql ./node_modules/libsql
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules/.pnpm/@libsql+linux-x64-musl@*/node_modules/@libsql/linux-x64-musl ./node_modules/@libsql/linux-x64-musl
 USER nextjs
 EXPOSE 3000
 CMD ["node", "apps/web/server.js"]
