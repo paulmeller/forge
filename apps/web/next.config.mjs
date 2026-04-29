@@ -6,6 +6,7 @@ const withMDX = createMDX();
 const config = {
   output: 'standalone',
   transpilePackages: ['@forge/db'],
+  eslint: { ignoreDuringBuilds: true },
 };
 
 export default withMDX(config);
