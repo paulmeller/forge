@@ -83,6 +83,7 @@ jobs:
             NODE_ENV=production
           secrets: |
             DATABASE_URL=forge-database-url:latest
+            DATABASE_AUTH_TOKEN=forge-database-auth-token:latest
             ANTHROPIC_API_KEY=forge-anthropic-api-key:latest
             GITHUB_APP_TOKEN=forge-github-app-token:latest
 
@@ -141,6 +142,7 @@ jobs:
             NODE_ENV=production
           secrets: |
             DATABASE_URL=forge-database-url:latest
+            DATABASE_AUTH_TOKEN=forge-database-auth-token:latest
             ANTHROPIC_API_KEY=forge-anthropic-api-key:latest
             AGENTSTEP_KEY=forge-agentstep-key:latest
             GITHUB_APP_TOKEN=forge-github-app-token:latest
