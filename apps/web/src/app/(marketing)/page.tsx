@@ -9,22 +9,20 @@ export default function LandingPage() {
     <main>
       {/* Hero */}
       <section className="mx-auto max-w-[960px] px-6 pb-24 pt-24 md:px-12">
-        <div className="mx-auto max-w-[680px] text-center">
+        <div className="mx-auto max-w-[700px] text-center">
           <h1 className="mb-6 text-[40px] font-semibold leading-[1.05] tracking-[-2px] md:text-[64px]">
-            GitHub Issues in.
+            Backlogs in.
             <br />
-            Pull Requests out.
+            Results out.
           </h1>
-          <p className="mx-auto mb-4 max-w-[520px] text-[18px] leading-relaxed text-[#a1a1aa]">
-            Stripe runs 1,300 autonomous PRs per week with an internal tool.
-            Forge is that tool — open source.
+          <p className="mx-auto mb-4 max-w-[540px] text-[18px] leading-relaxed text-[#a1a1aa]">
+            Forge turns any backlog into a fleet of autonomous agents. They
+            read the brief, do the work, and deliver reviewable artifacts.
+            Code today. Content, data, and ops tomorrow.
           </p>
           <p className="mx-auto mb-10 max-w-[480px] text-[16px] leading-relaxed text-[#52525b]">
-            Connect your repos. Comment{' '}
-            <code className="rounded bg-[#18181b] px-1.5 py-0.5 text-[14px] text-[#a1a1aa]">
-              @forge
-            </code>{' '}
-            on any issue. Get a pull request back.
+            Stripe built this pattern internally for 1,300 PRs per week.
+            Forge is that infrastructure — open source.
           </p>
           <div className="flex justify-center gap-3">
             <Link
@@ -45,13 +43,15 @@ export default function LandingPage() {
 
       <hr className="mx-auto max-w-[960px] border-[#1a1a1e]" />
 
-      {/* How it works — three steps */}
+      {/* The pattern */}
       <section className="mx-auto max-w-[960px] px-6 py-20 md:px-12">
         <h2 className="mb-4 text-center text-2xl font-semibold tracking-tight">
-          Three steps. That&rsquo;s it.
+          One pattern. Any domain.
         </h2>
-        <p className="mb-14 text-center text-sm text-[#71717a]">
-          No CLI. No config files. Works from GitHub.
+        <p className="mx-auto mb-14 max-w-[520px] text-center text-sm text-[#71717a]">
+          Describe intent. Agents do the work. You review the output. The
+          pattern is the same whether the artifact is a pull request, a report,
+          a contract, or a campaign.
         </p>
 
         <div className="grid gap-10 md:grid-cols-3 md:gap-6">
@@ -61,23 +61,25 @@ export default function LandingPage() {
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#18181b] text-sm font-semibold text-[#a1a1aa]">
                 1
               </span>
-              <span className="text-base font-semibold">Connect</span>
+              <span className="text-base font-semibold">Describe</span>
             </div>
             <div className="mb-3 rounded-lg border border-[#27272a] bg-[#0f0f11] p-4">
               <p className="font-mono text-xs text-[#52525b]">
-                <span className="text-[#3b82f6]">forge.dev/setup</span>
+                Issue, ticket, or brief:
               </p>
-              <p className="mt-2 font-mono text-xs text-[#71717a]">
-                Sign in with GitHub.
-                <br />
-                Pick your repos.
-                <br />
-                <span className="text-[#22c55e]">Connected in 30 seconds.</span>
+              <p className="mt-2 font-mono text-xs text-[#fafafa]">
+                @forge add rate limiting to /api/users
+              </p>
+              <p className="mt-1 font-mono text-xs text-[#52525b]">
+                @forge review this contract against our new policy
+              </p>
+              <p className="mt-1 font-mono text-xs text-[#52525b]">
+                @forge generate Q3 analysis for all client datasets
               </p>
             </div>
             <p className="text-[13px] leading-relaxed text-[#52525b]">
-              Install the GitHub App. Select which repos Forge can access.
-              Webhooks are configured automatically.
+              State what you want in natural language. From a GitHub issue, a
+              ticket, or any system with a webhook.
             </p>
           </div>
 
@@ -87,22 +89,23 @@ export default function LandingPage() {
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#18181b] text-sm font-semibold text-[#a1a1aa]">
                 2
               </span>
-              <span className="text-base font-semibold">Work</span>
+              <span className="text-base font-semibold">Dispatch</span>
             </div>
             <div className="mb-3 rounded-lg border border-[#27272a] bg-[#0f0f11] p-4">
-              <p className="font-mono text-xs text-[#52525b]">
-                <span className="text-[#a1a1aa]">paulmeller</span> commented:
+              <p className="font-mono text-xs text-[#f59e0b]">
+                1 mission → 200 agents
               </p>
-              <p className="mt-2 font-mono text-xs text-[#fafafa]">
-                @forge add rate limiting to /api/users
-              </p>
-              <p className="mt-2 font-mono text-xs text-[#f59e0b]">
-                Agent dispatched. Coding...
+              <p className="mt-2 font-mono text-xs text-[#71717a]">
+                Each agent gets tools, context, and a budget.
+                <br />
+                Concurrency-controlled.
+                <br />
+                <span className="text-[#a1a1aa]">Claude, GPT, Gemini, or Codex.</span>
               </p>
             </div>
             <p className="text-[13px] leading-relaxed text-[#52525b]">
-              Comment on any issue in your connected repos. An agent picks it
-              up, reads the codebase, and starts coding.
+              Forge dispatches agents in parallel — one per unit of work. Each
+              runs in a sandboxed environment with the tools it needs.
             </p>
           </div>
 
@@ -116,18 +119,88 @@ export default function LandingPage() {
             </div>
             <div className="mb-3 rounded-lg border border-[#27272a] bg-[#0f0f11] p-4">
               <p className="font-mono text-xs text-[#22c55e]">
-                PR #234 opened
+                200 artifacts ready for review
               </p>
               <p className="mt-2 font-mono text-xs text-[#71717a]">
-                + 42 &nbsp;- 3 &nbsp;files changed: 2
+                PRs, reports, drafts, redlines —
+                <br />
+                whatever the domain produces.
               </p>
               <p className="mt-1 font-mono text-xs text-[#22c55e]">
-                CI passing
+                Human approves. Forge ships.
               </p>
             </div>
             <p className="text-[13px] leading-relaxed text-[#52525b]">
-              Get a pull request. CI runs automatically. Review code, not chat
-              logs. Merge when ready.
+              Every output is a reviewable artifact. You approve what ships.
+              Full audit trail of what every agent did, and what it cost.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <hr className="mx-auto max-w-[960px] border-[#1a1a1e]" />
+
+      {/* Domains */}
+      <section className="mx-auto max-w-[960px] px-6 py-20 md:px-12">
+        <h2 className="mb-4 text-center text-2xl font-semibold tracking-tight">
+          Shipping code today. Everything else tomorrow.
+        </h2>
+        <p className="mx-auto mb-14 max-w-[480px] text-center text-sm text-[#71717a]">
+          The agent doesn&rsquo;t know it&rsquo;s writing code. It&rsquo;s
+          following instructions with tools. Change the tools, change the domain.
+        </p>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="rounded-lg border border-[#27272a] bg-[#18181b] p-6">
+            <div className="mb-1 flex items-center gap-2">
+              <span className="text-[#22c55e]">*</span>
+              <h3 className="text-base font-semibold">Software engineering</h3>
+              <span className="rounded-full bg-[#22c55e]/10 px-2 py-0.5 text-[10px] font-medium text-[#22c55e]">
+                Live now
+              </span>
+            </div>
+            <p className="text-[13px] leading-relaxed text-[#71717a]">
+              PRs from GitHub issues. Fleet migrations. Self-healing CI.
+              Dependency bumps across hundreds of repos.
+            </p>
+          </div>
+          <div className="rounded-lg border border-[#1a1a1e] bg-[#0f0f11] p-6">
+            <div className="mb-1 flex items-center gap-2">
+              <span className="text-[#52525b]">*</span>
+              <h3 className="text-base font-semibold text-[#a1a1aa]">Content ops</h3>
+              <span className="rounded-full bg-[#27272a] px-2 py-0.5 text-[10px] font-medium text-[#52525b]">
+                Coming
+              </span>
+            </div>
+            <p className="text-[13px] leading-relaxed text-[#52525b]">
+              Localize 50 blog posts. Generate product descriptions from specs.
+              Draft campaigns from a brief. Editor reviews, not prompt sessions.
+            </p>
+          </div>
+          <div className="rounded-lg border border-[#1a1a1e] bg-[#0f0f11] p-6">
+            <div className="mb-1 flex items-center gap-2">
+              <span className="text-[#52525b]">*</span>
+              <h3 className="text-base font-semibold text-[#a1a1aa]">Data &amp; analysis</h3>
+              <span className="rounded-full bg-[#27272a] px-2 py-0.5 text-[10px] font-medium text-[#52525b]">
+                Coming
+              </span>
+            </div>
+            <p className="text-[13px] leading-relaxed text-[#52525b]">
+              Run the same analysis across 30 client datasets. Each agent
+              produces a report. Analyst spot-checks, doesn&rsquo;t start from scratch.
+            </p>
+          </div>
+          <div className="rounded-lg border border-[#1a1a1e] bg-[#0f0f11] p-6">
+            <div className="mb-1 flex items-center gap-2">
+              <span className="text-[#52525b]">*</span>
+              <h3 className="text-base font-semibold text-[#a1a1aa]">Compliance &amp; legal</h3>
+              <span className="rounded-full bg-[#27272a] px-2 py-0.5 text-[10px] font-medium text-[#52525b]">
+                Coming
+              </span>
+            </div>
+            <p className="text-[13px] leading-relaxed text-[#52525b]">
+              Review 200 vendor contracts against updated policy. Flag clauses.
+              Suggest redlines. Legal reviews the output, not the whole stack.
             </p>
           </div>
         </div>
@@ -171,18 +244,18 @@ export default function LandingPage() {
 
       <hr className="mx-auto max-w-[960px] border-[#1a1a1e]" />
 
-      {/* Scale — one mission, hundreds of repos */}
+      {/* Scale — one mission, any scale */}
       <section className="mx-auto max-w-[960px] px-6 py-20 md:px-12">
         <h2 className="mb-6 text-center text-2xl font-semibold tracking-tight">
-          One mission. Hundreds of repos.
+          One mission. Any scale.
         </h2>
         <div className="flex items-center justify-center" style={{ minHeight: '4rem' }}>
           <RotatingMissions />
         </div>
         <p className="mx-auto mt-6 max-w-[480px] text-center text-[14px] leading-relaxed text-[#52525b]">
-          One command spawns 200 agents. Each clones a repo, makes the change,
-          opens a PR. Concurrency-controlled. Budget-capped. Every action in a
-          ledger you own.
+          One command spawns hundreds of agents. Each works in a sandboxed
+          environment with the tools it needs. Concurrency-controlled.
+          Budget-capped. Every action in a ledger you own.
         </p>
       </section>
 
@@ -196,7 +269,7 @@ export default function LandingPage() {
           </span>
           <p className="mt-2 text-[15px] leading-relaxed text-[#71717a]">
             Most agent platforms don&rsquo;t log what happened across your fleet.
-            You find out something went wrong when a customer reports it.{' '}
+            You find out something went wrong when someone reports it.{' '}
             <span className="text-[#a1a1aa]">
               Forge records every action, every state change, every tool call —
               in a ledger you own.
@@ -208,7 +281,7 @@ export default function LandingPage() {
             Budgeted.
           </span>
           <p className="mt-2 text-[15px] leading-relaxed text-[#71717a]">
-            Agent APIs bill per session-hour with no cap. You discover what you
+            Agent APIs bill per session with no cap. You discover what you
             spent after the fact.{' '}
             <span className="text-[#a1a1aa]">
               Forge caps spend per mission. Auto-pauses at 80%. You set the
@@ -270,7 +343,7 @@ export default function LandingPage() {
           Start a Mission.
         </h2>
         <p className="mb-8 text-[15px] text-[#71717a]">
-          First PR in under 10 minutes. MIT licensed. Free to use.
+          First result in under 10 minutes. MIT licensed. Free to use.
         </p>
         <div className="flex justify-center gap-3">
           <Link

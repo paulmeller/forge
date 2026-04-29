@@ -5,11 +5,14 @@ import { useEffect, useState } from 'react';
 const missions = [
   'Migrate 200 services from Express to Fastify.',
   'Bump every CVE across your org in one afternoon.',
+  'Localize 50 blog posts into 8 languages.',
+  'Review 200 vendor contracts against updated policy.',
   'Add OpenTelemetry spans to 40 microservices.',
+  'Generate Q3 analysis for every client dataset.',
   'Replace Jest with Vitest across your monorepo.',
+  'Draft personalized proposals for 100 enterprise leads.',
   'Upgrade all repos from Node 18 to Node 22.',
-  'Add rate limiting to every public API endpoint.',
-  'Rewrite your COBOL billing system in Go.',
+  'Audit 300 product descriptions for compliance.',
 ];
 
 export function RotatingMissions() {
