@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.72",
+    "@ai-sdk/openai": "^3.0.54",
     "@ai-sdk/react": "^3.0.171",
     "@anthropic-ai/sdk": "^0.88.0",
     "@forge/db": "workspace:*",

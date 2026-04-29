@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 
 import { anthropic } from '@ai-sdk/anthropic';
+import { openai } from '@ai-sdk/openai';
 import { stepCountIs, streamText } from 'ai';
 // Import drizzle helpers from @forge/db's own drizzle-orm instance to avoid
 // duplicate-package type mismatches with the ai-sdk's transitive drizzle copy.
@@ -33,6 +34,13 @@ When a user asks you to do something to their codebase, create a mission for it.
 
 If the user hasn't connected any repos yet, suggest they visit /setup first.`;
 
+function getChatModel() {
+  const id = process.env.FORGE_CHAT_MODEL ?? 'anthropic:claude-sonnet-4-5-20250514';
+  const [provider, model] = id.split(':');
+  if (provider === 'openai') return openai(model ?? 'gpt-5.5');
+  return anthropic(model ?? 'claude-sonnet-4-5-20250514');
+}
+
 export async function POST(req: Request) {
   const user = await withAuth();
   const { messages } = await req.json();
@@ -40,7 +48,7 @@ export async function POST(req: Request) {
   const userId = user.id;
 
   const result = streamText({
-    model: anthropic('claude-sonnet-4-5-20250514'),
+    model: getChatModel(),
     system: SYSTEM_PROMPT,
     messages,
     stopWhen: stepCountIs(5),
