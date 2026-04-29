@@ -151,6 +151,7 @@ jobs:
             ANTHROPIC_API_KEY=forge-anthropic-api-key:latest
             GATEWAY_URL=forge-gateway-url:latest
             GATEWAY_API_KEY=forge-gateway-api-key:latest
+            GATEWAY_ENVIRONMENT_ID=forge-gateway-environment-id:latest
             GITHUB_APP_TOKEN=forge-github-app-token:latest
 
       - name: Print URL

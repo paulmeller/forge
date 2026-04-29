@@ -25,6 +25,7 @@ export const env = {
   FORGE_MA_ENVIRONMENT_ID: process.env.FORGE_MA_ENVIRONMENT_ID,
   GATEWAY_URL: process.env.GATEWAY_URL,
   GATEWAY_API_KEY: process.env.GATEWAY_API_KEY,
+  GATEWAY_ENVIRONMENT_ID: process.env.GATEWAY_ENVIRONMENT_ID,
 
   // GitHub App credentials for repo cloning (used inside adapter.createSession)
   // and for Checks API polling (CI status).

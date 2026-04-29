@@ -13,6 +13,7 @@ import type {
 export type GatewayAdapterOptions = {
   baseUrl: string;
   apiKey: string;
+  environmentId?: string;
 };
 
 type GatewayEvent = {
@@ -40,17 +41,19 @@ export class GatewayAdapter implements BackendAdapter {
   readonly kind = 'gateway' as const;
   private readonly baseUrl: string;
   private readonly apiKey: string;
+  private readonly environmentId: string;
 
   constructor(opts: GatewayAdapterOptions) {
     // Strip trailing slash for consistent path joining
     this.baseUrl = opts.baseUrl.replace(/\/+$/, '');
     this.apiKey = opts.apiKey;
+    this.environmentId = opts.environmentId ?? 'default';
   }
 
   async createSession(input: CreateSessionInput): Promise<CreateSessionResult> {
     const body: Record<string, unknown> = {
       agent: input.agentId,
-      environment_id: 'default',
+      environment_id: this.environmentId,
       title: `forge: ${input.repoUrl}`,
       resources: [
         {

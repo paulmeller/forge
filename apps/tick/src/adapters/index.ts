@@ -36,7 +36,7 @@ export function getAdapter(kind: BackendKind): BackendAdapter {
       if (!env.GATEWAY_API_KEY) {
         throw new Error('GATEWAY_API_KEY is required for gateway backend');
       }
-      adapter = new GatewayAdapter({ baseUrl: env.GATEWAY_URL, apiKey: env.GATEWAY_API_KEY });
+      adapter = new GatewayAdapter({ baseUrl: env.GATEWAY_URL, apiKey: env.GATEWAY_API_KEY, environmentId: env.GATEWAY_ENVIRONMENT_ID });
       break;
     }
     default:
