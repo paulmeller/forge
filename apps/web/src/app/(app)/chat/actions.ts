@@ -58,20 +58,25 @@ export async function createSessionFromChat(
 ): Promise<ChatSessionResult> {
   const user = await withAuth();
 
-  // Find the user's connected repos
-  const connectedRepos = await db
-    .select({
-      repo: githubInstallationRepos.repo,
-      agentId: githubInstallations.agentId,
-      githubVaultId: githubInstallations.githubVaultId,
-    })
-    .from(githubInstallationRepos)
-    .innerJoin(
-      githubInstallations,
-      eq(githubInstallationRepos.installationId, githubInstallations.id),
-    )
-    .where(eq(githubInstallations.userId, user.id))
-    .limit(10);
+  // Find the user's connected repos (table may not exist in dev)
+  let connectedRepos: { repo: string; agentId: string | null; githubVaultId: string | null }[] = [];
+  try {
+    connectedRepos = await db
+      .select({
+        repo: githubInstallationRepos.repo,
+        agentId: githubInstallations.agentId,
+        githubVaultId: githubInstallations.githubVaultId,
+      })
+      .from(githubInstallationRepos)
+      .innerJoin(
+        githubInstallations,
+        eq(githubInstallationRepos.installationId, githubInstallations.id),
+      )
+      .where(eq(githubInstallations.userId, user.id))
+      .limit(10);
+  } catch {
+    // Table doesn't exist yet — fall back to defaults
+  }
 
   const repo = connectedRepos[0]?.repo ?? 'paulmeller/forge';
   const agentId =
