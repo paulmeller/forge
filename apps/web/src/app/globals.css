@@ -1,6 +1,12 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+@import 'fumadocs-ui/css/neutral.css';
+@import 'fumadocs-ui/css/preset.css';
+
+@config '../../tailwind.config.ts';
+
+@source '../../node_modules/fumadocs-ui/dist/**/*.js';
+@source '../**/*.{ts,tsx}';
+@source '../../content/**/*.mdx';
 
 @layer base {
   :root {
@@ -47,9 +53,10 @@
 
 @layer base {
   * {
-    @apply border-border;
+    border-color: hsl(var(--border));
   }
   body {
-    @apply bg-background text-foreground;
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
   }
 }

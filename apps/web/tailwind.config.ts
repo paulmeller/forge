@@ -3,7 +3,11 @@ import animate from 'tailwindcss-animate';
 
 const config: Config = {
   darkMode: ['class'],
-  content: ['./src/**/*.{ts,tsx}'],
+  content: [
+    './src/**/*.{ts,tsx}',
+    './content/**/*.mdx',
+    './node_modules/fumadocs-ui/dist/**/*.js',
+  ],
   theme: {
     container: {
       center: true,

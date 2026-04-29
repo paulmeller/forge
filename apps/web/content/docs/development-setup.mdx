@@ -1,0 +1,135 @@
+---
+title: Development Setup
+description: Clone the repo, install dependencies, configure env vars, and start the dev servers.
+---
+
+## Prerequisites
+
+| Tool | Version | Install |
+|---|---|---|
+| Node.js | **>= 22** | [nvm](https://github.com/nvm-sh/nvm) or [fnm](https://github.com/Schniz/fnm) |
+| pnpm | **10** | `corepack enable && corepack prepare pnpm@latest --activate` |
+| Anthropic API key | — | [console.anthropic.com](https://console.anthropic.com) |
+| GitHub token | — | PAT or GitHub App with repo access |
+
+The repo's `package.json` declares `"packageManager": "pnpm@10.33.0"`, so Corepack will auto-install the right version.
+
+## Clone and install
+
+```bash
+git clone https://github.com/anthropics/forge.git
+cd forge
+pnpm install
+```
+
+## Environment variables
+
+Copy both example files and fill in your keys:
+
+```bash
+cp apps/web/.env.example apps/web/.env.local
+cp apps/tick/.env.example apps/tick/.env.local
+```
+
+### `apps/web/.env.local`
+
+| Variable | Required | Default | Notes |
+|---|---|---|---|
+| `DATABASE_URL` | Yes | `file:./local.db` | Local SQLite via libSQL. For remote Turso, use a `libsql://` URL. |
+| `DATABASE_AUTH_TOKEN` | Only for remote Turso | — | Omit for local dev. |
+| `BETTER_AUTH_SECRET` | Yes | — | Random 32-char string for session signing. |
+| `BETTER_AUTH_URL` | Yes | `http://localhost:3000` | Set to `http://localhost:3100` to match the dev port. |
+| `FORGE_BACKEND` | Yes | `managed-agents` | `managed-agents` or `gateway`. |
+| `ANTHROPIC_API_KEY` | When backend = `managed-agents` | — | Your Anthropic API key. |
+| `GATEWAY_URL` | When backend = `gateway` | — | URL of your AgentStep Gateway instance. |
+
+### `apps/tick/.env.local`
+
+| Variable | Required | Default | Notes |
+|---|---|---|---|
+| `DATABASE_URL` | Yes | `file:../../packages/db/local.db` | Points to the same local DB as web. |
+| `PORT` | No | `8080` | HTTP port for the tick service. |
+| `LOG_LEVEL` | No | `info` | Pino log level. |
+| `TICK_ALLOW_UNAUTHENTICATED` | Dev only | `true` | Skips OIDC verification locally. |
+
+The tick service ships with working defaults for local dev -- no changes needed unless you customize ports or log levels.
+
+## Database setup
+
+Generate and apply migrations (local SQLite, no external DB required):
+
+```bash
+pnpm --filter @forge/db db:generate
+pnpm --filter @forge/db db:migrate
+```
+
+To inspect the database visually:
+
+```bash
+pnpm --filter @forge/db db:studio
+```
+
+## Running dev servers
+
+```bash
+pnpm dev
+```
+
+This runs `pnpm --parallel -r dev` under the hood, starting both services with live reload:
+
+| Service | URL | What it does |
+|---|---|---|
+| **web** (`@forge/web`) | [http://localhost:3100](http://localhost:3100) | Next.js -- console UI, API routes, webhook receiver |
+| **tick** (`@forge/tick`) | [http://localhost:8080](http://localhost:8080) | Tick loop -- claims Tasks, polls sessions, runs the Gate |
+
+You can also run them individually:
+
+```bash
+pnpm --filter @forge/web dev    # web only
+pnpm --filter @forge/tick dev   # tick only
+```
+
+## Project structure
+
+```
+forge/
+├── apps/
+│   ├── web/          Next.js app — console, API routes, business logic
+│   │   └── src/
+│   │       ├── app/api/missions/   API Route Handlers
+│   │       ├── app/missions/       Console pages
+│   │       ├── lib/                Business logic (missions, planner, tasks, ledger)
+│   │       └── components/         UI components (shadcn + custom)
+│   ├── tick/         Tick service — dispatcher, poller, CI, auto-merge, budgets
+│   │   └── src/
+│   │       ├── tick.ts             Main tick loop
+│   │       ├── dispatcher.ts       Claims and dispatches Tasks
+│   │       ├── poller.ts           Polls session events
+│   │       ├── ci.ts               CI status checks
+│   │       ├── auto-merge.ts       Auto-merge on green CI
+│   │       ├── budgets.ts          Budget enforcement
+│   │       ├── reconciler.ts       State reconciliation
+│   │       ├── state.ts            Task state machine
+│   │       └── adapters/           Backend adapters (managed-agents, gateway)
+│   └── docs/         Fumadocs documentation site
+├── packages/
+│   └── db/           Shared database package (Drizzle ORM + libSQL)
+│       └── src/
+│           ├── schema.ts           All tables, enums, types
+│           ├── client.ts           DB client factory
+│           └── migrate.ts          Migration runner
+├── pnpm-workspace.yaml             Workspace: apps/*, packages/*, spikes/*
+├── tsconfig.base.json              Shared strict TypeScript config
+└── package.json                    Root scripts, engines, packageManager
+```
+
+## Useful root scripts
+
+| Command | What it does |
+|---|---|
+| `pnpm dev` | Start all dev servers in parallel |
+| `pnpm build` | Build all packages |
+| `pnpm test` | Run all tests (`pnpm -r test`) |
+| `pnpm typecheck` | Type-check all packages (`pnpm -r typecheck`) |
+| `pnpm lint` | Lint all packages |
+| `pnpm format` | Format all files with Prettier |

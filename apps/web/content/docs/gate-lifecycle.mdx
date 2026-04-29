@@ -1,0 +1,226 @@
+---
+title: Gate Lifecycle
+description: How Forge opens PRs, polls CI, retries with feedback, runs AI review, and auto-merges.
+---
+
+The "gate" is the pipeline a Task passes through after the agent finishes coding. It spans three tick subsystems (CI Poller, AI Review, Auto-Merge) plus the Reconciler's PR-opening logic. This page traces a Task from `turn_ended` through to `merged` or `failed`.
+
+## PR creation
+
+There are two paths to getting a PR:
+
+### Path 1: Agent opens the PR (primary)
+
+The agent calls `create_pull_request` via the GitHub MCP server during its session. The poller sees the `agent.mcp_tool_result` event, extracts the PR URL with a regex match against `github.com/.../pull/(\d+)`, and transitions the Task to `awaiting_ci`.
+
+```ts
+// state.ts — only fires for create_pull_request, not read operations
+case 'agent.mcp_tool_result': {
+  const toolName = (event.raw as { mcp_tool_use_name?: string }).mcp_tool_use_name;
+  const isCreate = !toolName || toolName === 'create_pull_request';
+  if (!isCreate) return null;
+  // extract PR URL and number from the tool result text
+}
+```
+
+The poller auto-confirms `create_pull_request` tool uses when the MCP server's permission policy is `ask`. Other tools (merge, force-push, branch delete) are left blocking for operator intervention.
+
+Auto-confirmed tools:
+- `create_pull_request`
+- `create_pull_request_review_comment`
+- `add_issue_comment`
+- `create_or_update_file`
+
+### Path 2: Reconciler opens the PR (fallback)
+
+Some backends (e.g. Codex, OpenCode via the Gateway adapter) push branches but don't open PRs. The reconciler handles this:
+
+1. Finds Tasks in `turn_ended` with no `pr_url`.
+2. Searches for branches the agent may have pushed — tries known patterns (`forge/{taskId}`, `feat/issue-*`) and any branch ahead of the base branch.
+3. If a branch with commits ahead of base is found:
+   - Checks if a PR already exists for that branch (if so, records it).
+   - Otherwise, creates a PR via GitHub API with title derived from the linked issue or Mission name.
+   - Transitions to `awaiting_ci`.
+4. If no branch is found, marks the Task `abandoned`.
+
+## CI polling
+
+The CI Poller (`ci.ts`) runs on every tick. It queries all Tasks in `awaiting_ci` that have a PR URL.
+
+For each Task:
+
+1. **Fetch the PR** via `pulls.get` to get the head SHA.
+2. **List check runs** via `checks.listForRef` for that SHA.
+3. **Evaluate:**
+
+| Condition | Result |
+|-----------|--------|
+| No check runs exist | Treat as success — transition to review. |
+| All checks completed, all success/skipped/neutral | Transition to `awaiting_review` (or `awaiting_ai_review` if enabled). |
+| All checks completed, any failure/timed_out/cancelled | Enter the retry-or-fail path (see below). |
+| Some checks still running | Skip — re-evaluate on the next tick. |
+
+## Retry-with-feedback
+
+When CI fails and the Task has retries remaining (`retryCount < TASK_RETRY_MAX`, default 3):
+
+1. **Build a retry prompt** with the failing check names, conclusions, output summaries, and links:
+
+```
+CI failed on the PR you opened. Sha: abc123.
+
+Failing checks:
+- lint (failure): ESLint found 3 errors [https://...]
+- test (timed_out): Jest timeout after 300s [https://...]
+
+Please investigate the logs at the linked URLs (use the github MCP
+get_workflow_run_logs tool if available, otherwise read the linked
+details), fix the issue on the same branch, and push the fix.
+Reply when done.
+```
+
+2. **Send the prompt** as a follow-up turn to the same session via `adapter.sendTurn()`.
+3. **Increment `retryCount`** but keep the Task at `awaiting_ci` — once the agent pushes a fix, GitHub triggers new check runs and the CI Poller re-evaluates on the next tick.
+4. **Record** a `ci.retry_dispatched` ledger event with the retry count and failed check names.
+
+If `sendTurn` fails (session terminated, network error), the Task falls through to the failure path.
+
+### Failure (retries exhausted)
+
+When CI fails and `retryCount >= TASK_RETRY_MAX`:
+
+- Task transitions to `failed`.
+- `lastError` records which checks failed.
+- A `ci.failed` ledger event is recorded with the SHA, failed check names, and `retriesExhausted: true`.
+
+## AI Review
+
+When a Mission has `aiReviewEnabled: true`, Tasks go through an additional AI review step between CI and human review.
+
+### Flow
+
+```
+awaiting_ci ──(CI passes)──> awaiting_ai_review ──(AI approves)──> awaiting_review
+                                      │
+                                      │ AI rejects + retries < 3
+                                      v
+                                 awaiting_ci  (feedback sent to agent)
+                                      │
+                                      │ AI rejects + retries >= 3
+                                      v
+                                 awaiting_review  (escalated to human)
+```
+
+### Review process
+
+1. **Fetch the PR diff** from GitHub.
+2. **Build a review prompt** with the Mission goal and the diff (truncated to 50,000 chars).
+3. **Call Claude** (`claude-sonnet-4-6`) with structured review criteria:
+   - Achieves the goal
+   - No bugs or security issues
+   - No scope creep
+   - Pragmatic on style (don't reject for minor nits)
+4. **Parse the JSON response** — `{"decision":"approve","feedback":"..."}` or `{"decision":"reject","feedback":"..."}`.
+
+### Decision outcomes
+
+| Decision | Retries left? | Action |
+|----------|--------------|--------|
+| `approve` | n/a | Transition to `awaiting_review`. Record `ai_review.approved`. |
+| `reject` | Yes (`aiReviewRetryCount < 3`) | Send feedback to the agent via `sendTurn`. Transition back to `awaiting_ci` (CI will re-run after the agent pushes). Increment `aiReviewRetryCount`. Record `ai_review.rejected`. |
+| `reject` | No (`aiReviewRetryCount >= 3`) | Escalate to human review — transition to `awaiting_review` with `lastError` set to the feedback. Record `ai_review.escalated`. |
+
+## Auto-merge
+
+The Auto-Merge subsystem (`auto-merge.ts`) evaluates Tasks in `awaiting_review` against the Mission's auto-merge policy.
+
+### Policy evaluation
+
+The `AutoMergePolicy` type:
+
+```ts
+type AutoMergePolicy = {
+  enabled: boolean;
+  maxAdditions?: number;
+  maxDeletions?: number;
+  maxFilesChanged?: number;
+  requiredChecks?: string[];
+  allowedPathPatterns?: string[];   // glob patterns, supports * and **
+};
+```
+
+For each candidate Task:
+
+1. **Skip** if the Mission has no policy or `enabled: false`.
+2. **Fetch PR metadata** via `pulls.get` — additions, deletions, changed files.
+3. **Evaluate diff-shape caps:**
+   - `additions <= maxAdditions`
+   - `deletions <= maxDeletions`
+   - `filesChanged <= maxFilesChanged`
+4. **Evaluate path patterns** (if configured): fetch the file list via `pulls.listFiles`, check that every changed file matches at least one `allowedPathPatterns` glob.
+5. **If any check fails**, record an `auto_merge.blocked` ledger event with the reasons and set `lastError` on the Task. Status stays at `awaiting_review` — the operator can merge manually.
+
+### Merge execution
+
+If the policy allows:
+
+1. Transition to `merging`.
+2. Call `pulls.merge` with `merge_method: 'squash'`.
+3. On success: transition to `merged`, stamp `completedAt`, record `auto_merge.merged`.
+4. On failure (merge conflict, branch protection, API error): roll back to `awaiting_review` with the error in `lastError`, record `auto_merge.failed`.
+
+### No policy = no auto-merge
+
+If `auto_merge_policy` is `null` on the Mission (the default), no auto-merge happens. The Task stays at `awaiting_review` until a human merges the PR externally. Forge detects the merge on the next reconciler pass.
+
+## Flag-for-review flow
+
+Tasks that don't qualify for auto-merge end up in `awaiting_review`. This is the "flag for review" state — the operator sees them in the Console and can:
+
+- **Merge manually** via GitHub. The reconciler will detect the PR is merged and transition the Task to `merged`.
+- **Request changes** via GitHub. The operator (or a reviewer) leaves comments. A future tick can detect the review state and notify, but v1 relies on the operator driving the GitHub side.
+- **Abandon** via the Console. The Task transitions to `abandoned`.
+
+Tasks reach `awaiting_review` through several paths:
+
+1. CI passed + no auto-merge policy.
+2. CI passed + auto-merge policy blocked (diff too large, paths outside allow-list).
+3. Auto-merge API call failed (rolled back from `merging`).
+4. AI review approved (when AI review is enabled).
+5. AI review retries exhausted (escalated to human).
+
+## End-to-end example
+
+A typical Task lifecycle through the gate:
+
+```
+1.  Agent finishes coding, calls create_pull_request
+2.  Poller sees mcp_tool_result → Task moves to awaiting_ci
+3.  CI Poller: checks pending → skip
+4.  CI Poller: checks complete, lint failed
+5.  CI Poller: retryCount=0 < 3, sends retry prompt to agent
+6.  Agent fixes lint, pushes to same branch
+7.  CI Poller: checks pending → skip
+8.  CI Poller: all checks pass → awaiting_review
+9.  Auto-Merge: policy allows (≤20 additions, only package.json)
+10. Auto-Merge: merging → squash merge → merged ✓
+```
+
+## Ledger events
+
+Every gate decision is recorded in the Ledger:
+
+| Event type | When |
+|------------|------|
+| `ci.passed` | CI checks all passed. Payload includes SHA, check count, verdict. |
+| `ci.retry_dispatched` | Retry-with-feedback sent. Payload includes SHA, retry count, failed check names. |
+| `ci.failed` | CI failed with retries exhausted. Payload includes SHA, failed checks, `retriesExhausted`. |
+| `ai_review.approved` | AI reviewer approved the PR. |
+| `ai_review.rejected` | AI reviewer rejected; feedback sent to agent for retry. |
+| `ai_review.escalated` | AI review retries exhausted; escalated to human. |
+| `auto_merge.merged` | PR auto-merged. Payload includes PR number, merge method, diff stats. |
+| `auto_merge.blocked` | PR blocked by policy. Payload includes PR number and reasons. |
+| `auto_merge.failed` | Merge API call failed. Payload includes error message. |
+| `gate.pr_opened` | Reconciler opened a PR on behalf of the agent. |
+| `task.abandoned` | Reconciler marked a Task abandoned (no branch found). |
+| `task.dependency_failed` | Reconciler cascade-failed a Task due to upstream dependency failure. |

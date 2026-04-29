@@ -1,0 +1,129 @@
+---
+title: "API: Tasks"
+description: REST API reference for listing and inspecting Tasks within a Mission.
+---
+
+Tasks are the atomic unit of work in Forge: one repo, one branch, one backend session. Tasks are always accessed through their parent Mission.
+
+All endpoints require authentication via a valid session cookie or bearer token.
+
+## List Tasks for a Mission
+
+```
+GET /api/missions/:missionId/tasks
+```
+
+Returns all Tasks belonging to a Mission, ordered by creation date (oldest first).
+
+**Response** `200`
+
+```json
+{
+  "tasks": [
+    {
+      "id": "tsk_abc123...",
+      "missionId": "msn_...",
+      "repo": "acme/api",
+      "baseBranch": "main",
+      "promptVars": {
+        "package": "fast-glob",
+        "target_version": "^3.3.2"
+      },
+      "issueRef": null,
+      "dependsOnIds": null,
+      "status": "running",
+      "sessionId": "sess_...",
+      "prUrl": null,
+      "prNumber": null,
+      "diffAdditions": null,
+      "diffDeletions": null,
+      "filesChanged": null,
+      "retryCount": 0,
+      "aiReviewRetryCount": 0,
+      "lastError": null,
+      "costUsd": 0,
+      "costTokens": 0,
+      "createdAt": "2026-04-28T10:01:00.000Z",
+      "updatedAt": "2026-04-28T10:03:00.000Z",
+      "dispatchedAt": "2026-04-28T10:02:00.000Z",
+      "completedAt": null
+    }
+  ]
+}
+```
+
+| Status | Condition |
+|---|---|
+| `200` | Tasks returned (may be an empty array if the Mission has no Tasks yet). |
+| `404` | Mission not found. |
+
+## Task object
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | Unique Task identifier (prefixed `tsk_`). |
+| `missionId` | `string` | Parent Mission ID. |
+| `repo` | `string` | Target repository in `owner/repo` format. |
+| `baseBranch` | `string` | Branch to work against. Defaults to `main`. |
+| `promptVars` | `object \| null` | Key-value pairs substituted into the Mission's goal template. |
+| `issueRef` | `string \| null` | Optional issue reference, e.g. `acme/api#42`. |
+| `dependsOnIds` | `string[] \| null` | Task IDs that must reach `merged` before this Task can be dispatched. |
+| `status` | `string` | Current Task status (see table below). |
+| `sessionId` | `string \| null` | Backend session ID, set once dispatched. |
+| `prUrl` | `string \| null` | URL of the opened pull request. |
+| `prNumber` | `number \| null` | PR number on GitHub. |
+| `diffAdditions` | `number \| null` | Lines added in the PR diff. |
+| `diffDeletions` | `number \| null` | Lines deleted in the PR diff. |
+| `filesChanged` | `number \| null` | Number of files changed in the PR. |
+| `retryCount` | `number` | Number of CI-failure retry turns sent. |
+| `aiReviewRetryCount` | `number` | Number of AI review retry iterations. |
+| `lastError` | `string \| null` | Error message from the last failure, if any. |
+| `costUsd` | `number` | Accumulated cost in USD (integer, cents precision). |
+| `costTokens` | `number` | Accumulated token usage. |
+| `createdAt` | `string` | ISO 8601 timestamp. |
+| `updatedAt` | `string` | ISO 8601 timestamp. |
+| `dispatchedAt` | `string \| null` | When the Task was claimed by the dispatcher. |
+| `completedAt` | `string \| null` | When the Task reached a terminal state. |
+
+## Task status values
+
+| Status | Description |
+|---|---|
+| `queued` | Waiting to be dispatched. Remains here if `dependsOnIds` predecessors haven't merged. |
+| `dispatching` | Dispatcher is creating a backend session for this Task. |
+| `running` | Backend session is active; agent is working. |
+| `turn_ended` | Agent completed a turn. Gate will evaluate next steps. |
+| `opening_pr` | Gate is opening a pull request for the agent's changes. |
+| `awaiting_ci` | PR is open; waiting for CI checks to complete. |
+| `awaiting_ai_review` | PR is open and CI passed; waiting for AI review. |
+| `awaiting_review` | PR is open and CI passed; waiting for human review. |
+| `merging` | Auto-merge policy allows merge; merge is in progress. |
+| `merged` | PR merged. Terminal state (success). |
+| `abandoned` | Agent produced no diff, or the Task was manually abandoned. Terminal state. |
+| `failed` | Unrecoverable error or retry limit exceeded. Terminal state. |
+
+## Task lifecycle
+
+```
+queued
+  └─▸ dispatching
+        └─▸ running
+              └─▸ turn_ended
+                    └─▸ opening_pr
+                          └─▸ awaiting_ci
+                                ├─▸ awaiting_ai_review ─▸ awaiting_review ─▸ merging ─▸ merged
+                                ├─▸ awaiting_review ─▸ merging ─▸ merged
+                                ├─▸ merging ─▸ merged  (auto-merge)
+                                └─▸ running  (CI retry)
+
+              └─▸ abandoned  (no diff)
+              └─▸ failed     (unrecoverable error)
+```
+
+On CI failure with `retryCount < TASK_RETRY_MAX` (default 3), the Gate sends a follow-up turn with the CI failure log and moves the Task back to `running`.
+
+## Notes
+
+- There is no standalone Task creation endpoint. Tasks are created by the planner when you call `POST /api/missions/:missionId/plan`.
+- There is no individual Task GET endpoint in the current API. Use the list endpoint and filter client-side, or access Task details through the Console UI.
+- Task retry, abandon, and force-merge actions are currently handled through the Console UI and the tick loop, not via dedicated REST endpoints.

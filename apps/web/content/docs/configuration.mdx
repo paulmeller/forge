@@ -1,0 +1,95 @@
+---
+title: Configuration
+description: Environment variables and setup reference.
+---
+
+Forge uses environment variables for configuration. The two services (`forge-web` and `forge-tick`) each have their own `.env.local` file, copied from the corresponding `.env.example`.
+
+## forge-web (apps/web/.env.local)
+
+### Required
+
+| Variable | Description | Example |
+|---|---|---|
+| `DATABASE_URL` | libSQL / Turso connection string. Use `file:./local.db` for local dev. | `file:./local.db` |
+| `BETTER_AUTH_SECRET` | Random 32+ character string for session signing. | `k7Gx9...` |
+| `BETTER_AUTH_URL` | The public URL of the web service. | `http://localhost:3100` |
+| `FORGE_BACKEND` | Default execution backend: `managed-agents` or `gateway`. | `managed-agents` |
+
+### Backend-specific
+
+| Variable | When required | Description |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | `FORGE_BACKEND=managed-agents` | Your Anthropic API key (`sk-ant-...`). |
+| `GATEWAY_URL` | `FORGE_BACKEND=gateway` | URL of your self-hosted AgentStep Gateway instance. |
+
+### Optional
+
+| Variable | Description | Default |
+|---|---|---|
+| `DATABASE_AUTH_TOKEN` | Auth token for remote Turso databases. Omit for local libSQL. | _(none)_ |
+
+## forge-tick (apps/tick/.env.local)
+
+### Required
+
+| Variable | Description | Example |
+|---|---|---|
+| `DATABASE_URL` | libSQL / Turso connection string. For local dev, point to the shared DB. | `file:../../packages/db/local.db` |
+
+### Optional
+
+| Variable | Description | Default |
+|---|---|---|
+| `PORT` | Port the tick service listens on. | `8080` |
+| `LOG_LEVEL` | Pino log level (`trace`, `debug`, `info`, `warn`, `error`, `fatal`). | `info` |
+| `DATABASE_AUTH_TOKEN` | Auth token for remote Turso databases. | _(none)_ |
+
+### OIDC (production only)
+
+In production, the tick endpoint is protected by OIDC tokens issued by Cloud Scheduler. These variables are not needed for local development.
+
+| Variable | Description |
+|---|---|
+| `TICK_EXPECTED_AUDIENCE` | The Cloud Run service URL (e.g. `https://forge-tick-xyz.a.run.app`). |
+| `TICK_EXPECTED_ISSUER_EMAIL` | The service account email used by Cloud Scheduler. |
+
+For local dev, OIDC verification is bypassed automatically:
+
+```dotenv
+TICK_ALLOW_UNAUTHENTICATED=true
+```
+
+## Database setup
+
+Forge uses **libSQL** (the open-source fork of SQLite) locally and **Turso** in production. The schema is managed with **Drizzle ORM**.
+
+### Local development
+
+A local SQLite file is used. No database server needed:
+
+```bash
+# Generate migration files from the schema
+pnpm --filter @forge/db db:generate
+
+# Apply migrations
+pnpm --filter @forge/db db:migrate
+```
+
+Both services must point at the same database file. The defaults in `.env.example` are configured for this.
+
+### Production (Turso)
+
+Create a Turso database and set the connection string and auth token:
+
+```dotenv
+DATABASE_URL=libsql://your-db-name-your-org.turso.io
+DATABASE_AUTH_TOKEN=your-token
+```
+
+Set these in both services' environment configuration.
+
+## Next steps
+
+- [Quickstart](/docs/quickstart) — get up and running.
+- [Deploying to Cloud Run](/docs/deploying-to-cloud-run) — production deployment guide.

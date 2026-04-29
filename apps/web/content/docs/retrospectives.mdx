@@ -1,0 +1,142 @@
+---
+title: Retrospectives
+description: Post-Mission analysis that proposes skill improvements and memory entries based on Ledger evidence.
+---
+
+## What a retrospective is
+
+A retrospective is a structured, post-Mission analysis phase. After a Mission completes (or fails significantly), Forge can spawn an analyst agent that reads the Mission's Ledger and proposes concrete improvements — patches to skills and new facts for the memory store.
+
+Retrospectives close the feedback loop: what agents learned on real Tasks feeds back into how future Missions run, but only through human review.
+
+## What triggers a retrospective
+
+- **Operator-initiated** — the operator clicks "Retrospect" on a completed or failed Mission in the Console.
+- **Auto-offered** — Forge suggests a retrospective when a Mission's success rate falls below a configurable threshold (planned for v2).
+
+## How the analyst agent works
+
+When a retrospective is triggered:
+
+1. Forge creates a retrospective record with status `pending`.
+2. A dedicated agent session is spawned — the "analyst." This session is **read-only** and scoped to the Mission's Ledger. The analyst has no tool use except Ledger queries.
+3. The analyst's instructions come from `prompts/retrospective.md` in the Forge repo. These instructions are fixed and cannot be edited per-Mission.
+4. The analyst receives the Mission's metadata and its complete Ledger event stream.
+5. The retrospective status moves to `running` while the analyst works.
+6. The analyst produces a structured JSON response with an analysis summary and a list of proposals.
+
+### Retrospective lifecycle
+
+| Status | Meaning |
+|---|---|
+| `pending` | Retrospective created, analyst not yet started. |
+| `running` | Analyst agent is processing the Ledger. |
+| `completed` | Analyst finished; proposals are ready for review. |
+| `failed` | Analyst session errored out. |
+
+## Output: proposals
+
+The analyst produces two types of proposals:
+
+### Skill diffs
+
+A proposed change to an existing skill's SKILL.md file. Used when the Mission revealed a cross-repo pattern that should be codified into a playbook.
+
+```json
+{
+  "type": "skill_diff",
+  "content": {
+    "skillSlug": "dependency-bump",
+    "diff": "--- a/SKILL.md\n+++ b/SKILL.md\n@@ -8,6 +8,7 @@\n ...",
+    "rationale": "Agents failed on monorepos because they ran install
+                  in the root instead of the workspace directory."
+  },
+  "evidenceEventIds": ["lev_abc123", "lev_def456"]
+}
+```
+
+### Memory entries
+
+A new fact learned from this Mission that should be remembered for future sessions. Used for repo-specific or backend-specific knowledge.
+
+```json
+{
+  "type": "memory_entry",
+  "content": {
+    "scope": "repo",
+    "scopeKey": "acme/api",
+    "key": "ci_requires_node_20",
+    "value": "This repo's CI pipeline requires Node 20. Agents should
+              use nvm use 20 before running tests.",
+    "confidence": 0.8,
+    "rationale": "Agent failed CI twice because it used Node 18."
+  },
+  "evidenceEventIds": ["lev_ghi789"]
+}
+```
+
+Every proposal **must** include `evidenceEventIds` — pointers to specific Ledger events that justify the change. Proposals without evidence are rejected by design.
+
+## The review gate
+
+Proposals land in the Console as a review queue. **Nothing auto-applies.** There is no "auto-apply" mode, not even behind a flag. This is a deliberate design choice — the risk of silently changing agent instructions based on a misread pattern is too high.
+
+For each proposal, the operator can:
+
+| Action | Effect |
+|---|---|
+| **Accept** | Skill diffs become a PR against the skill file. Memory entries persist to the memory store. |
+| **Edit** | Modify the proposal content, then accept. |
+| **Reject** | Discard the proposal. |
+
+### Proposal statuses
+
+| Status | Meaning |
+|---|---|
+| `pending` | Awaiting operator review. |
+| `accepted` | Operator approved (with or without edits). |
+| `rejected` | Operator discarded the proposal. |
+| `edited` | Operator modified the content before accepting. |
+
+Every reviewer decision — who reviewed, when, and what they decided — is recorded in the Ledger. The full chain from "Ledger evidence -> proposal -> human decision -> applied change" is traceable.
+
+## Memory schema
+
+Accepted `memory_entry` proposals create records in the `memories` table:
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | string | Primary key. |
+| `scope` | `repo` \| `backend` \| `global` | How broadly this fact applies. |
+| `scopeKey` | string | E.g. `acme/api` for repo scope, `managed-agents` for backend, `_` for global. |
+| `key` | string | Short unique identifier for the fact (e.g. `ci_requires_node_20`). |
+| `value` | string | The fact itself, written as an instruction to a future agent. |
+| `confidence` | integer | 0-100 score. Rises when corroborated across successful Tasks, decays on failures. |
+| `sourceType` | string \| null | `retrospective` or `manual`. |
+| `sourceId` | string \| null | The retrospective proposal ID that created this memory. |
+| `learnedAt` | timestamp | When the memory was first recorded. |
+| `expiresAt` | timestamp \| null | Default 90 days. After expiry, the memory is no longer surfaced to agents. |
+
+### Memory surfacing
+
+At dispatch time, Forge queries the memory store for facts relevant to the Task's repo and backend, then includes them in the agent's prompt. Memories are read-only from the agent's perspective — agents never write directly to the memory store during a Task.
+
+### Memory expiry
+
+Every memory has an `expiresAt` timestamp (default 90 days). After expiry:
+
+- The memory is no longer surfaced to agents.
+- The next retrospective is prompted to reconfirm or delete stale entries.
+
+Stale knowledge is worse than no knowledge. The expiry mechanism forces periodic revalidation of learned facts.
+
+## Analyst rules
+
+The retrospective agent follows strict rules defined in `prompts/retrospective.md`:
+
+1. Only propose changes backed by Ledger evidence.
+2. Every proposal must include `evidenceEventIds`.
+3. Prefer `memory_entry` for repo-specific facts; prefer `skill_diff` for cross-repo patterns.
+4. Be conservative — a bad memory or skill change is worse than no change.
+5. If the Mission went perfectly, return an empty proposals array.
+6. Only propose changes to Skills and Memories, not to Forge's infrastructure.

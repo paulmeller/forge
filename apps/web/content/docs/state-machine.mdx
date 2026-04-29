@@ -1,0 +1,251 @@
+---
+title: State Machine
+description: Pure state transition functions for Missions and Tasks — every status, every event, every edge.
+---
+
+Forge uses pure functions to decide state transitions. The poller feeds backend events through `transition(status, event)` and applies the returned delta. No side effects in the decision layer — all writes happen in the caller.
+
+## Task state machine
+
+### The transition function
+
+```ts
+// apps/tick/src/state.ts
+
+type StateTransition = {
+  status?: TaskStatus;
+  prUrl?: string | null;
+  prNumber?: number | null;
+  costTokensDelta?: number;
+  lastError?: string | null;
+  completed?: boolean;
+};
+
+function transition(current: TaskStatus, event: BackendEvent): StateTransition | null;
+```
+
+One event in, zero or one transitions out. Events that are informational (spans, thinking, tool calls Forge doesn't react to) return `null` — they still land in the Ledger but don't move the Task.
+
+### Task statuses
+
+All 12 statuses, derived from `packages/db/src/schema.ts`:
+
+| Status | Terminal? | Description |
+|--------|-----------|-------------|
+| `queued` | No | Waiting for the dispatcher to claim it. May be blocked by DAG dependencies. |
+| `dispatching` | No | Claimed by dispatcher, `createSession` call in progress. |
+| `running` | No | Backend session is actively executing. |
+| `turn_ended` | No | Agent went idle (non-`requires_action` stop). Waiting for reconciler to check for a PR. |
+| `opening_pr` | No | Reserved for explicit PR-opening flow. |
+| `awaiting_ci` | No | PR exists, waiting for GitHub Checks to complete. |
+| `awaiting_ai_review` | No | CI passed, waiting for AI code review (when enabled on the Mission). |
+| `awaiting_review` | No | CI passed (and AI review passed, if enabled). Waiting for human review or auto-merge. |
+| `merging` | No | Auto-merge in progress (`pulls.merge` call active). |
+| `merged` | Yes | PR merged. Task is done. |
+| `abandoned` | Yes | Agent terminated without producing a usable PR. |
+| `failed` | Yes | Unrecoverable error — session error, CI failure with retries exhausted, or upstream dependency failed. |
+
+### Transitions from backend events (pure state machine)
+
+These transitions are driven by `transition()` in `state.ts`:
+
+```
+                        session.status_running
+            ┌──────────────────────────────────────┐
+            │                                      │
+            v                                      │
+queued ──> dispatching ──> running ──> turn_ended ──┘
+                             │
+                             │  session.status_idle
+                             │  (non-requires_action)
+                             v
+                          turn_ended
+```
+
+```
+  any active state
+       │
+       │  agent.mcp_tool_result (create_pull_request with PR URL)
+       v
+  awaiting_ci
+```
+
+```
+  any state except awaiting_ci / awaiting_review / merged
+       │
+       │  session.status_terminated
+       v
+  abandoned (terminal)
+```
+
+```
+  any state
+       │
+       │  session.error
+       v
+  failed (terminal)
+```
+
+**Event-by-event rules from `transition()`:**
+
+| Event | From | To | Notes |
+|-------|------|----|-------|
+| `session.status_running` | `dispatching` | `running` | Agent started executing. |
+| `session.status_running` | `turn_ended` | `running` | Agent resumed (e.g. after retry-with-feedback). |
+| `session.status_idle` | `running` | `turn_ended` | Agent finished a turn. `requires_action` idles are ignored (tool confirmation pending). |
+| `session.status_terminated` | any except `awaiting_ci`, `awaiting_review`, `merged` | `abandoned` | Session ended without reaching the CI gate. |
+| `session.error` | any | `failed` | Backend reported an error. |
+| `agent.mcp_tool_result` | any | `awaiting_ci` | Only for `create_pull_request` tool results containing a GitHub PR URL. Read-only MCP tools are ignored. |
+| `span.model_request_end` | any | (no status change) | Accumulates `costTokensDelta` from token usage. |
+
+### Transitions from tick subsystems
+
+These transitions happen outside the pure state machine, driven by subsystem logic:
+
+```
+                    CI passes
+awaiting_ci ────────────────────> awaiting_ai_review ──> awaiting_review
+     │                (if AI review enabled)    │              │
+     │                                          │              │
+     │  CI passes (no AI review)                │  AI approve  │
+     ├──────────────────────────────────────────>│──────────────┘
+     │                                          │
+     │  CI fails + retries left                 │  AI reject + retries left
+     │  (retry-with-feedback)                   │  (send feedback, back to awaiting_ci)
+     ├──> stays awaiting_ci,                    ├──> awaiting_ci
+     │    retryCount++                          │    aiReviewRetryCount++
+     │                                          │
+     │  CI fails + retries exhausted            │  AI reject + retries exhausted
+     └──> failed                                └──> awaiting_review (escalated)
+```
+
+```
+  awaiting_review + auto-merge policy matches
+       │
+       │  evaluatePolicy passes
+       v
+    merging ──> merged           (squash merge succeeds)
+       │
+       │  merge API fails
+       v
+    awaiting_review              (rolled back)
+```
+
+```
+  turn_ended + no PR
+       │
+       ├──> awaiting_ci          (reconciler found a branch, opened PR)
+       │
+       └──> abandoned            (no branch found)
+```
+
+```
+  queued + upstream dependency failed/abandoned
+       │
+       └──> failed               (cascade failure)
+```
+
+### Complete Task lifecycle diagram
+
+```
+queued
+  │
+  │ dispatcher claims
+  v
+dispatching
+  │
+  │ session.status_running
+  v
+running ◄──────────────────────┐
+  │                            │
+  │ session.status_idle        │ session.status_running
+  v                            │ (retry turn)
+turn_ended ────────────────────┘
+  │
+  ├── agent opened PR (mcp_tool_result) ──> awaiting_ci
+  │                                              │
+  │                                     ┌────────┼─────────┐
+  │                                     │        │         │
+  │                                  CI pass  CI fail   CI fail
+  │                                     │    retries<max retries>=max
+  │                                     │        │         │
+  │                                     v        v         v
+  │                             awaiting_review  │      failed
+  │                             or awaiting_ai   │
+  │                                review  (stays awaiting_ci,
+  │                                     │   agent gets feedback)
+  │                                     │
+  │                                     v
+  │                             awaiting_review
+  │                                     │
+  │                          ┌──────────┼──────────┐
+  │                          │                     │
+  │                     auto-merge            human review
+  │                     policy match          (external)
+  │                          │
+  │                          v
+  │                       merging
+  │                          │
+  │                          v
+  │                       merged ✓
+  │
+  ├── reconciler opens PR ──> awaiting_ci (same flow as above)
+  │
+  └── no branch found ──> abandoned ✗
+```
+
+## Mission state machine
+
+Missions have a simpler lifecycle, driven by explicit API calls and the budgets/reconciler subsystems.
+
+### Mission statuses
+
+From `packages/db/src/schema.ts`:
+
+| Status | Terminal? | Description |
+|--------|-----------|-------------|
+| `draft` | No | Just created, not yet planned. |
+| `planning` | No | Planner is generating Tasks. |
+| `running` | No | Tasks are being dispatched and executed. |
+| `paused` | No | No new dispatches. In-flight Tasks run to completion. |
+| `completed` | Yes | All Tasks settled (merged, awaiting_review, abandoned, or failed). |
+| `cancelled` | Yes | Operator cancelled. In-flight Tasks run to completion. |
+
+### Mission transitions
+
+From `apps/web/src/lib/mission-transitions.ts`:
+
+```
+draft ──> planning ──> running ──> completed
+                          │  ▲         ▲
+                          │  │         │
+                   pause  │  │ resume  │ reconciler
+                          v  │         │ (all tasks settled)
+                        paused         │
+                          │            │
+                          └── cancel ──┘──> cancelled
+                          │
+              running ────┘──> cancelled
+```
+
+| From | To | Trigger | Notes |
+|------|----|---------|-------|
+| `draft` | `planning` | `POST /api/missions/[id]/plan` | Planner generates Tasks. |
+| `planning` | `running` | `POST /api/missions/[id]/start` | Operator approves the plan. |
+| `running` | `paused` | `POST /api/missions/[id]/cancel` (pause) or budget threshold crossed | In-flight Tasks continue; no new dispatches. |
+| `paused` | `running` | Resume action | Operator raises budget and resumes. |
+| `running` | `completed` | Reconciler | All Tasks are in terminal states. |
+| `running` | `cancelled` | `POST /api/missions/[id]/cancel` | Operator cancels. Queued Tasks are not dispatched. |
+| `paused` | `cancelled` | `POST /api/missions/[id]/cancel` | Same as above. |
+
+### Optimistic concurrency
+
+All Mission transitions use optimistic locking:
+
+```ts
+UPDATE missions SET status = $to
+WHERE id = $id AND status = $from
+RETURNING *
+```
+
+If the row doesn't match (another process already transitioned it), the update returns zero rows and the caller gets an error. No locks, no transactions — just a single atomic SQL statement.

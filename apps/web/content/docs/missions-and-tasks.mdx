@@ -1,0 +1,128 @@
+---
+title: Missions and Tasks
+description: The two core units of work in Forge — how they relate, their lifecycle states, and concurrency controls.
+---
+
+## Missions
+
+A **Mission** is the top-level unit of work. It represents a goal applied across one or more repositories — "bump `fast-glob` to ^3.3.2 everywhere", "add OTel spans to every HTTP handler", or "triage every P3 bug older than 90 days."
+
+A Mission carries:
+
+- **Goal** — the prompt describing what to do.
+- **Target repos** — the list of repositories to operate on.
+- **Backend** — which execution engine to use (`managed-agents` or `gateway`).
+- **Agent ID** — identifies the agent on the chosen backend.
+- **Concurrency cap** — how many Tasks can run in parallel (default `5`).
+- **Budget** — optional spend limits in USD and/or tokens.
+- **Skill** — an optional declarative playbook that shapes how the agent works.
+- **Auto-merge policy** — rules for when Forge can merge PRs without human review.
+
+### Mission lifecycle
+
+Missions move through these states:
+
+```
+draft → planning → running → paused → completed
+                      ↓                    ↑
+                      └──────────────────→ cancelled
+```
+
+| Status | Meaning |
+|---|---|
+| `draft` | Created but not yet planned. |
+| `planning` | Planner is generating Tasks from the goal and repo list. |
+| `running` | Tasks are being dispatched and executed. |
+| `paused` | No new dispatches. In-flight Tasks continue to completion. Triggered manually or by budget auto-pause. |
+| `completed` | All Tasks have reached a terminal state. |
+| `cancelled` | Operator cancelled the Mission. Queued Tasks are abandoned; in-flight Tasks run to completion. |
+
+## Tasks
+
+A **Task** is the atomic unit of work: one repo, one branch, one backend session. Every Mission contains one or more Tasks — typically one per target repository.
+
+Each Task carries:
+
+- **Repo** — the target repository (e.g. `acme/api`).
+- **Base branch** — the branch to work from (default `main`).
+- **Prompt variables** — template variables merged into the Mission goal (e.g. `{{package}}`, `{{target_version}}`).
+- **Issue ref** — optional link to an issue tracker entry.
+- **Depends-on IDs** — optional list of Task IDs that must reach `merged` before this Task can be dispatched.
+
+### Task lifecycle
+
+Tasks have a richer state machine than Missions, reflecting the full dispatch-execute-review-merge pipeline:
+
+```
+queued → dispatching → running → turn_ended → opening_pr → awaiting_ci
+                                                               ↓
+                                              awaiting_ai_review (optional)
+                                                               ↓
+                                                        awaiting_review
+                                                               ↓
+                                                            merging → merged
+```
+
+With failure branches at multiple points:
+
+| Status | Meaning |
+|---|---|
+| `queued` | Waiting to be dispatched. May be blocked on dependencies. |
+| `dispatching` | Claimed by the dispatcher; backend session being created. |
+| `running` | Agent is actively working in the session. |
+| `turn_ended` | Agent completed a turn. Forge decides next steps (open PR, retry, abandon). |
+| `opening_pr` | Forge is opening a pull request from the agent's changes. |
+| `awaiting_ci` | PR is open; waiting for CI checks to complete. |
+| `awaiting_ai_review` | CI passed; AI review is evaluating the PR. |
+| `awaiting_review` | CI passed; PR is waiting for human review (or auto-merge evaluation). |
+| `merging` | Auto-merge criteria met; merge in progress. |
+| `merged` | PR merged. Terminal state. |
+| `abandoned` | Agent produced no useful diff, or the session terminated without a PR. Terminal state. |
+| `failed` | Unrecoverable error — dispatch failure, session error, or CI failures exhausted all retries. Terminal state. |
+
+### State transitions
+
+The state machine in `apps/tick/src/state.ts` is a pure function: one backend event in, zero or one transitions out. Key transitions:
+
+- **`session.status_running`** — moves `dispatching` or `turn_ended` to `running`.
+- **`session.status_idle`** — moves `running` to `turn_ended` (unless the stop reason is `requires_action`, which is a transient pause for tool confirmation).
+- **`agent.mcp_tool_result`** with a `create_pull_request` result containing a GitHub PR URL — moves to `awaiting_ci` and records the PR URL and number.
+- **`session.status_terminated`** — moves to `abandoned` (unless a PR was already opened).
+- **`session.error`** — moves to `failed` with the error message.
+- **`span.model_request_end`** — accumulates token usage (input + output + cache tokens) without changing status.
+
+Events that don't match a transition rule are still recorded in the Ledger — they just don't move the Task.
+
+## Relationship: one Mission, many Tasks
+
+A Mission contains many Tasks. This is a strict one-to-many relationship enforced by a foreign key (`tasks.mission_id → missions.id`) with cascading deletes.
+
+The Planner generates Tasks when a Mission transitions from `draft` to `planning`. In v1, the rule-based planner emits one Task per target repo. The operator can inspect and edit the plan before starting the Mission.
+
+## DAG dependencies
+
+Tasks can declare dependencies on other Tasks via the `dependsOnIds` field — a JSON array of Task IDs. A Task with dependencies stays `queued` until **all** of its predecessors have reached `merged` status.
+
+This enables sequential workflows:
+
+```
+Task A (move service-a to monorepo)
+  └→ Task B (move service-b, depends on Task A)
+       └→ Task C (update shared config, depends on Task B)
+```
+
+The dispatcher checks dependency status on each tick: it fetches all queued tasks, filters out those whose dependencies have not all merged, and only claims unblocked tasks.
+
+## Concurrency control
+
+Each Mission has a `concurrencyCap` (default `5`) that limits how many Tasks can be in-flight simultaneously. In-flight means any status from `dispatching` through `merging` — specifically:
+
+`dispatching`, `running`, `turn_ended`, `opening_pr`, `awaiting_ci`, `awaiting_ai_review`, `awaiting_review`, `merging`
+
+On each tick, the dispatcher:
+
+1. Counts in-flight Tasks for the Mission.
+2. Computes available slots: `concurrencyCap - inflight`.
+3. Claims up to that many `queued` Tasks atomically via an optimistic `UPDATE ... WHERE status='queued'`.
+
+The `WHERE` guard prevents two workers from claiming the same Task — if a concurrent tick already claimed it, the update returns zero rows and the Task is skipped.

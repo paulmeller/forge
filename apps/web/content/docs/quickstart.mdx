@@ -1,0 +1,104 @@
+---
+title: Quickstart
+description: Get your first Mission running in 10 minutes.
+---
+
+## Prerequisites
+
+- **Node.js 22** — the repo's `.nvmrc` pins it. Install via [nvm](https://github.com/nvm-sh/nvm) or [fnm](https://github.com/Schniz/fnm).
+- **pnpm 10** — install with `corepack enable && corepack prepare pnpm@latest --activate`, or see [pnpm.io](https://pnpm.io/installation).
+- **Anthropic API key** — get one at [console.anthropic.com](https://console.anthropic.com). Required for the default `managed-agents` backend.
+- **GitHub token** — a personal access token (or GitHub App installation) with repo access for the repositories you want to target.
+
+## 1. Clone and install
+
+```bash
+git clone https://github.com/anthropics/forge.git
+cd forge
+pnpm install
+```
+
+## 2. Configure environment
+
+Copy the example env files and fill in your keys:
+
+```bash
+cp apps/web/.env.example apps/web/.env.local
+cp apps/tick/.env.example apps/tick/.env.local
+```
+
+At a minimum, set these in `apps/web/.env.local`:
+
+```dotenv
+DATABASE_URL=file:./local.db
+BETTER_AUTH_SECRET=change-me-to-a-random-32-char-string
+BETTER_AUTH_URL=http://localhost:3100
+FORGE_BACKEND=managed-agents
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+The tick service (`apps/tick/.env.local`) ships with working defaults for local dev. No changes needed unless you're customizing ports or log levels.
+
+## 3. Set up the database
+
+Generate and apply the initial migration:
+
+```bash
+pnpm --filter @forge/db db:generate
+pnpm --filter @forge/db db:migrate
+```
+
+This creates a local SQLite database. No external database server required for development.
+
+## 4. Start dev servers
+
+```bash
+pnpm dev
+```
+
+This starts both services in parallel with live reload:
+
+| Service | URL | Description |
+|---|---|---|
+| `forge-web` | [http://localhost:3100](http://localhost:3100) | Console, API, and webhook receiver |
+| `forge-tick` | [http://localhost:8080](http://localhost:8080) | Tick loop (claims Tasks, runs the Gate) |
+
+## 5. Create your first Mission
+
+Open the Console at [http://localhost:3100](http://localhost:3100) and create a Mission:
+
+1. Click **Create Mission**.
+2. Fill in the form:
+   - **Name** — a short label, e.g. "Bump fast-glob".
+   - **Goal** — the natural-language prompt, e.g. "Upgrade fast-glob to ^3.3.2 and fix any breaking changes."
+   - **Backend** — leave as `managed-agents`.
+   - **Agent ID** — the ID of a Managed Agent you've created via the Anthropic console or API.
+   - **Target repos** — the GitHub repos to operate on (e.g. `acme/api`, `acme/web`).
+   - **Concurrency cap** — how many Tasks run in parallel (default: 5).
+   - **Budget** — optional USD or token cap.
+3. Click **Plan** to generate Tasks. Review the planner output — you can remove or edit Tasks before starting.
+4. Click **Start** to dispatch Tasks to agent sessions.
+
+## 6. Monitor progress
+
+Once running, you can:
+
+- Watch the **Mission detail** page for live task status.
+- Inspect individual **Task** pages for session events, PR links, and CI status.
+- Browse the **Ledger** feed for a full audit trail.
+
+## 7. Trigger a tick manually
+
+The tick service runs automatically, but you can trigger it on demand:
+
+```bash
+curl -X POST http://localhost:8080/tick
+```
+
+This claims queued Tasks, polls for session events, runs the Gate (open PRs, check CI, retry/merge), and checks budgets — all in one pass.
+
+## Next steps
+
+- [Configuration](/docs/configuration) — full environment variable reference.
+- [Missions and Tasks](/docs/missions-and-tasks) — deeper dive into the data model.
+- [Writing a Skill](/docs/writing-a-skill) — create a custom playbook for your Mission type.

@@ -1,0 +1,155 @@
+---
+title: System Overview
+description: Forge's two-service architecture, tick subsystems, data layer, and deployment model.
+---
+
+Forge runs as two stateless services talking to a single database. Every container is disposable — all durable state lives in libSQL/Turso.
+
+## Architecture
+
+```
+                          Cloud Scheduler (60s cron)
+                                  |
+                                  v
+  ┌──────────────────┐    ┌──────────────────┐
+  │    forge-web     │    │    forge-tick     │
+  │   (Next.js App   │    │  (Fastify, POST  │
+  │    Router)       │    │   /tick endpoint) │
+  ├──────────────────┤    ├──────────────────┤
+  │ Console UI       │    │ Poller           │
+  │ REST API         │    │ CI Poller        │
+  │ Webhook receiver │    │ AI Review        │
+  │ SSE streams      │    │ Auto-Merge       │
+  │ Auth (better-    │    │ Budgets          │
+  │   auth)          │    │ Reconciler       │
+  └────────┬─────────┘    │ Dispatcher       │
+           │              │ Memory Expiry    │
+           │              └────────┬─────────┘
+           │                       │
+           └───────┬───────────────┘
+                   │
+                   v
+           ┌──────────────┐       ┌───────────────────┐
+           │  libSQL /    │       │  Backend Adapter   │
+           │  Turso       │       │  (Managed Agents   │
+           │  (database)  │       │   or Gateway)      │
+           └──────────────┘       └───────────────────┘
+```
+
+## forge-web
+
+Next.js App Router service. Handles everything user-facing and inbound:
+
+- **Console** — operator dashboard at `/missions`, `/missions/[id]`, plan preview, task drill-down.
+- **REST API** — CRUD for Missions and Tasks under `/api/missions/`.
+- **Webhook receiver** — `POST /api/forge/webhook/[missionId]` for Gateway backends that push events; HMAC-verified.
+- **GitHub webhook** — `POST /api/forge/github/webhook` for GitHub event ingestion.
+- **Auth** — better-auth at `/api/auth/[...all]`.
+- **Mission transitions** — `start`, `pause`, `resume`, `cancel` are explicit state transitions with optimistic `WHERE status = ?` guards.
+
+Deployed as a Cloud Run service. Autoscales, scale-to-zero allowed.
+
+### API route structure
+
+```
+/api/health
+/api/missions                          GET (list), POST (create)
+/api/missions/[missionId]              GET, PATCH
+/api/missions/[missionId]/plan         POST
+/api/missions/[missionId]/start        POST
+/api/missions/[missionId]/cancel       POST
+/api/missions/[missionId]/tasks        GET, POST
+/api/missions/[missionId]/retrospect   POST
+/api/forge/webhook/[missionId]         POST
+/api/forge/github/webhook              POST
+/api/proposals/[proposalId]            PATCH
+```
+
+## forge-tick
+
+Small Fastify service exposing `POST /tick`. Cloud Scheduler invokes it every 60 seconds with OIDC auth. Each invocation runs one tick — a serial pipeline of subsystems — then returns. Scale-to-zero between invocations.
+
+If sub-minute cadence is ever needed, `forge-tick` flips to `min-instances=1` with an in-process loop. No architectural change required.
+
+### Tick pipeline
+
+The tick runs subsystems in a fixed order. Each step is wrapped in a catch so one crashing subsystem does not silence the others.
+
+```
+1. Poller           — poll backend events, drive state transitions
+2. CI Poller        — check GitHub Checks for awaiting_ci Tasks
+3. AI Review        — review PRs with Claude for awaiting_ai_review Tasks
+4. Auto-Merge       — merge PRs that pass the Mission's auto-merge policy
+5. Budgets          — auto-pause Missions that crossed their threshold
+6. Reconciler       — abandon stalled Tasks, open PRs, complete Missions
+7. Dispatcher       — claim queued Tasks and dispatch to backend sessions
+8. Memory Expiry    — delete expired memories, flag low-confidence ones
+```
+
+### Subsystem reference
+
+| Subsystem | File | Purpose |
+|-----------|------|---------|
+| **Poller** | `poller.ts` | Polls `listEvents` on the backend adapter for every active Task (`dispatching`, `running`, `turn_ended`, `opening_pr`). Feeds each event through the pure `transition()` state machine and applies the resulting delta to the task row. Auto-confirms allowlisted MCP tool uses (e.g. `create_pull_request`). |
+| **CI Poller** | `ci.ts` | For every `awaiting_ci` Task with a PR, calls GitHub Checks API. On all-green: transitions to `awaiting_review` (or `awaiting_ai_review` if enabled). On failure with retries left: sends a follow-up turn with the CI log (retry-with-feedback). On failure with retries exhausted: marks `failed`. |
+| **AI Review** | `ai-review.ts` | For every `awaiting_ai_review` Task, fetches the PR diff, sends it to Claude for structured code review. On approve: transitions to `awaiting_review`. On reject with retries left: sends feedback to the agent and moves back to `awaiting_ci`. On retries exhausted: escalates to human review. |
+| **Auto-Merge** | `auto-merge.ts` | For every `awaiting_review` Task whose Mission has an auto-merge policy, evaluates the PR's diff shape (additions, deletions, files changed, path patterns) against the policy. If within bounds: squash-merges via GitHub API. If blocked or merge fails: rolls back to `awaiting_review`. |
+| **Budgets** | `budgets.ts` | Sums `cost_tokens` across all Tasks for each running Mission. If spend crosses the configured threshold (default 80%), transitions the Mission to `paused` and records a `budget.auto_paused` ledger event. |
+| **Reconciler** | `reconciler.ts` | Three jobs: (1) cascade-fail queued Tasks whose dependencies have failed or been abandoned; (2) for `turn_ended` Tasks with no PR, attempt to open a PR via GitHub API (for backends that push branches but don't open PRs), otherwise mark `abandoned`; (3) complete Missions whose Tasks are all in terminal states (`merged`, `awaiting_review`, `abandoned`, `failed`). |
+| **Dispatcher** | `dispatcher.ts` | For each running Mission, claims up to `concurrency_cap - inflight` queued Tasks via atomic `UPDATE ... WHERE status='queued'`. Checks DAG dependencies (blocked Tasks stay queued until predecessors reach `merged`). Calls the backend adapter's `createSession` with the rendered prompt (AGENTS.md + Skill + Goal + Memories). |
+| **Memory Expiry** | `memory.ts` | Deletes memories past their `expires_at` (default 90 days). Flags memories with confidence below 20% for reconfirmation in the next retrospective. |
+
+## Database
+
+Single libSQL / Turso database over HTTP. Drizzle ORM with Drizzle Kit for migrations.
+
+### Core tables
+
+| Table | Purpose |
+|-------|---------|
+| `missions` | Mission config and lifecycle state. Key fields: `status`, `backend`, `agent_id`, `concurrency_cap`, `budget_usd`, `budget_tokens`, `auto_merge_policy`, `skill_id`. |
+| `tasks` | One row per Task. Links to a Mission. Tracks `status`, `session_id`, `pr_url`, `pr_number`, `retry_count`, `cost_tokens`, `depends_on_ids`. |
+| `ledger_events` | Append-only event log. Every backend event, every Forge decision, every state transition. Unique constraint on `(task_id, source_event_id)` for idempotent ingestion. |
+| `skills` | Declarative playbooks (SKILL.md content). Attached to Missions. |
+| `retrospectives` | Post-Mission analysis runs. |
+| `retrospective_proposals` | Skill diffs and memory entries proposed by retrospective analysis. |
+| `memories` | Empirical knowledge base. Scoped to `repo`, `backend`, or `global`. Carries a confidence score and an expiry timestamp. |
+
+No Redis, no queue broker, no additional datastore.
+
+## Backend adapters
+
+Both `managed-agents` and `gateway` implement the same `BackendAdapter` interface:
+
+```ts
+interface BackendAdapter {
+  createSession(input: CreateSessionInput): Promise<CreateSessionResult>;
+  sendTurn(sessionId: string, text: string): Promise<void>;
+  listEvents(input: ListEventsInput): Promise<ListEventsResult>;
+  getSession(sessionId: string): Promise<GetSessionResult>;
+  cancelSession(sessionId: string): Promise<void>;
+  confirmToolUse(sessionId: string, toolUseEventId: string, decision: ToolConfirmationDecision): Promise<void>;
+}
+```
+
+Adapter choice is per-Mission (`backend` field) with an env-level default. The dispatcher, poller, and CI subsystems call the adapter through `getAdapter(mission.backend)` — they never know which engine is underneath.
+
+## Deployment model
+
+Both services deploy to Google Cloud Run in the same project and region:
+
+- **Runtime:** Node 22 (LTS), TypeScript everywhere.
+- **Scheduler:** Cloud Scheduler hits `forge-tick` via HTTPS with OIDC auth every 60 seconds.
+- **Secrets:** Google Secret Manager, mounted as env vars at deploy time.
+- **Logs:** pino to stdout, picked up by Cloud Logging.
+- **Database:** Turso (remote libSQL). Stateless containers, DB over HTTP.
+
+Self-hosters can deploy the same containers on Fly.io, Railway, or plain Kubernetes. libSQL runs embedded if Turso is not desired.
+
+## Stateless design
+
+Both services are fully stateless. No in-memory caches, no local disk state, no sticky sessions. This means:
+
+- Containers can be replaced at any time (rolling deploys, preemption, scale-to-zero).
+- The tick is idempotent — if a tick is interrupted, the next tick picks up where it left off. Ledger deduplication via `(task_id, source_event_id)` unique index prevents double-ingestion.
+- Multiple `forge-web` replicas can run concurrently. The dispatcher's `UPDATE ... WHERE status='queued'` is the concurrency barrier — two ticks cannot claim the same Task.

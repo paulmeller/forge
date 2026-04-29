@@ -1,0 +1,135 @@
+---
+title: Project Conventions
+description: TypeScript, formatting, commits, monorepo structure, and coding patterns.
+---
+
+## TypeScript
+
+The project uses **strict TypeScript** via a shared `tsconfig.base.json`. Key compiler options:
+
+| Option | Value | Why |
+|---|---|---|
+| `strict` | `true` | Full strict mode -- `strictNullChecks`, `noImplicitAny`, etc. |
+| `noUncheckedIndexedAccess` | `true` | Indexing arrays/objects returns `T \| undefined`. |
+| `noImplicitOverride` | `true` | Subclass overrides must use the `override` keyword. |
+| `noFallthroughCasesInSwitch` | `true` | Every `case` must `break` or `return`. |
+| `target` | `ES2022` | Modern JS output. |
+| `module` / `moduleResolution` | `NodeNext` | Native ESM with `.js` extensions in imports. |
+
+Every package extends this base config. Run `pnpm -r typecheck` to check the whole repo.
+
+## Formatting
+
+**Prettier** is the sole formatter. Configuration (`.prettierrc`):
+
+```json
+{
+  "semi": true,
+  "singleQuote": true,
+  "trailingComma": "all",
+  "printWidth": 100,
+  "tabWidth": 2,
+  "arrowParens": "always"
+}
+```
+
+Format the entire repo:
+
+```bash
+pnpm format
+```
+
+## Linting
+
+- **`apps/web`** uses ESLint with `next/core-web-vitals` and `next/typescript` via flat config (`eslint.config.mjs`).
+- **`apps/tick`** uses ESLint with a standard config.
+
+Run linting across all packages:
+
+```bash
+pnpm lint
+```
+
+## Commit format
+
+Conventional commits, single line:
+
+```
+<type>: <description>
+```
+
+| Type | Use for |
+|---|---|
+| `feat` | New feature |
+| `fix` | Bug fix |
+| `docs` | Documentation only |
+| `chore` | Build, deps, config |
+| `test` | Adding or updating tests |
+
+Examples:
+
+```
+feat: add budget enforcement to tick loop
+fix: handle null PR URL in state transition
+docs: add contributing content — setup, conventions, testing
+```
+
+## Verify before pushing
+
+Always run both checks before pushing:
+
+```bash
+pnpm -r typecheck    # must pass
+pnpm -r test         # must pass
+```
+
+## Monorepo structure
+
+The repo uses **pnpm workspaces** with three workspace roots:
+
+```yaml
+# pnpm-workspace.yaml
+packages:
+  - "apps/*"
+  - "packages/*"
+  - "spikes/*"
+```
+
+Cross-package dependencies use `workspace:*` protocol (e.g., `"@forge/db": "workspace:*"`).
+
+### Packages
+
+| Package | Purpose | Runtime |
+|---|---|---|
+| `@forge/web` | Console UI, API routes, webhook receiver | Next.js 15 on Node |
+| `@forge/tick` | Tick loop -- dispatcher, poller, CI, auto-merge, budgets | Fastify on Node (via tsx) |
+| `@forge/db` | Shared database schema and client | Library (Drizzle ORM + libSQL) |
+| `apps/docs` | Documentation site | Fumadocs |
+
+## Coding patterns
+
+### Adding an API endpoint
+
+1. Read `apps/web/src/app/api/missions/[missionId]/start/route.ts` -- that is the pattern.
+2. If you need new business logic, add it to `apps/web/src/lib/mission-transitions.ts`.
+3. Create the route file at `apps/web/src/app/api/missions/[missionId]/<name>/route.ts`.
+4. Gate with `apiAuth()` -- see existing routes.
+
+### Adding a tick subsystem
+
+1. Read `apps/tick/src/auto-merge.ts` -- that is the pattern.
+2. Create `apps/tick/src/<name>.ts` with a `run<Name>(log)` function.
+3. Wire it into `apps/tick/src/tick.ts` in the right order.
+
+### Adding a DB column
+
+1. Edit `packages/db/src/schema.ts`.
+2. Run: `cd packages/db && pnpm db:generate`
+
+### Backend adapters
+
+The tick service uses an **adapter pattern** for execution backends. Both `ManagedAgentsAdapter` and `GatewayAdapter` implement the `BackendAdapter` interface defined in `apps/tick/src/adapters/types.ts`. The active adapter is selected by the `FORGE_BACKEND` env var.
+
+### State machine
+
+Task lifecycle is driven by a pure `transition(currentStatus, event)` function in `apps/tick/src/state.ts`. It takes the current status and a backend event, and returns either a state patch or `null` (no transition). This keeps state logic deterministic, testable, and free of side effects.

@@ -1,0 +1,214 @@
+---
+title: Writing a Skill
+description: Create a declarative playbook that guides agent behavior across your fleet.
+---
+
+A **Skill** is the declarative playbook a Mission runs under. It tells the agent *how* to execute a particular class of work — the protocol, constraints, tool discipline, and prompt templates that keep agents on the golden path across every repo in your fleet.
+
+Forge ships a curated library of skills in the `skills/` directory. You can use them as-is, fork them, or write your own from scratch.
+
+## Skill file format
+
+A Skill is a single Markdown file named `SKILL.md` inside a directory under `skills/`. The directory name becomes the skill's slug.
+
+```
+skills/
+  dependency-bump/
+    SKILL.md
+  codemod-rollout/
+    SKILL.md
+    tools.json        # optional — tool restrictions
+  ci-fix/
+    SKILL.md
+  forge-dev/
+    SKILL.md
+```
+
+### SKILL.md structure
+
+A skill file has two possible formats: **plain Markdown** or **Markdown with YAML frontmatter**.
+
+#### Format 1: Plain Markdown
+
+Used by simpler skills like `dependency-bump` and `codemod-rollout`:
+
+```markdown
+# dependency-bump
+
+Bump a dependency to a target version across one or more repositories.
+
+## Goal template
+
+\```
+Bump {{package}} to {{target_version}} in {{repo}} on {{base_branch}}.
+\```
+
+## Instructions
+
+1. Read the lockfile to confirm the current version.
+2. Update the dependency in package.json to the target version.
+3. Run the package manager's install command to regenerate the lockfile.
+4. If there are TypeScript compilation errors, fix them.
+5. Run the existing test suite. If tests fail, fix them.
+6. Open a pull request with a clear title.
+
+## Constraints
+
+- Do NOT bump any other dependencies besides the one specified.
+- Do NOT refactor code unrelated to the version bump.
+- If the bump introduces a breaking change, consult the CHANGELOG.
+```
+
+#### Format 2: YAML frontmatter
+
+Used by skills that need metadata like tool restrictions:
+
+```markdown
+---
+name: ci-fix
+description: Fix failing CI checks with minimum changes
+version: "1"
+allowedTools: [bash, read, edit, grep]
+---
+
+# Protocol
+
+1. Read the failing check logs.
+2. Identify the root cause.
+3. Fix it with the **minimum** change.
+4. Commit and push to origin.
+5. Reply with a one-line summary.
+
+# Rules
+
+- Do NOT refactor surrounding code.
+- Do NOT add new tests unless the failure is a missing test.
+```
+
+### Frontmatter fields
+
+| Field | Type | Description |
+|---|---|---|
+| `name` | `string` | Display name of the skill. |
+| `description` | `string` | Short description shown in the skill picker. |
+| `version` | `string` | Version identifier for tracking changes. |
+| `allowedTools` | `string[]` | Restricts the agent to only these tools. Reduces prompt-cache surface and prevents the agent from wandering. |
+
+## Goal template variables
+
+The **Goal template** section defines the prompt sent to the agent for each Task. Variables use `{{double_braces}}` and are replaced with Task-specific values at dispatch time.
+
+### Built-in variables
+
+These are always available:
+
+| Variable | Source | Description |
+|---|---|---|
+| `{{repo}}` | Task's `repo` field | The target repository, e.g. `acme/api`. |
+| `{{base_branch}}` | Task's `baseBranch` field | The branch to work against, e.g. `main`. |
+
+### Custom variables
+
+Any additional variables come from the Task's `promptVars` JSON field. When creating a Mission, define them in the goal template and supply values per-Task:
+
+```
+Apply {{codemod_description}} in {{repo}} on {{base_branch}}.
+```
+
+The planner populates `promptVars` with `{ "codemod_description": "migrate to ESM imports" }` for each Task.
+
+## Tool restrictions
+
+There are two ways to restrict which tools an agent can use:
+
+### 1. Frontmatter `allowedTools`
+
+List tool names directly in the YAML frontmatter:
+
+```yaml
+---
+allowedTools: [bash, read, edit, grep]
+---
+```
+
+### 2. Separate `tools.json` file
+
+For skills that define MCP tool restrictions (e.g. GitHub API tools), create a `tools.json` alongside `SKILL.md`:
+
+```json
+{
+  "description": "Minimum toolset for codemod rollout tasks",
+  "allowedTools": [
+    "create_pull_request",
+    "create_or_update_file",
+    "get_file_contents",
+    "search_code",
+    "list_commits",
+    "search_repositories"
+  ]
+}
+```
+
+When a skill is attached to a Mission, the dispatcher narrows the agent's effective tool list to the declared minimum.
+
+## Writing effective constraints
+
+Constraints are the most impactful section of a skill. They prevent the agent from drifting off-task. Good patterns from the built-in skills:
+
+- **Scope boundaries:** "Do NOT refactor code unrelated to the version bump."
+- **Action limits:** "Do NOT add new tests unless the failure is a missing test."
+- **Remote discipline:** "Push to `origin` only. Never push to any other remote."
+- **Escalation rules:** "If you cannot identify the root cause after reading the logs, reply: 'Could not fix: \<reason\>'."
+- **Preserve conventions:** "Preserve existing code style and formatting conventions."
+
+## Built-in skills reference
+
+| Skill | Slug | Purpose | Tool restrictions |
+|---|---|---|---|
+| Dependency Bump | `dependency-bump` | Bump a package to a target version across repos | None (full toolset) |
+| Codemod Rollout | `codemod-rollout` | Apply a codemod or automated transformation | GitHub MCP tools only |
+| CI Fix | `ci-fix` | Fix failing CI checks with minimum changes | `bash`, `read`, `edit`, `grep` |
+| Forge Dev | `forge-dev` | Develop features and fixes in the Forge codebase | `bash`, `read`, `edit`, `write`, `glob`, `grep` |
+
+## Skill storage
+
+Skills are stored in the `skills` table in the database:
+
+| Column | Description |
+|---|---|
+| `slug` | Unique identifier derived from the directory name. |
+| `promptTemplate` | The raw SKILL.md content. |
+| `allowedTools` | JSON array of allowed tool names (if restricted). |
+| `remoteSkillId` | If uploaded to the Managed Agents Skills API, the cached remote ID. |
+| `builtIn` | `true` for library skills shipped with Forge, `false` for user-created skills. |
+
+When a Mission starts, Forge uploads the skill to the backend via the Skills API and attaches it to the agent configuration for every Task in the Mission.
+
+## Testing a skill locally
+
+1. **Start the dev servers:**
+
+```bash
+pnpm dev
+```
+
+2. **Create a Mission in the Console** at `http://localhost:3100` with your skill attached. Use a single target repo and a concurrency cap of 1 for easier debugging.
+
+3. **Trigger a tick manually** to dispatch the Task:
+
+```bash
+curl -X POST http://localhost:8080/tick
+```
+
+4. **Watch the Ledger** on the Mission detail page to see the agent's session events. Look for:
+   - Whether the agent follows the skill's protocol in order.
+   - Whether it respects the constraints (no unrelated changes, correct scope).
+   - Whether the tool restrictions are effective (the agent doesn't try to use disallowed tools).
+
+5. **Iterate on the skill** by editing the `SKILL.md`, re-creating the Mission, and observing changes in agent behavior.
+
+## Next steps
+
+- [Missions and Tasks](/docs/missions-and-tasks) — how skills connect to the execution model.
+- [Retrospectives](/docs/retrospectives) — how Forge proposes skill improvements from real Mission data.
+- [API Reference: Missions](/docs/api-missions) — attach a skill when creating a Mission via the API.
