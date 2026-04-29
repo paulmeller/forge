@@ -7,6 +7,7 @@ const config = {
   output: 'standalone',
   transpilePackages: ['@forge/db'],
   eslint: { ignoreDuringBuilds: true },
+  serverExternalPackages: ['@libsql/client'],
 };
 
 export default withMDX(config);
