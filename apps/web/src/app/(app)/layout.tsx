@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { UserMenu } from '@/components/user-menu';
 import { getOptionalUser } from '@/lib/with-auth';
+import { SessionSidebar } from '@/components/session-sidebar';
 
 export default async function AppLayout({
   children,
@@ -11,43 +12,42 @@ export default async function AppLayout({
 }) {
   const user = await getOptionalUser();
 
-  return (
-    <>
-      <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="container flex h-12 max-w-[1400px] items-center justify-between">
-          <nav className="flex items-center gap-6">
+  // Pages that need the old full-width layout (login, signup, setup)
+  // get it via the children prop — the sidebar is always present for
+  // authenticated users.
+  if (!user) {
+    return (
+      <>
+        <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur">
+          <div className="container flex h-12 max-w-[1400px] items-center justify-between">
             <Link href="/" className="text-sm font-bold tracking-tight">
               Forge
             </Link>
-            <Link
-              href="/missions"
-              className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-            >
-              Dashboard
-            </Link>
-            <Link
-              href="/setup"
-              className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-            >
-              Setup
-            </Link>
-          </nav>
-          <div className="flex items-center gap-2">
-            {user ? (
-              <UserMenu name={user.name} email={user.email} />
-            ) : (
+            <div className="flex items-center gap-2">
               <Link
                 href="/login"
                 className="text-xs text-muted-foreground transition-colors hover:text-foreground"
               >
                 Sign in
               </Link>
-            )}
-            <ThemeToggle />
+              <ThemeToggle />
+            </div>
           </div>
-        </div>
-      </header>
-      {children}
-    </>
+        </header>
+        {children}
+      </>
+    );
+  }
+
+  return (
+    <div className="flex h-screen overflow-hidden">
+      {/* Sidebar */}
+      <SessionSidebar userName={user.name} userEmail={user.email} />
+
+      {/* Main content */}
+      <div className="flex flex-1 flex-col overflow-hidden">
+        {children}
+      </div>
+    </div>
   );
 }

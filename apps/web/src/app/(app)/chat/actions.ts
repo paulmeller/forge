@@ -1,0 +1,121 @@
+'use server';
+
+import { randomBytes, randomUUID } from 'node:crypto';
+
+import { eq } from 'drizzle-orm';
+
+import {
+  githubInstallationRepos,
+  githubInstallations,
+  ledgerEvents,
+  missions,
+  tasks,
+} from '@forge/db';
+
+import { db } from '@/lib/db';
+import { env } from '@/lib/env';
+import { withAuth } from '@/lib/with-auth';
+
+export type ChatSessionResult = {
+  missionId: string;
+  missionName: string;
+  taskId: string;
+  repo: string;
+};
+
+/**
+ * Create a mission from a chat message. Uses the user's first connected repo
+ * if available, otherwise falls back to a default.
+ */
+export async function createSessionFromChat(
+  message: string,
+): Promise<ChatSessionResult> {
+  const user = await withAuth();
+
+  // Find the user's connected repos
+  const connectedRepos = await db
+    .select({
+      repo: githubInstallationRepos.repo,
+      agentId: githubInstallations.agentId,
+      githubVaultId: githubInstallations.githubVaultId,
+    })
+    .from(githubInstallationRepos)
+    .innerJoin(
+      githubInstallations,
+      eq(githubInstallationRepos.installationId, githubInstallations.id),
+    )
+    .where(eq(githubInstallations.userId, user.id))
+    .limit(10);
+
+  const repo = connectedRepos[0]?.repo ?? 'paulmeller/forge';
+  const agentId =
+    connectedRepos[0]?.agentId ?? env.FORGE_DEFAULT_AGENT_ID ?? 'agent_unset';
+  const githubVaultId =
+    connectedRepos[0]?.githubVaultId ??
+    env.FORGE_DEFAULT_GITHUB_VAULT_ID ??
+    null;
+
+  const now = new Date();
+  const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 20)}`;
+  const taskId = `tsk_${randomUUID().replaceAll('-', '').slice(0, 20)}`;
+  const missionName = message.split('\n')[0]?.slice(0, 80) ?? 'chat session';
+
+  await db.transaction(async (tx) => {
+    await tx.insert(missions).values({
+      id: missionId,
+      userId: user.id,
+      name: missionName,
+      goal: `IMPORTANT: The repo is cloned at /mnt/session/resources/repo_0 — cd there first.\n\n${message}`,
+      status: 'running',
+      backend: env.FORGE_BACKEND,
+      agentId,
+      plannerStrategy: 'rule-based',
+      targetRepos: [repo],
+      concurrencyCap: 1,
+      webhookSecret: randomBytes(32).toString('hex'),
+      githubInstallationId: 'chat',
+      githubVaultId,
+      createdAt: now,
+      updatedAt: now,
+      startedAt: now,
+    });
+
+    await tx.insert(tasks).values({
+      id: taskId,
+      missionId,
+      repo,
+      baseBranch: 'main',
+      promptVars: { repo, base_branch: 'main' },
+      status: 'queued',
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await tx.insert(ledgerEvents).values([
+      {
+        id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
+        missionId,
+        eventType: 'mission.created_from_chat',
+        payload: { message, repo, triggeredBy: user.email },
+        createdAt: now,
+      },
+      {
+        id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
+        missionId,
+        taskId,
+        eventType: 'planner.emitted',
+        payload: { strategy: 'rule-based', taskIds: [taskId], source: 'chat' },
+        createdAt: now,
+      },
+      {
+        id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
+        missionId,
+        eventType: 'mission.started',
+        payload: { from: 'planning', to: 'running', source: 'chat' },
+        createdAt: now,
+      },
+    ]);
+  });
+
+  return { missionId, missionName, taskId, repo };
+}
