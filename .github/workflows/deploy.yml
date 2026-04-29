@@ -87,6 +87,9 @@ jobs:
             BETTER_AUTH_SECRET=forge-better-auth-secret:latest
             ANTHROPIC_API_KEY=forge-anthropic-api-key:latest
             GITHUB_APP_TOKEN=forge-github-app-token:latest
+            GITHUB_WEBHOOK_SECRET=forge-github-webhook-secret:latest
+            FORGE_DEFAULT_AGENT_ID=forge-default-agent-id:latest
+            FORGE_DEFAULT_GITHUB_VAULT_ID=forge-default-github-vault-id:latest
 
       - name: Print URL
         run: echo "Deployed to ${{ steps.deploy.outputs.url }}"
@@ -141,11 +144,13 @@ jobs:
             --no-allow-unauthenticated
           env_vars: |
             NODE_ENV=production
+            TICK_EXPECTED_AUDIENCE=https://forge-tick-btbwhux5ya-ew.a.run.app
           secrets: |
             DATABASE_URL=forge-database-url:latest
             DATABASE_AUTH_TOKEN=forge-database-auth-token:latest
             ANTHROPIC_API_KEY=forge-anthropic-api-key:latest
-            AGENTSTEP_KEY=forge-agentstep-key:latest
+            GATEWAY_URL=forge-gateway-url:latest
+            GATEWAY_API_KEY=forge-gateway-api-key:latest
             GITHUB_APP_TOKEN=forge-github-app-token:latest
 
       - name: Print URL
