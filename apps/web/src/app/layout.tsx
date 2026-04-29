@@ -1,3 +1,4 @@
+import { RootProvider } from 'fumadocs-ui/provider';
 import type { Metadata } from 'next';
 
 import './globals.css';
@@ -22,7 +23,7 @@ export default function RootLayout({
         />
       </head>
       <body className="min-h-screen bg-background font-sans antialiased">
-        {children}
+        <RootProvider>{children}</RootProvider>
       </body>
     </html>
   );
