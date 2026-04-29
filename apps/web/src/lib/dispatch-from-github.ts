@@ -1,6 +1,8 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 
-import { ledgerEvents, missions, tasks, type Mission } from '@forge/db';
+import { eq } from 'drizzle-orm';
+
+import { githubInstallationRepos, githubInstallations, ledgerEvents, missions, tasks, type Mission } from '@forge/db';
 
 import { db } from './db';
 import { env } from './env';
@@ -35,17 +37,36 @@ export async function dispatchFromGithub(
   const taskId = `tsk_${randomUUID().replaceAll('-', '').slice(0, 20)}`;
   const ledgerSeed = `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`;
 
+  // Look up the repo owner from github_installation_repos
+  const [repoRow] = await db
+    .select({
+      userId: githubInstallations.userId,
+      agentId: githubInstallations.agentId,
+      githubVaultId: githubInstallations.githubVaultId,
+    })
+    .from(githubInstallationRepos)
+    .innerJoin(
+      githubInstallations,
+      eq(githubInstallationRepos.installationId, githubInstallations.id),
+    )
+    .where(eq(githubInstallationRepos.repo, input.repoFullName))
+    .limit(1);
+
+  const userId = repoRow?.userId ?? GITHUB_SYSTEM_USER_ID;
+  const agentId = repoRow?.agentId ?? env.FORGE_DEFAULT_AGENT_ID ?? 'agent_unset';
+  const githubVaultId = repoRow?.githubVaultId ?? env.FORGE_DEFAULT_GITHUB_VAULT_ID ?? null;
+
   return db.transaction(async (tx) => {
     const [mission] = await tx
       .insert(missions)
       .values({
         id: missionId,
-        userId: GITHUB_SYSTEM_USER_ID,
+        userId,
         name: `GH: ${input.repoFullName} — ${input.goal.split('\n')[0]?.slice(0, 60) ?? 'mission'}`,
         goal: `IMPORTANT: The repo is cloned at /mnt/session/resources/repo_0 — cd there first.\n\n${input.goal}`,
         status: 'running',
         backend: env.FORGE_BACKEND,
-        agentId: env.FORGE_DEFAULT_AGENT_ID ?? 'agent_unset',
+        agentId,
         plannerStrategy: 'rule-based',
         targetRepos: [input.repoFullName],
         concurrencyCap: 1,
@@ -54,7 +75,7 @@ export async function dispatchFromGithub(
         budgetThresholdPct: 80,
         webhookSecret: randomBytes(32).toString('hex'),
         githubInstallationId: 'gh-webhook',
-        githubVaultId: env.FORGE_DEFAULT_GITHUB_VAULT_ID ?? null,
+        githubVaultId,
         createdAt: now,
         updatedAt: now,
         startedAt: now,

@@ -271,6 +271,54 @@ export const memories = sqliteTable(
 export type Memory = typeof memories.$inferSelect;
 export type NewMemory = typeof memories.$inferInsert;
 
+// ── GitHub Installations ────────────────────────────────────────────
+
+export const githubInstallations = sqliteTable(
+  'github_installations',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id').notNull(),
+    installationId: integer('installation_id').notNull(),
+    accountLogin: text('account_login').notNull(),
+    accountType: text('account_type').notNull(), // 'Organization' | 'User'
+    agentId: text('agent_id'), // per-user agent override, falls back to env default
+    githubVaultId: text('github_vault_id'), // per-user vault override
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+  },
+  (t) => [
+    index('gh_install_user_idx').on(t.userId),
+    uniqueIndex('gh_install_unique').on(t.installationId),
+  ],
+);
+
+export type GithubInstallation = typeof githubInstallations.$inferSelect;
+export type NewGithubInstallation = typeof githubInstallations.$inferInsert;
+
+export const githubInstallationRepos = sqliteTable(
+  'github_installation_repos',
+  {
+    id: text('id').primaryKey(),
+    installationId: text('installation_id')
+      .notNull()
+      .references(() => githubInstallations.id, { onDelete: 'cascade' }),
+    repo: text('repo').notNull(), // 'owner/repo'
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+  },
+  (t) => [
+    uniqueIndex('gh_repo_unique').on(t.installationId, t.repo),
+    index('gh_repo_lookup_idx').on(t.repo),
+  ],
+);
+
+export type GithubInstallationRepo = typeof githubInstallationRepos.$inferSelect;
+
 export type AutoMergePolicy = {
   enabled: boolean;
   maxAdditions?: number;

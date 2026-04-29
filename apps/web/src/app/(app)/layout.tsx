@@ -23,7 +23,13 @@ export default async function AppLayout({
               href="/missions"
               className="text-sm text-muted-foreground transition-colors hover:text-foreground"
             >
-              Missions
+              Dashboard
+            </Link>
+            <Link
+              href="/setup"
+              className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+            >
+              Setup
             </Link>
           </nav>
           <div className="flex items-center gap-2">

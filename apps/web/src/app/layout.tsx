@@ -4,8 +4,8 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Forge',
-  description: 'Open-source Missions for Claude Managed Agents.',
+  title: 'Forge — Software Factory',
+  description: 'GitHub Issues in. Pull Requests out. Your backlog, on autopilot.',
 };
 
 export default function RootLayout({

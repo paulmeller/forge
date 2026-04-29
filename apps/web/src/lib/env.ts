@@ -46,4 +46,21 @@ export const env = {
   get FORGE_DEFAULT_GITHUB_VAULT_ID(): string | undefined {
     return optional('FORGE_DEFAULT_GITHUB_VAULT_ID');
   },
+  // GitHub OAuth App (social login)
+  get GITHUB_CLIENT_ID(): string | undefined {
+    return optional('GITHUB_CLIENT_ID');
+  },
+  get GITHUB_CLIENT_SECRET(): string | undefined {
+    return optional('GITHUB_CLIENT_SECRET');
+  },
+  // GitHub App (repo access / installations)
+  get GITHUB_APP_ID(): string | undefined {
+    return optional('GITHUB_APP_ID');
+  },
+  get GITHUB_APP_PRIVATE_KEY(): string | undefined {
+    return optional('GITHUB_APP_PRIVATE_KEY');
+  },
+  get GITHUB_APP_SLUG(): string {
+    return optional('GITHUB_APP_SLUG') ?? 'forge-dev';
+  },
 };
