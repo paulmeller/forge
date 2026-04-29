@@ -203,153 +203,192 @@ export function ChatInterface() {
         )}
         <form
           onSubmit={handleSubmit}
-          className="mx-auto flex max-w-[720px] items-end gap-2"
+          className="mx-auto max-w-[720px]"
         >
-          <div className="relative flex-1">
+          <div className="rounded-xl border bg-muted/30">
             <input
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="What would you like to work on?"
-              className="w-full rounded-lg border bg-muted/50 px-4 py-3 text-sm outline-none transition-colors placeholder:text-muted-foreground/50 focus:border-primary/50 focus:bg-background"
+              className="w-full bg-transparent px-4 pb-2 pt-3.5 text-sm outline-none placeholder:text-muted-foreground/50"
               disabled={pending}
               autoFocus
             />
-          </div>
-          <Button
-            type="submit"
-            size="sm"
-            className="mb-0.5 h-9 px-4"
-            disabled={pending || !input.trim()}
-          >
-            Send
-          </Button>
-        </form>
-        {/* Bottom pills */}
-        <div className="mx-auto mt-2.5 flex max-w-[720px] items-center gap-2">
-          <button
-            onClick={() => setSelectedModel(selectedModel === 'opus' ? 'sonnet' : 'opus')}
-            className="flex items-center gap-1.5 rounded-md border bg-muted/50 px-2.5 py-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
-          >
-            <span className="font-medium">
-              {selectedModel === 'opus' ? 'Opus 4.5' : 'Sonnet 4.5'}
-            </span>
-            <span className="flex gap-px">
-              {[0, 1, 2].map((i) => (
-                <span
-                  key={i}
-                  className={`inline-block h-2 w-1.5 rounded-sm ${
-                    i < (selectedModel === 'opus' ? 3 : 2)
-                      ? 'bg-foreground/40'
-                      : 'bg-foreground/10'
-                  }`}
-                />
-              ))}
-            </span>
-          </button>
-          <button
-            onClick={() => setMode(mode === 'auto' ? 'spec' : 'auto')}
-            className="flex items-center gap-1.5 rounded-md border bg-muted/50 px-2.5 py-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
-          >
-            {mode === 'auto' ? 'Auto' : 'Spec Mode'}
-          </button>
+            {/* Bottom pills inside the input box */}
+            <div className="flex items-center gap-1.5 px-3 pb-2.5">
+              {/* + button */}
+              <button
+                type="button"
+                className="flex h-7 w-7 items-center justify-center rounded-md border bg-muted/50 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+              >
+                +
+              </button>
 
-          {/* MCP dropdown */}
-          <div className="relative" ref={mcpRef}>
-            <button
-              onClick={() => { setShowMcp(!showMcp); setShowSkills(false); }}
-              className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] transition-colors hover:text-foreground ${
-                showMcp ? 'border-primary/50 bg-primary/5 text-foreground' : 'bg-muted/50 text-muted-foreground'
-              }`}
-            >
-              <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
-              MCP
-            </button>
-            {showMcp && (
-              <div className="absolute bottom-full left-0 mb-2 w-[260px] rounded-lg border bg-background p-2 shadow-lg">
-                <p className="mb-2 px-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
-                  MCP Connections
-                </p>
-                {MCP_TOOLS.map((tool) => (
-                  <div
-                    key={tool.name}
-                    className="flex items-center justify-between rounded-md px-2 py-1.5 text-[12px] hover:bg-accent"
-                  >
-                    <div>
-                      <p className="font-medium">{tool.name}</p>
-                      <p className="text-[11px] text-muted-foreground">{tool.description}</p>
-                    </div>
-                    {tool.connected ? (
-                      <span className="flex items-center gap-1 text-[10px] text-green-500">
-                        <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
-                        On
-                      </span>
-                    ) : (
-                      <span className="text-[10px] text-muted-foreground/50">Off</span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Skills dropdown */}
-          <div className="relative" ref={skillsRef}>
-            <button
-              onClick={() => { setShowSkills(!showSkills); setShowMcp(false); }}
-              className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] transition-colors hover:text-foreground ${
-                showSkills || selectedSkill
-                  ? 'border-primary/50 bg-primary/5 text-foreground'
-                  : 'bg-muted/50 text-muted-foreground'
-              }`}
-            >
-              Skills{selectedSkill ? ' (1)' : ''}
-            </button>
-            {showSkills && (
-              <div className="absolute bottom-full left-0 mb-2 w-[280px] rounded-lg border bg-background p-2 shadow-lg">
-                <p className="mb-2 px-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
-                  Available Skills
-                </p>
-                {skills.length === 0 ? (
-                  <p className="px-2 py-3 text-center text-[12px] text-muted-foreground">
-                    No skills configured yet.
-                    <br />
-                    <span className="text-[11px]">Add skills in the database to use them here.</span>
-                  </p>
-                ) : (
-                  skills.map((skill) => (
-                    <button
-                      key={skill.slug}
-                      onClick={() => {
-                        setSelectedSkill(selectedSkill === skill.slug ? null : skill.slug);
-                        setShowSkills(false);
-                      }}
-                      className={`flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-[12px] hover:bg-accent ${
-                        selectedSkill === skill.slug ? 'bg-primary/10' : ''
+              {/* Model selector */}
+              <button
+                type="button"
+                onClick={() => setSelectedModel(selectedModel === 'opus' ? 'sonnet' : 'opus')}
+                className="flex items-center gap-1.5 rounded-md border bg-muted/50 px-2.5 py-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <span className="font-semibold">A\</span>
+                <span className="font-medium">
+                  {selectedModel === 'opus' ? 'Opus 4.5' : 'Sonnet 4.5'}
+                </span>
+                <span className="flex gap-px">
+                  {[0, 1, 2, 3].map((i) => (
+                    <span
+                      key={i}
+                      className={`inline-block h-2.5 w-[3px] rounded-[1px] ${
+                        i < (selectedModel === 'opus' ? 4 : 3)
+                          ? 'bg-foreground/40'
+                          : 'bg-foreground/10'
                       }`}
-                    >
-                      <div>
-                        <p className="font-medium">{skill.name}</p>
-                        {skill.description && (
-                          <p className="text-[11px] text-muted-foreground">{skill.description}</p>
+                    />
+                  ))}
+                </span>
+              </button>
+
+              {/* Auto with bars */}
+              <button
+                type="button"
+                className="flex items-center gap-1.5 rounded-md border bg-muted/50 px-2.5 py-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+              >
+                Auto
+                <span className="flex gap-px">
+                  {[0, 1, 2].map((i) => (
+                    <span
+                      key={i}
+                      className="inline-block h-2.5 w-[3px] rounded-[1px] bg-foreground/40"
+                    />
+                  ))}
+                </span>
+              </button>
+
+              {/* Spec Mode */}
+              <button
+                type="button"
+                onClick={() => setMode(mode === 'auto' ? 'spec' : 'auto')}
+                className={`flex items-center rounded-md border px-2.5 py-1 text-[11px] transition-colors hover:text-foreground ${
+                  mode === 'spec'
+                    ? 'border-primary/50 bg-primary/10 text-foreground'
+                    : 'bg-muted/50 text-muted-foreground'
+                }`}
+              >
+                Spec Mode
+              </button>
+
+              {/* MCP dropdown */}
+              <div className="relative" ref={mcpRef}>
+                <button
+                  type="button"
+                  onClick={() => { setShowMcp(!showMcp); setShowSkills(false); }}
+                  className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] transition-colors hover:text-foreground ${
+                    showMcp ? 'border-primary/50 bg-primary/5 text-foreground' : 'bg-muted/50 text-muted-foreground'
+                  }`}
+                >
+                  <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
+                  MCP
+                </button>
+                {showMcp && (
+                  <div className="absolute bottom-full left-0 mb-2 w-[260px] rounded-lg border bg-background p-2 shadow-lg">
+                    <p className="mb-2 px-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
+                      MCP Connections
+                    </p>
+                    {MCP_TOOLS.map((tool) => (
+                      <div
+                        key={tool.name}
+                        className="flex items-center justify-between rounded-md px-2 py-1.5 text-[12px] hover:bg-accent"
+                      >
+                        <div>
+                          <p className="font-medium">{tool.name}</p>
+                          <p className="text-[11px] text-muted-foreground">{tool.description}</p>
+                        </div>
+                        {tool.connected ? (
+                          <span className="flex items-center gap-1 text-[10px] text-green-500">
+                            <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
+                            On
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-muted-foreground/50">Off</span>
                         )}
                       </div>
-                      {selectedSkill === skill.slug && (
-                        <span className="text-[10px] text-primary">Active</span>
-                      )}
-                    </button>
-                  ))
+                    ))}
+                  </div>
                 )}
-                {/* Built-in document skills hint */}
-                <div className="mt-2 border-t pt-2">
-                  <p className="px-2 text-[10px] text-muted-foreground/60">
-                    Agents also have access to built-in document skills (docx, pdf, xlsx, pptx).
-                  </p>
-                </div>
               </div>
-            )}
+
+              {/* Skills dropdown */}
+              <div className="relative" ref={skillsRef}>
+                <button
+                  type="button"
+                  onClick={() => { setShowSkills(!showSkills); setShowMcp(false); }}
+                  className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] transition-colors hover:text-foreground ${
+                    showSkills || selectedSkill
+                      ? 'border-primary/50 bg-primary/5 text-foreground'
+                      : 'bg-muted/50 text-muted-foreground'
+                  }`}
+                >
+                  Skills{selectedSkill ? ' (1)' : ''}
+                </button>
+                {showSkills && (
+                  <div className="absolute bottom-full left-0 mb-2 w-[280px] rounded-lg border bg-background p-2 shadow-lg">
+                    <p className="mb-2 px-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
+                      Available Skills
+                    </p>
+                    {skills.length === 0 ? (
+                      <p className="px-2 py-3 text-center text-[12px] text-muted-foreground">
+                        No skills configured yet.
+                        <br />
+                        <span className="text-[11px]">Add skills in the database to use them here.</span>
+                      </p>
+                    ) : (
+                      skills.map((skill) => (
+                        <button
+                          type="button"
+                          key={skill.slug}
+                          onClick={() => {
+                            setSelectedSkill(selectedSkill === skill.slug ? null : skill.slug);
+                            setShowSkills(false);
+                          }}
+                          className={`flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-[12px] hover:bg-accent ${
+                            selectedSkill === skill.slug ? 'bg-primary/10' : ''
+                          }`}
+                        >
+                          <div>
+                            <p className="font-medium">{skill.name}</p>
+                            {skill.description && (
+                              <p className="text-[11px] text-muted-foreground">{skill.description}</p>
+                            )}
+                          </div>
+                          {selectedSkill === skill.slug && (
+                            <span className="text-[10px] text-primary">Active</span>
+                          )}
+                        </button>
+                      ))
+                    )}
+                    <div className="mt-2 border-t pt-2">
+                      <p className="px-2 text-[10px] text-muted-foreground/60">
+                        Agents also have access to built-in document skills (docx, pdf, xlsx, pptx).
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Spacer */}
+              <div className="flex-1" />
+
+              {/* Help button */}
+              <button
+                type="button"
+                className="flex h-7 w-7 items-center justify-center rounded-md border bg-muted/50 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+              >
+                ?
+              </button>
+            </div>
           </div>
-        </div>
+        </form>
       </div>
     </div>
   );
