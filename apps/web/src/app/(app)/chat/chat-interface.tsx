@@ -108,7 +108,7 @@ export function ChatInterface() {
             </p>
           </div>
         ) : (
-          <div className="mx-auto max-w-[720px] px-6 py-8">
+          <div className="mx-auto w-full max-w-[720px] px-6 py-8">
             {messages.map((msg, i) => (
               <div key={i} className="mb-6">
                 <div className="mb-1 flex items-center gap-2">
@@ -186,10 +186,10 @@ export function ChatInterface() {
       </div>
 
       {/* Prompt bar */}
-      <div className="border-t bg-background px-4 pb-4 pt-3">
+      <div className="border-t bg-background px-6 pb-4 pt-3">
         {/* Active skill indicator */}
         {activeSkill && (
-          <div className="mx-auto mb-2 flex max-w-[720px] items-center gap-2">
+          <div className="mb-2 flex items-center gap-2">
             <span className="flex items-center gap-1.5 rounded-md bg-primary/10 px-2.5 py-1 text-[11px] text-primary">
               Skill: {activeSkill.name}
               <button
@@ -203,7 +203,7 @@ export function ChatInterface() {
         )}
         <form
           onSubmit={handleSubmit}
-          className="mx-auto max-w-[720px]"
+          className="w-full"
         >
           <div className="rounded-xl border bg-muted/30">
             <input
