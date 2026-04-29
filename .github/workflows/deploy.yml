@@ -84,6 +84,7 @@ jobs:
           secrets: |
             DATABASE_URL=forge-database-url:latest
             DATABASE_AUTH_TOKEN=forge-database-auth-token:latest
+            BETTER_AUTH_SECRET=forge-better-auth-secret:latest
             ANTHROPIC_API_KEY=forge-anthropic-api-key:latest
             GITHUB_APP_TOKEN=forge-github-app-token:latest
 
