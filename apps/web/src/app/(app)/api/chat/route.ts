@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 
 import { anthropic } from '@ai-sdk/anthropic';
 import { openai } from '@ai-sdk/openai';
-import { stepCountIs, streamText } from 'ai';
+import { convertToModelMessages, stepCountIs, streamText } from 'ai';
 // Import drizzle helpers from @forge/db's own drizzle-orm instance to avoid
 // duplicate-package type mismatches with the ai-sdk's transitive drizzle copy.
 import { desc, eq, sql } from '@forge/db/orm';
@@ -43,14 +43,14 @@ function getChatModel() {
 
 export async function POST(req: Request) {
   const user = await withAuth();
-  const { messages } = await req.json();
+  const { messages: uiMessages } = await req.json();
 
   const userId = user.id;
 
   const result = streamText({
     model: getChatModel(),
     system: SYSTEM_PROMPT,
-    messages,
+    messages: await convertToModelMessages(uiMessages),
     stopWhen: stepCountIs(5),
     tools: {
       create_mission: {
