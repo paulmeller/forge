@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 
 import { anthropic } from '@ai-sdk/anthropic';
+import { google } from '@ai-sdk/google';
 import { openai } from '@ai-sdk/openai';
 import { convertToModelMessages, stepCountIs, streamText } from 'ai';
 // Import drizzle helpers from @forge/db's own drizzle-orm instance to avoid
@@ -36,9 +37,11 @@ If the user hasn't connected any repos yet, suggest they visit /setup first.`;
 
 function getChatModel() {
   const id = process.env.FORGE_CHAT_MODEL ?? 'anthropic:claude-sonnet-4-5-20250514';
-  const [provider, model] = id.split(':');
-  if (provider === 'openai') return openai(model ?? 'gpt-5.5');
-  return anthropic(model ?? 'claude-sonnet-4-5-20250514');
+  const [provider, ...rest] = id.split(':');
+  const model = rest.join(':');
+  if (provider === 'openai') return openai(model || 'gpt-5.5');
+  if (provider === 'google') return google(model || 'gemini-2.5-pro-preview-05-06');
+  return anthropic(model || 'claude-sonnet-4-5-20250514');
 }
 
 export async function POST(req: Request) {
