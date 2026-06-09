@@ -83,13 +83,22 @@ runs immediately after the poller — so it sees the freshest `costTokens` and
 `turnCount` the poller just wrote — and **before** `ci`, so a halted Task stops
 accruing work as early as possible in the tick.
 
-It enforces four per-task limits. For each non-terminal Task with a `sessionId`:
+It enforces three per-task limits. For each Task in an **agent-active** status —
+`dispatching`, `running`, `turn_ended`, `opening_pr` — with a `sessionId`:
 
 | Limit | Effective value | Breach condition | Halt reason |
 |-------|-----------------|------------------|-------------|
 | **Turn cap** | `mission.taskMaxTurns ?? skill.loopPolicy.maxTurns ?? env.TASK_MAX_TURNS` (30) | `task.turnCount >= maxTurns` | `max_turns` |
 | **Per-task token cap** | `mission.taskMaxTokens ?? skill.loopPolicy.maxTokens ?? env.TASK_MAX_TOKENS` (0 = unbounded) | `cap > 0 && task.costTokens >= cap` | `task_token_cap` |
 | **No-progress** | `mission.noProgressTokens ?? skill.loopPolicy.noProgressTokens ?? env.TASK_NO_PROGRESS_TOKENS` (200k) | `task.costTokens - task.costTokensAtProgress >= threshold` | `no_progress` |
+
+**Scope is agent-active states only — not "any non-terminal Task."** A Task
+parked at `awaiting_ci`/`awaiting_verify`/`awaiting_review`/`merging` is not
+burning agent tokens (only bounded gate-validator tokens) and accrued its turns
+legitimately; halting it there would wrongly fail a Task sitting correctly in a
+review/CI queue. The caps apply exactly where new agent spend accrues. (CI and
+verify retry turns run with the Task parked at `awaiting_ci`, so they are bounded
+by `TASK_RETRY_MAX` / `VERIFY_RETRY_MAX`, not by these caps — see §3.2.)
 
 (The mission-level hard **budget** ceiling is a separate, Mission-wide stop —
 see §2 — because it has to cancel *every* in-flight Task at once, not one.)
@@ -112,27 +121,43 @@ terminal-state plumbing is needed.
 
 ### 1.1 Tracking `turnCount` and progress
 
-These two counters are maintained by the poller's state machine, not by
-guardrails — guardrails only reads them.
+These counters are maintained by the poller, not by guardrails — guardrails only
+reads them.
 
-- **`turnCount`** increments by 1 each time a Task transitions **into**
-  `turn_ended` (one completed agent turn = one `running → turn_ended` cycle).
-  This is the iteration counter; it counts *every* turn, including auto-confirm
-  resumes and verify/CI retry turns, which is exactly the "iteration count" the
-  hard-stop literature means.
+- **`turnCount` must be counted per-event, not per-delta.** `pollOne` ingests
+  *all* new events in one pass and folds them into a single merged delta
+  (`mergeDelta` → one `applyDelta`). A single poll window routinely contains
+  several `idle → running → idle` cycles (auto-confirm resumes between ticks,
+  multiple ticks' events arriving together), and `mergeDelta` keeps only the
+  *last* status — so incrementing `turnCount` once per `applyDelta` would
+  **undercount**, and the fast-spinning runaway that emits many turns per minute
+  is exactly the case the cap exists to catch. The poller therefore accumulates a
+  `turnCompleted` *integer* inside its event loop (one per `transition()` that
+  yields `turn_ended` as a distinct change) and applies
+  `turn_count = task.turnCount + count` once.
 
-- **Progress** is a *forward* pipeline movement, not any status change. We add a
-  `STATUS_RANK` ordering to `state.ts` (`queued=0 … merged=N`). A delta counts
-  as progress when either (a) it raises the Task's status to a rank higher than
-  any previously reached, or (b) it newly attaches a `prUrl`. On progress, the
-  poller stamps `lastProgressAt = now` and `costTokensAtProgress = costTokens`.
-  Crucially, the `running ↔ turn_ended` oscillation is **not** forward progress
-  (same or lower rank), so a Task that keeps producing turns without advancing
-  the pipeline will accumulate tokens against `costTokensAtProgress` and trip
-  the no-progress limit — this is the AutoGPT guard.
+- **Progress = a code push, not a pipeline hop.** The no-progress guard answers
+  "has the agent burned N tokens without producing any new work?" The progress
+  marker (`lastProgressAt`, `costTokensAtProgress`) is stamped when the Task
+  **newly attaches a `prUrl`** (its first PR). Pipeline status transitions are
+  *not* themselves progress — defining progress by status rank would let a gate
+  round-trip like `awaiting_ci → awaiting_verify` reset the baseline every cycle
+  (see §3.2). Because guardrails runs only on agent-active states (§1), the
+  no-progress guard effectively bounds the pre-first-PR phase: an agent that
+  keeps turning without ever opening a PR trips both the turn cap and no-progress
+  — the AutoGPT guard. Once a PR exists the Task leaves agent-active states and
+  these caps stop applying. (No `STATUS_RANK` is needed.)
 
-`costTokensAtProgress` is initialized to 0 and `lastProgressAt` to dispatch
-time when the Task is dispatched.
+- **The no-progress clock starts at the first completed turn, not at dispatch.** A
+  Task's first turn toward its initial PR is normal execution, not "no progress."
+  So the poller stamps `costTokensAtProgress = costTokens` on the **first**
+  `turn_ended` (and initializes `lastProgressAt`), giving the first turn headroom;
+  subsequent turns are measured from there, and the first PR re-stamps it. A
+  genuinely large first task that needs more than the default 200k before its
+  first PR raises `noProgressTokens` via its skill policy or a Mission override
+  (§4.3) — the default is tuned for the common dependency-bump/codemod case. At
+  dispatch, `costTokensAtProgress` is 0 and `lastProgressAt` is null (clock not
+  yet started).
 
 ### 1.2 Why a dedicated subsystem (not folded into the reconciler)
 
@@ -164,8 +189,14 @@ We add a second, harder threshold: **`budgetHardStopPct`** (default 100%).
   1. For every in-flight Task (status in `INFLIGHT_STATUSES`) with a
      `sessionId`: `adapter.cancelSession(...)`, then set `status='failed',
      haltReason='budget_hard_stop'`.
-  2. For every `queued` Task: set `status='abandoned'`.
-  3. Set Mission `status='cancelled'`.
+  2. For every `queued` Task: set `status='abandoned', haltReason='budget_hard_stop'`
+     (so the per-Task audit trail records *why*, not just the Mission-level event).
+  3. Set Mission `status='cancelled'` with a **guarded update on the observed
+     status** — `WHERE id=? AND status=<observed>`. The Mission may have been
+     `running` *or* `paused`; the existing soft-pause guard hard-codes
+     `status='running'`, which would silently no-op for a paused Mission. An
+     operator un-pausing between the read and the write correctly loses the race
+     (no-op, per the existing `if (!updated) continue` pattern).
   4. Ledger `budget.hard_stopped`: `{ spentTokens, spentUsd, budgetTokens,
      budgetUsd, hardStopPct, crossedAtPct }`.
 
@@ -205,10 +236,13 @@ review is on, else `awaiting_review`). That selection gains one branch: if
 
 ### 3.2 `runVerify(log)` (`apps/tick/src/verify.ts`)
 
-For each `awaiting_verify` Task, call a cheap validator model
-(`messages.create`, mirroring `ai-review.ts`'s structure and token attribution)
-with: the Task's `acceptanceCriteria` and the PR diff (fetched via Octokit
-exactly as `ai-review` does). The validator returns structured JSON
+`runVerify` follows the same reject→retry→escalate state machine `ai-review.ts`
+already implements (its structural template; verify differs only in prompt,
+model, and counter, and folds the validator's token cost into the *same*
+status-transition UPDATE that `ai-review` uses, so the read-then-write on
+`costTokens` isn't clobbered). For each `awaiting_verify` Task it calls a
+validator with the Task's `acceptanceCriteria` and the PR diff (fetched via
+Octokit exactly as `ai-review` does) and gets back structured JSON
 `{ verdict: 'done' | 'incomplete', missing?: string }`.
 
 **The checker is not the maker** — that is the point of block #5. The validator
@@ -234,10 +268,21 @@ spec only wires it for the verify gate.)
   silently would throw away possibly-good work; escalation matches how
   `ai-review` handles low-confidence verdicts.
 
-The verify retry loop is bounded twice over: by `VERIFY_RETRY_MAX` directly,
-and by the §1 turn cap / no-progress guard as a backstop (each retry turn
-increments `turnCount` and, if it produces no forward progress, counts against
-the no-progress budget). A verify loop physically cannot run away.
+**The only bound on the verify loop is `VERIFY_RETRY_MAX`.** The §1 caps are
+*not* a backstop here: during a verify retry the Task is parked at `awaiting_ci`
+(not an agent-active status), so guardrails don't evaluate it, `turnCount`
+doesn't advance (no `turn_ended` is polled at `awaiting_ci`), and an
+`awaiting_ci → awaiting_verify` re-promotion is not progress (§1.1), so it
+neither resets nor trips the no-progress budget. `VERIFY_RETRY_MAX = 2` keeps the
+loop short on its own. Two retry sub-cases must be handled explicitly:
+
+- **Agent pushed nothing** (CI already green on the unchanged HEAD): the next CI
+  poll re-promotes straight back to `awaiting_verify`, costing one validator call
+  and one `verifyRetryCount` per cycle until exhaustion → escalate. Bounded.
+- **CI checks not yet registered** after a push: `ci.ts` treats
+  `total_count === 0` as success, which could re-promote before the agent's push
+  lands. Verify must re-fetch the PR's current head SHA and skip re-validation
+  until checks for the latest SHA are complete, so it never grades a stale diff.
 
 ### 3.3 Acceptance criteria source
 
@@ -353,17 +398,23 @@ reuses it. No new credentials.
 
 ## 7. Tick ordering (`apps/tick/src/tick.ts`)
 
+The current order in `tick.ts` is `poller → ci → aiReview → autoMerge → budgets →
+reconciler → dispatcher → memory`. We insert two steps and **leave the rest
+exactly where they are** (in particular `dispatcher` stays before `memory`, and
+`aiReview` stays before `autoMerge` so an AI-approved Task can auto-merge in the
+same tick):
+
 ```
 1. poller       (ingest events; maintain turnCount + progress markers)
-2. guardrails   (NEW — halt tasks over turn/token/no-progress limits)
+2. guardrails   (NEW — halt agent-active tasks over turn/token/no-progress limits)
 3. ci           (green CI → awaiting_verify | awaiting_ai_review | awaiting_review)
 4. verify       (NEW — done-check; advance, retry, or escalate)
 5. aiReview     (quality review)
 6. autoMerge
 7. budgets      (soft pause OR hard stop + cancel in-flight)
 8. reconciler
-9. memory
-10. dispatcher  (resolve acceptanceCriteria + loopPolicy at dispatch)
+9. dispatcher   (resolve acceptanceCriteria + loopPolicy at dispatch)
+10. memory
 ```
 
 Each step stays wrapped in its own `.catch()` returning a zeroed result, per the
@@ -378,21 +429,26 @@ existing convention.
 - `INFLIGHT_STATUSES` (`dispatcher.ts`) — it holds a session and counts against concurrency
 - `ALL_TASK_STATUSES` (`budgets.ts`)
 - the task-status badge component (`apps/web`)
-- `guardrails` scope (any non-terminal status with a session) — a Task can burn tokens during verify-retry turns
 
 It must **not** be added to:
 - `POLLABLE_STATUSES` (`poller.ts`) — the validator drives it, not backend events
 - `MISSION_TERMINAL_TASK_STATUSES` (`reconciler.ts`) — it's mid-pipeline
+- **`guardrails` scope** — guardrails runs on agent-active states only
+  (`dispatching`/`running`/`turn_ended`/`opening_pr`); `awaiting_verify` is a gate
+  state, not agent-active (§1)
 
 ---
 
 ## 9. Edge cases & interactions
 
-- **Guardrails vs. an in-flight turn.** Cancelling a session that's mid-turn is
-  best-effort; the poller may still ingest a trailing `session.status_idle`
-  afterward. The guarded `status='failed'` update means those late events can't
-  resurrect the Task — `state.ts` transitions are no-ops once a Task is
-  terminal.
+- **Guardrails vs. an in-flight turn.** `cancelSession` sends `user.interrupt`
+  asynchronously; the session drains to idle, so it may emit trailing events after
+  guardrails sets the Task `failed`. That's safe: a `failed` Task is not in
+  `POLLABLE_STATUSES`, so the poller never ingests those trailing events and the
+  `task.halted` event is the last word (trailing spend is dropped, acceptable).
+  Note `state.ts`'s `session.error` / `session.status_terminated` transitions are
+  *not* status-guarded today — the protection is that the poller stops polling the
+  Task, not that `transition()` is a no-op.
 - **No-progress on a legitimately slow Task.** A large refactor that genuinely
   needs 300k tokens before its first PR will trip the default no-progress
   budget. That's why the limit is per-skill: skills for big-surface work raise
@@ -402,14 +458,19 @@ It must **not** be added to:
   tick, so within a single tick a hard-stopped Mission (now `cancelled`) is no
   longer a dispatch candidate (`status='running'` only). Cross-tick, the guarded
   updates prevent double action.
-- **Self-verify + CI churn.** A verify `incomplete → awaiting_ci` with no new
-  push leaves CI already green, so the next tick re-promotes to
-  `awaiting_verify` and re-checks — burning one validator call and one
-  `verifyRetryCount` per cycle. Bounded by `VERIFY_RETRY_MAX`; the §1 turn/no-
-  progress guards are the hard backstop.
+- **Self-verify + CI churn.** Covered in §3.2: `VERIFY_RETRY_MAX` is the sole
+  bound on the verify loop; the §1 caps do **not** apply at `awaiting_ci`/
+  `awaiting_verify`, so they are not a backstop here.
+- **A wedged verify gate blocks Mission completion.** `awaiting_verify` is not in
+  `MISSION_TERMINAL_TASK_STATUSES`, so a Task stuck there (validator repeatedly
+  erroring, or diff-fetch failing) counts as "remaining" and holds the Mission
+  open. Verify's error path mirrors `ai-review`'s — it logs and retries next tick,
+  no transition — which is consistent existing behavior, but the only backstop for
+  a permanently-wedged gate is the budget hard-stop (§2). Documented, not fixed
+  here.
 - **Budget attribution.** Verify and CI-retry validator/turn costs already flow
-  into `task.costTokens` (same path as `ai-review`), so they count against both
-  the per-task caps and the Mission budget automatically — no separate metering.
+  into `task.costTokens` (same path as `ai-review`), so they count against the
+  Mission budget automatically — no separate metering.
 - **Same-repo isolation (block #2 invariant).** Two Tasks targeting the same repo
   already get distinct branches (`forge/<taskId>`) and run in separate sandboxes,
   so they don't collide. This spec only makes that an *explicit, tested
@@ -423,19 +484,29 @@ It must **not** be added to:
 ## 10. Testing strategy
 
 - `guardrails.test.ts` — pure limit-resolution (Mission → skill → env
-  precedence); each breach reason fires at the right boundary; halted Task gets
+  precedence); each breach reason fires at the right boundary (`>=`); priority
+  when two limits breach at once; **scope is agent-active only — a Task at
+  `awaiting_review`/`awaiting_ci` over a cap is NOT halted**; halted Task gets
   `failed` + `halt_reason` + Ledger event; `cancelSession` is called.
-- `verify.test.ts` — validator-JSON parsing; `done` routes correctly with/without
-  AI review; `incomplete` under cap sends a turn and resets to `awaiting_ci`;
-  exhaustion escalates to `awaiting_review`.
-- `budgets.test.ts` — extend: hard-stop boundary; paused Missions are evaluated
-  for the hard ceiling; in-flight cancelled + queued abandoned + Mission
-  cancelled; soft pause still fires between thresholds.
-- `state.test.ts` — `turnCount` increments only into `turn_ended`; `STATUS_RANK`
-  progress detection; oscillation is not progress.
-- `skill-loader.test.ts` — frontmatter parsing populates `loopPolicy`; a skill
-  without frontmatter still loads (back-compat).
-- Update the inflight-count assertions in `dispatcher.test.ts` (8 → 9 statuses).
+- `verify.test.ts` — validator-JSON parsing (incl. malformed → safe default);
+  `done` routes correctly with/without AI review; `incomplete` under cap sends a
+  turn and resets to `awaiting_ci`; exhaustion escalates to `awaiting_review`;
+  validator model resolves `loopPolicy.verifyModel` over `env.VERIFY_MODEL`.
+- `budgets.test.ts` — extend: hard-stop boundary; **paused** Missions are
+  evaluated for the hard ceiling and the guarded update fires on the observed
+  status; in-flight cancelled + queued abandoned + Mission cancelled; soft pause
+  still fires strictly between thresholds.
+- `state.test.ts` / `poller` — `turnCount` increments per `turn_ended` event and
+  counts **multiple** turns in one poll window (not once per `applyDelta`);
+  no-progress baseline stamps on first `turn_ended` and on first PR, not at
+  dispatch; gate round-trips are not progress.
+- `skill-loader.test.ts` — frontmatter parsing populates `loopPolicy` (incl. a
+  multi-line `acceptanceCriteria` block scalar); a skill without frontmatter still
+  loads (back-compat).
+- `dispatcher.test.ts` — the `INFLIGHT_STATUSES` `toEqual` literal gains
+  `awaiting_verify` (8 → 9, in the right position); the capacity-count test
+  auto-adjusts (it iterates the array); add a test that two same-`(repo, branch)`
+  Tasks don't both go in-flight in one tick.
 - Pure functions extracted for each subsystem so tests avoid mocking the DB
   where possible (matches existing style).
 
@@ -452,12 +523,12 @@ It must **not** be added to:
 - `packages/db/src/schema.ts` — new status, Task/Mission/skills columns, `LoopPolicy` type
 - `apps/tick/src/env.ts` — six new env vars (incl. `VERIFY_MODEL`)
 - `apps/tick/src/tick.ts` — wire `guardrails` + `verify`
-- `apps/tick/src/state.ts` — `STATUS_RANK`, `turnCount` increment, progress markers
-- `apps/tick/src/poller.ts` — apply turnCount/progress deltas
+- `apps/tick/src/state.ts` — per-event `turnCompleted` signal on `→ turn_ended`
+- `apps/tick/src/poller.ts` — count turns per-event; stamp progress markers (first turn / first PR)
 - `apps/tick/src/ci.ts` — route green CI to `awaiting_verify` when enabled
 - `apps/tick/src/budgets.ts` — hard-stop ceiling, evaluate paused Missions, `ALL_TASK_STATUSES += awaiting_verify`
 - `apps/tick/src/verify.ts` — checker model resolves `loopPolicy.verifyModel ?? env.VERIFY_MODEL`
-- `apps/tick/src/dispatcher.ts` — `INFLIGHT_STATUSES += awaiting_verify`; resolve `acceptanceCriteria` + `loopPolicy` at dispatch; init progress markers; same-`(repo, branch)` isolation guard
+- `apps/tick/src/dispatcher.ts` — `INFLIGHT_STATUSES += awaiting_verify`; resolve `acceptanceCriteria` + `loopPolicy` at dispatch; same-`(repo, branch)` isolation guard
 - `apps/tick/src/skill-loader.ts` — parse YAML frontmatter → `loopPolicy`
 - `apps/web/src/components/task-status-badge.tsx` — `awaiting_verify` badge + `halt_reason` surfacing
 - `apps/web/src/app/missions/new/new-mission-form.tsx` — `selfVerifyEnabled`, hard-stop %, per-task caps

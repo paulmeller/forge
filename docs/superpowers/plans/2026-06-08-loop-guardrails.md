@@ -142,64 +142,57 @@ VERIFY_MODEL: process.env.VERIFY_MODEL ?? 'claude-haiku-4-5', // checker ≠ mak
 **Files:** Modify `apps/tick/src/state.ts`, `apps/tick/src/poller.ts`
 **Test:** `apps/tick/src/state.test.ts`
 
-- [ ] **Step 1: Add `STATUS_RANK` to `state.ts`**
+No `STATUS_RANK` is needed — progress is defined by a PR push, not by pipeline
+position (see spec §1.1).
 
-A pipeline ordering used to detect *forward* progress. Terminal failure states
-sort low so they never count as progress:
+- [ ] **Step 1: Mark completed turns in `state.ts`**
 
-```typescript
-export const STATUS_RANK: Record<TaskStatus, number> = {
-  queued: 0,
-  dispatching: 1,
-  running: 2,
-  turn_ended: 2,        // same rank as running — oscillation is NOT progress
-  opening_pr: 3,
-  awaiting_ci: 4,
-  awaiting_verify: 5,
-  awaiting_ai_review: 6,
-  awaiting_review: 7,
-  merging: 8,
-  merged: 9,
-  abandoned: 0,
-  failed: 0,
-};
-```
-
-- [ ] **Step 2: Extend `StateTransition` with progress signals**
-
-Add two computed flags to the delta the poller consumes:
+Add one signal to the delta the poller consumes:
 
 ```typescript
 export type StateTransition = {
   // …existing fields…
-  /** True when this transition is a completed turn (→ turn_ended). */
+  /** True when this transition is a completed turn (running → turn_ended). */
   turnCompleted?: boolean;
-  /** True when this transition is forward progress (new max rank or PR attached). */
-  forwardProgress?: boolean;
 };
 ```
 
-Set `turnCompleted: true` on the `running → turn_ended` transition. Leave
-`forwardProgress` for the poller to compute (it knows the prior status + prUrl).
+Set `turnCompleted: true` on the `running → turn_ended` transition only.
 
-- [ ] **Step 3: Compute progress + apply counters in `poller.ts`**
+- [ ] **Step 2: Count turns PER-EVENT in `poller.ts` (not per-delta)**
 
-In `applyDelta` (or where the merged delta is applied), after determining the
-new status:
+This is the critical correctness fix. `pollOne` folds all events into one merged
+delta and calls `applyDelta` once; incrementing `turn_count` there would
+**undercount** when a poll window contains several turns (the fast-spinning
+runaway). Instead, accumulate in the event loop:
 
-- If `delta.turnCompleted`, set `turn_count = task.turnCount + 1`.
-- Compute `forwardProgress = (STATUS_RANK[newStatus] > STATUS_RANK[task.status]) || (delta.prUrl && !task.prUrl)`.
-- If `forwardProgress`, set `last_progress_at = now` and
-  `cost_tokens_at_progress = <costTokens after this delta's costTokensDelta>`.
+- In `pollOne`'s `for (const ev of events)` loop, keep a local
+  `turnCompletedCount` and increment it whenever `transition()` returns a delta
+  with `turnCompleted === true` **and** it's a distinct change (reuse the same
+  guard the existing `transitionCount` uses at `poller.ts:116-119`).
+- Pass that count into `applyDelta`, which sets `turn_count = task.turnCount + turnCompletedCount`.
+
+- [ ] **Step 3: Stamp progress markers in `poller.ts`**
+
+Progress = first PR push, and the no-progress clock starts at the first completed
+turn (spec §1.1):
+
+- On the **first** `turn_ended` for a Task (i.e. when `task.lastProgressAt` is
+  null), set `last_progress_at = now` and `cost_tokens_at_progress = <costTokens
+  after this poll's costTokensDelta>` — this starts the clock with headroom.
+- When `delta.prUrl && !task.prUrl` (first PR attached), re-stamp both.
+- No pipeline-rank logic; gate transitions are not progress.
 
 Keep the existing single-tick-serial read-then-write assumption noted in
 `applyDelta`.
 
 - [ ] **Step 4: Tests**
 
-In `state.test.ts`: `turnCompleted` fires only into `turn_ended`;
-`running ↔ turn_ended` is not forward progress; `awaiting_ci` from `turn_ended`
-is forward progress; PR attach is progress.
+In `state.test.ts` / poller tests: `turnCompleted` fires only into `turn_ended`;
+a single poll containing two `idle→running→idle` cycles increments `turn_count`
+by **2** (not 1); the first `turn_ended` stamps the progress baseline; a first PR
+attach stamps progress; an `awaiting_ci → awaiting_verify` style hop is NOT
+progress.
 
 - [ ] **Step 5:** `pnpm --filter tick test --run state` then `typecheck`.
 
@@ -233,8 +226,11 @@ Priority order: `max_turns` → `task_token_cap` → `no_progress`. No-progress 
 
 - [ ] **Step 3: `runGuardrails(log)`**
 
-Select non-terminal Tasks with a `sessionId` (statuses in `INFLIGHT_STATUSES`
-minus pure-gate states is fine, but simplest: all non-terminal with a session).
+Select Tasks in **agent-active** statuses only —
+`['dispatching','running','turn_ended','opening_pr']` — with a `sessionId`. Do
+**not** scope to "all non-terminal": a Task parked at `awaiting_ci`/
+`awaiting_verify`/`awaiting_review`/`merging` accrued its turns legitimately and
+isn't burning agent tokens, so halting it there is a wrong-halt (spec §1).
 Join each to its Mission and (if `mission.skillId`) its skill's `loopPolicy`.
 For each breach:
 
@@ -283,8 +279,13 @@ After `computeBudgetPct`:
   `hardStop(mission, spentTokens, spentUsd, maxPct)`):
   - For each in-flight Task (`INFLIGHT_STATUSES`) with `sessionId`:
     `adapter.cancelSession`, then `status='failed', haltReason='budget_hard_stop', completedAt=now`.
-  - For each `queued` Task: `status='abandoned', completedAt=now`.
-  - Guarded `missions` update → `status='cancelled', completedAt=now`.
+  - For each `queued` Task: `status='abandoned', haltReason='budget_hard_stop', completedAt=now`
+    (record *why* on the Task, not just the Mission event).
+  - Guarded `missions` update → `status='cancelled', completedAt=now` **`WHERE
+    id=? AND status=<observed>`** (the Mission may be `running` *or* `paused` —
+    do NOT hard-code `status='running'` like the soft-pause guard, or paused-
+    Mission hard-stops silently no-op). Accept the no-op on mismatch
+    (`if (!updated) continue`), so an operator un-pausing mid-tick wins the race.
   - Ledger `budget.hard_stopped`.
 - else `maxPct >= mission.budgetThresholdPct && mission.status==='running'` →
   existing soft pause (unchanged).
@@ -327,7 +328,12 @@ type to include `awaiting_verify`).
 ### Task 8: Verify subsystem
 
 **Files:** Create `apps/tick/src/verify.ts`, `apps/tick/src/verify.test.ts`
-**Reference patterns:** `ai-review.ts` (validator `messages.create` + diff fetch + token attribution) and `ci.ts` (`buildRetryPrompt` + retry-with-feedback).
+**Reference patterns:** near-clone the **reject→retry→escalate state machine** in
+`ai-review.ts` (`reviewOne` — the validator `messages.create` + diff fetch +
+counter + escalation + token attribution); `verify` differs only in prompt,
+model, and counter. Also reuse `ci.ts`'s `buildRetryPrompt` shape for the
+feedback turn. NOTE: `ai-review.ts` uses `claude-sonnet-4-6`; verify mirrors its
+*control flow*, not its model (verify's default is the cheaper `VERIFY_MODEL`).
 
 - [ ] **Step 1: Validator prompt + parse (pure, exported)**
 
@@ -342,17 +348,25 @@ items on the same branch and push. Reuse the tone of `buildRetryPrompt`.
 - [ ] **Step 3: `runVerify(log)`**
 
 For each `awaiting_verify` Task:
-- Fetch the PR diff (Octokit, as `ai-review` does) and read `acceptanceCriteria`.
+- **Guard against a stale diff (CI race):** re-fetch the PR; if checks for the
+  current head SHA aren't complete (or `total_count === 0` and a push is in
+  flight), skip this tick rather than grading a half-pushed diff. Then fetch the
+  diff (Octokit, as `ai-review` does) and read `acceptanceCriteria`.
 - Call the validator on a **checker ≠ maker** model: resolve
   `skill.loopPolicy?.verifyModel ?? env.VERIFY_MODEL` (default `claude-haiku-4-5`)
-  and pass it as the `model` to `messages.create`; attribute its token cost to
-  `task.costTokens` (same path as `ai-review`).
+  and pass it as `model` to `messages.create`. **Fold the validator's token cost
+  into the SAME status-transition UPDATE** (`costTokens = task.costTokens +
+  used`), exactly as `ai-review` does — a separate UPDATE would clobber the
+  read-then-write.
 - `done` → set `awaiting_ai_review` if the Mission has AI review on, else
   `awaiting_review`; Ledger `verify.passed`.
 - `incomplete` and `verifyRetryCount < env.VERIFY_RETRY_MAX` and `sessionId` →
   `adapter.sendTurn(sessionId, buildVerifyFeedback(missing))`, increment
   `verifyRetryCount`, set `awaiting_ci`; Ledger `verify.retry_dispatched`.
 - `incomplete` exhausted → set `awaiting_review`; Ledger `verify.escalated`.
+
+`VERIFY_RETRY_MAX` is the **only** bound on this loop — the §1 guardrail caps do
+not apply at `awaiting_ci`/`awaiting_verify` (spec §3.2), so don't rely on them.
 
 Return `{ tasksChecked, passed, retried, escalated, errors }`.
 
@@ -372,16 +386,22 @@ Return `{ tasksChecked, passed, retried, escalated, errors }`.
 
 - [ ] **Step 1:** Import `runVerify`; add to `TickResult`; call it after
   `runCiPoller` and before `runAiReview`, `.catch()`-wrapped with a zeroed
-  result. Update the doc comment.
+  result. **Insert into the real `tick.ts` order without reordering anything
+  else** — current order is `poller → ci → aiReview → autoMerge → budgets →
+  reconciler → dispatcher → memory`; `guardrails` goes after `poller`, `verify`
+  after `ci`. Leave `dispatcher` before `memory` and `aiReview` before
+  `autoMerge`. Update the doc comment.
 - [ ] **Step 2:** `pnpm --filter tick typecheck`.
 
 ---
 
-### Task 10: Dispatcher — resolve criteria/policy + init progress markers
+### Task 10: Dispatcher — resolve criteria/policy + isolation guard
 
 **Files:** Modify `apps/tick/src/dispatcher.ts`; tests in `dispatcher.test.ts`
 
-- [ ] **Step 1: Add `awaiting_verify` to `INFLIGHT_STATUSES`** (8 → 9).
+- [ ] **Step 1: Add `awaiting_verify` to `INFLIGHT_STATUSES`** (8 → 9), in the
+  right position. Note `dispatcher.test.ts` asserts the full `INFLIGHT_STATUSES`
+  array with `toEqual` — update that literal too, not just a count.
 
 - [ ] **Step 2: Resolve acceptance criteria at dispatch.**
 
@@ -389,10 +409,13 @@ Where the dispatcher already resolves the skill (`getSkill`), if the Task has no
 `acceptanceCriteria` yet, copy `skill.loopPolicy?.acceptanceCriteria` onto it in
 the same update that marks the Task dispatched.
 
-- [ ] **Step 3: Initialize progress markers on dispatch.**
+- [ ] **Step 3: Do NOT stamp progress markers at dispatch.**
 
-In the update that sets `status='running'`/`dispatchedAt`, also set
-`lastProgressAt = now` and leave `costTokensAtProgress` at its default 0.
+Leave `lastProgressAt` null and `costTokensAtProgress` at its default 0 — the
+no-progress clock is started by the poller on the **first `turn_ended`** (Task 3
+Step 3), giving the first turn headroom. Stamping `now` at dispatch would measure
+the first turn against a 0 baseline and wrongly halt a legitimately large first
+task (spec §1.1 / §9).
 
 - [ ] **Step 4: Enforce the same-`(repo, branch)` isolation invariant** (block #2,
   spec §9). When claiming `queued` Tasks, skip any Task whose `(repo, baseBranch)`
@@ -414,13 +437,14 @@ In the update that sets `status='running'`/`dispatchedAt`, also set
 **Files:** Modify `apps/tick/src/skill-loader.ts`; tests in a new/updated
 `skill-loader.test.ts`
 
-- [ ] **Step 1: Parse YAML frontmatter.**
+- [ ] **Step 1: Parse YAML frontmatter with a real YAML parser.**
 
-Add a small frontmatter splitter: if `SKILL.md` starts with `---\n`, take the
-block up to the next `---`, parse it as YAML (use an existing dep if present;
-otherwise a minimal hand-parser limited to the `loopPolicy` shape is acceptable
-— keep it dependency-light and tolerant of missing keys). Strip the frontmatter
-from the `promptTemplate` body so the agent prompt is unchanged.
+If `SKILL.md` starts with `---\n`, take the block up to the next `---` and parse
+it with a proper YAML library (add `yaml` as a dep). Do **not** hand-roll: the
+`acceptanceCriteria` field uses a multi-line block scalar (`|`), and a naive
+parser would silently truncate it — a hard-to-notice failure that directly
+weakens the verify gate. Strip the frontmatter from the `promptTemplate` body so
+the agent prompt is unchanged. Tolerate a missing/empty `loopPolicy`.
 
 - [ ] **Step 2: Populate `loopPolicy`.**
 
@@ -486,9 +510,9 @@ update — include `loopPolicy` in the diff so policy edits re-sync).
 ## Key patterns
 
 - **Tick loop** (`apps/tick/src/tick.ts`): ordered subsystems, each wrapped in
-  `.catch()` so one crash doesn't cascade. New order: poller → **guardrails** →
-  ci → **verify** → aiReview → autoMerge → budgets → reconciler → memory →
-  dispatcher.
+  `.catch()` so one crash doesn't cascade. Insert into the existing order without
+  reordering it: poller → **guardrails** → ci → **verify** → aiReview → autoMerge
+  → budgets → reconciler → dispatcher → memory (dispatcher stays before memory).
 - **Ledger events**: every state change inserts a `ledgerEvents` row — the audit
   trail. New events: `task.halted`, `budget.hard_stopped`, `verify.passed`,
   `verify.retry_dispatched`, `verify.escalated`.
