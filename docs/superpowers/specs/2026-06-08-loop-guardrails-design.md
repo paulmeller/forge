@@ -2,43 +2,77 @@
 
 **Date:** 2026-06-08
 **Status:** Draft
-**Scope:** Per-task hard stops (turn cap, no-progress detection, per-task token cap), a hard budget ceiling that cancels in-flight sessions, a `/goal`-style self-verification gate, and skills that carry their own loop policy.
+**Scope:** Per-task hard stops (turn cap, no-progress detection, per-task token cap), a hard budget ceiling that cancels in-flight sessions, a `/goal`-style self-verification gate with a configurable checker model, and skills that carry their own loop policy.
 
 ---
 
 ## 0. Motivation
 
-Forge is, in the current vocabulary, a *loop*: Cloud Scheduler hits `POST /tick`
-every 60s (the cron), and inside each tick an agent — not a hardcoded branch —
-decides what to do next (the decision-maker). That places Forge at the top of
-the lineage the field has been arguing about: `ReAct (2022) → AutoGPT (2023) →
-ralph (2025) → /goal (2026) → multi-agent orchestration`. Forge is the
-orchestration layer; the Mission/Task/Gate machinery is the supervisor loop.
+A *loop* is a specific architecture, not a vibe. The field has converged on five
+building blocks plus a memory:
 
-Two lessons from that lineage are not yet first-class in Forge:
+1. **Automations (the heartbeat).** A scheduled trigger that does discovery and
+   triage on its own — the thing that turns "one run you did once" into a loop.
+2. **Worktrees (isolation).** Parallel agents that can't step on each other's files.
+3. **Skills.** Project knowledge written down once so the agent stops guessing it
+   every session.
+4. **Plugins / connectors (MCP).** The loop reaching into the tools you already
+   use — issue tracker, CI, Slack.
+5. **Sub-agents (maker ≠ checker).** One agent writes; a *different* one (often a
+   different model) checks, so the loop's "it's done" means something.
+6. **Memory.** Durable state outside any single conversation — the agent forgets
+   between runs, the store doesn't.
 
-1. **The loop's expensive failure mode is that it doesn't stop.** AutoGPT's
-   reputation came from spinning forever doing nothing; the 2026 production
-   write-ups all converge on the same three hard stops — a maximum iteration
-   count, no-progress detection, and a token/dollar ceiling. Forge today has a
+Forge already implements all six, as the **fleet** version of what the
+single-developer tools (Claude Code, Codex) do in one repo:
+
+| Block | In Forge today |
+|-------|----------------|
+| Automations | Cloud Scheduler → `POST /tick` every 60s; the dispatcher claims queued Tasks; the LLM planner reads an issue tracker and emits Tasks (discovery/triage). |
+| Worktrees | Each Task runs in its own MA/Gateway sandbox on its own branch (`forge/<taskId>`); `concurrencyCap` + atomic optimistic claim prevent double-claim. |
+| Skills | `skills` table + `skill-loader.ts` + on-disk `SKILL.md` + `mission.skillId`. |
+| Connectors | GitHub MCP (PR creation, vault-held creds, `AUTO_ALLOW_TOOLS`). |
+| Sub-agents | Maker = the Task session; checker = the AI-review gate (a separate `messages.create`). |
+| Memory | The **Ledger** (`ledger_events`), DB-backed Task/Mission state, and a confidence-scored `memories` table fed by retrospectives. |
+
+That places Forge at the top of the lineage — `ReAct (2022) → AutoGPT (2023) →
+ralph (2025) → /goal (2026) → multi-agent orchestration` — and the
+Mission / Task / Gate machinery is the supervisor loop.
+
+But *having* a block is not *having it well*. Three weaknesses sit exactly where
+the building-block model and the production literature both point, and this spec
+closes them:
+
+1. **The loop's expensive failure mode is that it doesn't stop** (block #1, run
+   unattended). AutoGPT's reputation came from spinning forever doing nothing;
+   the 2026 write-ups converge on three hard stops — a maximum iteration count,
+   no-progress detection, and a token/dollar ceiling. Forge today has only a
    *soft* budget pause (`runBudgets` flips a Mission to `paused` at 80%, but
    in-flight Tasks keep spending) and a CI-retry cap (`TASK_RETRY_MAX`). It has
-   **no per-task turn cap, no no-progress detection, no hard ceiling that
-   actually halts in-flight work, and no per-task token cap.** A single runaway
-   session can burn unbounded tokens inside one Task without tripping anything.
+   **no per-task turn cap, no no-progress detection, no hard ceiling that halts
+   in-flight work, and no per-task token cap.** A single runaway session can burn
+   unbounded tokens inside one Task without tripping anything. → §1, §2.
 
-2. **A loop is only as good as its ability to check its own work, and the
-   reusable unit inside it is a skill, not a prompt.** Forge has a CI gate and
-   an AI *quality* review, but no `/goal`-style *done-ness* validator that
-   checks the produced work against an explicit definition of done and loops
-   feedback until it passes. And Forge's skills carry only a prompt template +
-   allowed tools — they do not carry the loop's bounds or its acceptance
-   criteria, so every Mission re-specifies them (or, today, doesn't specify
-   them at all).
+2. **A loop is only as good as its checker, and the checker should not be the
+   maker** (block #5). Forge separates maker from checker *structurally* (the
+   AI-review gate is a separate call), but it has no `/goal`-style *done-ness*
+   validator that checks the work against an explicit definition of done and
+   loops feedback — and it doesn't let the checker run a *different model* from
+   the maker, which is the whole point of the split ("a strong model on high
+   effort" grading a fast maker). → §3.
 
-This spec closes those three gaps. It is deliberately additive: every new
-behavior is **off by default** and gated behind a Mission flag or an env
-default, so existing Missions are unaffected.
+3. **The reusable unit is a skill, not a prompt** (block #3). Forge's skills
+   carry only a prompt template + allowed tools — not the loop's bounds or its
+   acceptance criteria, so every Mission re-specifies them (or, today, doesn't).
+   → §4.
+
+The other two blocks — broader **connectors** (#4: Linear/Slack beyond GitHub)
+and worktree-grade **isolation guarantees** (#2: a hard guarantee that two Tasks
+on the same repo can't share a branch) — are real but out of scope here; see §12.
+
+This spec is deliberately additive: every new behavior is **off by default** and
+gated behind a Mission flag or an env default, so existing Missions are
+unaffected.
 
 ---
 
@@ -172,10 +206,19 @@ review is on, else `awaiting_review`). That selection gains one branch: if
 ### 3.2 `runVerify(log)` (`apps/tick/src/verify.ts`)
 
 For each `awaiting_verify` Task, call a cheap validator model
-(`messages.create`, `claude-haiku-4-5`, mirroring `ai-review.ts`'s structure
-and token attribution) with: the Task's `acceptanceCriteria` and the PR diff
-(fetched via Octokit exactly as `ai-review` does). The validator returns
-structured JSON `{ verdict: 'done' | 'incomplete', missing?: string }`.
+(`messages.create`, mirroring `ai-review.ts`'s structure and token attribution)
+with: the Task's `acceptanceCriteria` and the PR diff (fetched via Octokit
+exactly as `ai-review` does). The validator returns structured JSON
+`{ verdict: 'done' | 'incomplete', missing?: string }`.
+
+**The checker is not the maker** — that is the point of block #5. The validator
+model resolves `skill.loopPolicy.verifyModel ?? env.VERIFY_MODEL` (default
+`claude-haiku-4-5`), deliberately a *different* model from the agent that wrote
+the code, so the loop's "it's done" is a second opinion rather than the maker
+grading its own homework. A skill doing high-stakes work can name a stronger
+checker (`verifyModel: claude-opus-4-8`); the env default keeps the common case
+cheap. (The existing `ai-review` gate can adopt the same env knob later; this
+spec only wires it for the verify gate.)
 
 - **`done`** → advance to the next gate: `awaiting_ai_review` if AI review is
   enabled, else `awaiting_review`. Ledger `verify.passed`.
@@ -226,6 +269,7 @@ type LoopPolicy = {
   maxTokens?: number;
   noProgressTokens?: number;
   selfVerify?: boolean;
+  verifyModel?: string;
   acceptanceCriteria?: string;
 };
 ```
@@ -300,6 +344,7 @@ columns don't enforce enums, so no SQL constraint).
 | `TASK_MAX_TOKENS` | `0` | Per-task token ceiling (`0` = unbounded) |
 | `BUDGET_HARD_STOP_PCT` | `100` | Mission-wide hard ceiling % (used when a Mission leaves it null) |
 | `VERIFY_RETRY_MAX` | `2` | Self-verify feedback turns before escalation |
+| `VERIFY_MODEL` | `claude-haiku-4-5` | Checker model for the verify gate (overridable per-skill via `loopPolicy.verifyModel`) |
 
 `ANTHROPIC_API_KEY` already exists (used by `ai-review`); the verify validator
 reuses it. No new credentials.
@@ -365,6 +410,13 @@ It must **not** be added to:
 - **Budget attribution.** Verify and CI-retry validator/turn costs already flow
   into `task.costTokens` (same path as `ai-review`), so they count against both
   the per-task caps and the Mission budget automatically — no separate metering.
+- **Same-repo isolation (block #2 invariant).** Two Tasks targeting the same repo
+  already get distinct branches (`forge/<taskId>`) and run in separate sandboxes,
+  so they don't collide. This spec only makes that an *explicit, tested
+  invariant*: the dispatcher must never put two in-flight Tasks on the same
+  `(repo, branch)` pair (a `verify`/CI-retry turn reuses the Task's own branch,
+  which is fine — it's the same Task). Full worktree-grade isolation on a shared
+  checkout is a separate workstream — see §12.
 
 ---
 
@@ -398,13 +450,14 @@ It must **not** be added to:
 
 ### Modified files
 - `packages/db/src/schema.ts` — new status, Task/Mission/skills columns, `LoopPolicy` type
-- `apps/tick/src/env.ts` — five new env vars
+- `apps/tick/src/env.ts` — six new env vars (incl. `VERIFY_MODEL`)
 - `apps/tick/src/tick.ts` — wire `guardrails` + `verify`
 - `apps/tick/src/state.ts` — `STATUS_RANK`, `turnCount` increment, progress markers
 - `apps/tick/src/poller.ts` — apply turnCount/progress deltas
 - `apps/tick/src/ci.ts` — route green CI to `awaiting_verify` when enabled
 - `apps/tick/src/budgets.ts` — hard-stop ceiling, evaluate paused Missions, `ALL_TASK_STATUSES += awaiting_verify`
-- `apps/tick/src/dispatcher.ts` — `INFLIGHT_STATUSES += awaiting_verify`; resolve `acceptanceCriteria` + `loopPolicy` at dispatch; init progress markers
+- `apps/tick/src/verify.ts` — checker model resolves `loopPolicy.verifyModel ?? env.VERIFY_MODEL`
+- `apps/tick/src/dispatcher.ts` — `INFLIGHT_STATUSES += awaiting_verify`; resolve `acceptanceCriteria` + `loopPolicy` at dispatch; init progress markers; same-`(repo, branch)` isolation guard
 - `apps/tick/src/skill-loader.ts` — parse YAML frontmatter → `loopPolicy`
 - `apps/web/src/components/task-status-badge.tsx` — `awaiting_verify` badge + `halt_reason` surfacing
 - `apps/web/src/app/missions/new/new-mission-form.tsx` — `selfVerifyEnabled`, hard-stop %, per-task caps
@@ -415,10 +468,28 @@ It must **not** be added to:
 
 ## 12. Out of scope (follow-ups)
 
+Operational follow-ups for the features in this spec:
+
 - Operator notifications on halt/hard-stop (shares the deferred PRD §14 Q4
   webhook-notification work).
 - A live Console widget for "tokens since last progress" / "turns used vs cap".
-- Agent-invokable skill *registry* (a skill calling other skills mid-loop) —
-  this spec makes skills carry policy, not call each other.
 - Per-Mission *dollar*-denominated caps beyond the existing token→USD
   conversion in `computeBudgetPct`.
+
+Building blocks this spec deliberately does **not** address — named here so they
+stay tracked against the six-block model rather than getting lost:
+
+- **Connector breadth (block #4).** Forge speaks GitHub MCP only. The "open the
+  PR *and* update the Linear ticket *and* ping Slack when CI is green" loop needs
+  more connectors wired through the existing MCP-vault seam. Separate spec.
+- **Worktree-grade isolation (block #2).** §9 nails down the minimal
+  same-`(repo, branch)` invariant; a true shared-history `git worktree` model
+  (multiple Tasks against one checkout) is a larger execution-plane change.
+- **Checker-model diversity for the AI-review gate (block #5).** This spec wires
+  the configurable `verifyModel` only for the new verify gate; giving
+  `ai-review` the same knob is a one-line follow-up.
+- **Agent-invokable skill *registry* (block #3).** This spec makes skills *carry*
+  policy; a skill *calling* other skills mid-loop is a different feature.
+- **Automation/triage breadth (block #1).** The LLM planner is the discovery
+  surface today; richer scheduled-triage recipes are product work, not loop
+  guardrails.

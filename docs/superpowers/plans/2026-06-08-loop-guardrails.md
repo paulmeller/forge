@@ -67,6 +67,7 @@ export type LoopPolicy = {
   maxTokens?: number;
   noProgressTokens?: number;
   selfVerify?: boolean;
+  verifyModel?: string;
   acceptanceCriteria?: string;
 };
 ```
@@ -118,7 +119,7 @@ Run: `pnpm --filter db typecheck` — must pass.
 
 **Files:** Modify `apps/tick/src/env.ts`
 
-- [ ] **Step 1: Add the five new vars**
+- [ ] **Step 1: Add the six new vars**
 
 Append to the `env` object:
 
@@ -129,6 +130,7 @@ TASK_NO_PROGRESS_TOKENS: Number(process.env.TASK_NO_PROGRESS_TOKENS ?? 200_000),
 TASK_MAX_TOKENS: Number(process.env.TASK_MAX_TOKENS ?? 0), // 0 = unbounded
 BUDGET_HARD_STOP_PCT: Number(process.env.BUDGET_HARD_STOP_PCT ?? 100),
 VERIFY_RETRY_MAX: Number(process.env.VERIFY_RETRY_MAX ?? 2),
+VERIFY_MODEL: process.env.VERIFY_MODEL ?? 'claude-haiku-4-5', // checker ≠ maker
 ```
 
 - [ ] **Step 2: Typecheck.** `pnpm --filter tick typecheck`.
@@ -341,7 +343,9 @@ items on the same branch and push. Reuse the tone of `buildRetryPrompt`.
 
 For each `awaiting_verify` Task:
 - Fetch the PR diff (Octokit, as `ai-review` does) and read `acceptanceCriteria`.
-- Call the validator (`claude-haiku-4-5`); attribute its token cost to
+- Call the validator on a **checker ≠ maker** model: resolve
+  `skill.loopPolicy?.verifyModel ?? env.VERIFY_MODEL` (default `claude-haiku-4-5`)
+  and pass it as the `model` to `messages.create`; attribute its token cost to
   `task.costTokens` (same path as `ai-review`).
 - `done` → set `awaiting_ai_review` if the Mission has AI review on, else
   `awaiting_review`; Ledger `verify.passed`.
@@ -355,7 +359,8 @@ Return `{ tasksChecked, passed, retried, escalated, errors }`.
 - [ ] **Step 4: Tests** — verdict parsing (`done`/`incomplete`/malformed→safe
   default); `done` routing with and without AI review; `incomplete` under cap
   sends a turn + resets to `awaiting_ci` + increments count; exhaustion escalates
-  to `awaiting_review`; token cost attributed.
+  to `awaiting_review`; token cost attributed; validator model resolves
+  `loopPolicy.verifyModel` over `env.VERIFY_MODEL`.
 
 - [ ] **Step 5:** `pnpm --filter tick test --run verify` then `typecheck`.
 
@@ -389,10 +394,18 @@ the same update that marks the Task dispatched.
 In the update that sets `status='running'`/`dispatchedAt`, also set
 `lastProgressAt = now` and leave `costTokensAtProgress` at its default 0.
 
-- [ ] **Step 4: Update the inflight-count assertion** in `dispatcher.test.ts`
-  (the existing test that asserts the number of inflight statuses) to 9.
+- [ ] **Step 4: Enforce the same-`(repo, branch)` isolation invariant** (block #2,
+  spec §9). When claiming `queued` Tasks, skip any Task whose `(repo, baseBranch)`
+  pair already has an in-flight Task (status in `INFLIGHT_STATUSES`) on the same
+  Mission — leave it `queued` for a later tick. Each Task already gets a unique
+  `forge/<taskId>` work branch, so this only guards the base-branch claim; it does
+  not change branch naming.
 
-- [ ] **Step 5:** `pnpm --filter tick test --run dispatcher` then `typecheck`.
+- [ ] **Step 5: Update the inflight-count assertion** in `dispatcher.test.ts`
+  (the existing test that asserts the number of inflight statuses) to 9; add a
+  test that two same-`(repo, branch)` Tasks don't both go in-flight in one tick.
+
+- [ ] **Step 6:** `pnpm --filter tick test --run dispatcher` then `typecheck`.
 
 ---
 
