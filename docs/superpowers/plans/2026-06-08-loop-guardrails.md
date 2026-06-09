@@ -81,6 +81,7 @@ turnCount: integer('turn_count').notNull().default(0),
 lastProgressAt: integer('last_progress_at', { mode: 'timestamp_ms' }),
 costTokensAtProgress: integer('cost_tokens_at_progress').notNull().default(0),
 verifyRetryCount: integer('verify_retry_count').notNull().default(0),
+lastVerifiedSha: text('last_verified_sha'),
 haltReason: text('halt_reason', { enum: haltReason }),
 acceptanceCriteria: text('acceptance_criteria'),
 ```
@@ -119,7 +120,7 @@ Run: `pnpm --filter db typecheck` — must pass.
 
 **Files:** Modify `apps/tick/src/env.ts`
 
-- [ ] **Step 1: Add the six new vars**
+- [ ] **Step 1: Add the seven new vars**
 
 Append to the `env` object:
 
@@ -131,6 +132,7 @@ TASK_MAX_TOKENS: Number(process.env.TASK_MAX_TOKENS ?? 0), // 0 = unbounded
 BUDGET_HARD_STOP_PCT: Number(process.env.BUDGET_HARD_STOP_PCT ?? 100),
 VERIFY_RETRY_MAX: Number(process.env.VERIFY_RETRY_MAX ?? 2),
 VERIFY_MODEL: process.env.VERIFY_MODEL ?? 'claude-haiku-4-5', // checker ≠ maker
+GATE_STALL_MS: Number(process.env.GATE_STALL_MS ?? 1_800_000), // 30 min gate stall sweep
 ```
 
 - [ ] **Step 2: Typecheck.** `pnpm --filter tick typecheck`.
@@ -242,7 +244,9 @@ Return `{ tasksChecked, halted, byReason }`.
 
 - [ ] **Step 4: Tests** — precedence in `resolveLimits`; each breach reason at its
   boundary (off-by-one: `>=`); priority ordering when two limits breach at once;
-  halted Task gets the right status + Ledger; `cancelSession` invoked.
+  halted Task gets the right status + Ledger; `cancelSession` invoked; **and a
+  `cancelSession` that throws does NOT block the `failed` transition** (cancel is
+  best-effort).
 
 - [ ] **Step 5:** `pnpm --filter tick test --run guardrails` then `typecheck`.
 
@@ -315,7 +319,10 @@ else                                               -> 'awaiting_review'
 ```
 
 Pass it through the existing `transitionToReview(...)` calls (widen its param
-type to include `awaiting_verify`).
+type to include `awaiting_verify`). The "which gate is next after this one
+passes?" selection (`aiReviewEnabled ? awaiting_ai_review : awaiting_review`)
+appears in both `ci.ts` and `verify.ts` (Task 8) — extract it into one small
+shared helper so the two can't drift if a fourth gate is ever added.
 
 - [ ] **Step 2: Tests** — green CI with self-verify on + criteria → `awaiting_verify`;
   self-verify on but no criteria → falls through to existing behavior; off →
@@ -348,10 +355,16 @@ items on the same branch and push. Reuse the tone of `buildRetryPrompt`.
 - [ ] **Step 3: `runVerify(log)`**
 
 For each `awaiting_verify` Task:
-- **Guard against a stale diff (CI race):** re-fetch the PR; if checks for the
-  current head SHA aren't complete (or `total_count === 0` and a push is in
-  flight), skip this tick rather than grading a half-pushed diff. Then fetch the
-  diff (Octokit, as `ai-review` does) and read `acceptanceCriteria`.
+- **Stale-diff / no-push guard via `lastVerifiedSha`:** re-fetch the PR head SHA.
+  (a) If checks for that SHA aren't complete → skip this tick (wait). (b) If the
+  SHA is **unchanged** since `task.lastVerifiedSha` (the agent pushed nothing in
+  response to feedback) → **escalate to `awaiting_review`** with `verify.escalated`
+  rather than re-grading the identical diff — this bounds the no-push case to zero
+  extra validator calls and avoids depending on the unobservable "is a push in
+  flight?" (a CI-less repo always reports `total_count === 0`). (c) Otherwise it's
+  a genuinely new SHA → fetch the diff (Octokit, as `ai-review` does), read
+  `acceptanceCriteria`, validate, and record `lastVerifiedSha = <head SHA>` in the
+  same UPDATE as the verdict.
 - Call the validator on a **checker ≠ maker** model: resolve
   `skill.loopPolicy?.verifyModel ?? env.VERIFY_MODEL` (default `claude-haiku-4-5`)
   and pass it as `model` to `messages.create`. **Fold the validator's token cost
@@ -374,9 +387,21 @@ Return `{ tasksChecked, passed, retried, escalated, errors }`.
   default); `done` routing with and without AI review; `incomplete` under cap
   sends a turn + resets to `awaiting_ci` + increments count; exhaustion escalates
   to `awaiting_review`; token cost attributed; validator model resolves
-  `loopPolicy.verifyModel` over `env.VERIFY_MODEL`.
+  `loopPolicy.verifyModel` over `env.VERIFY_MODEL`; **unchanged SHA → escalate
+  with no second validator call; new SHA → re-validate; checks-incomplete → skip**.
 
-- [ ] **Step 5:** `pnpm --filter tick test --run verify` then `typecheck`.
+- [ ] **Step 5: Reconciler gate stall sweep** (wedge backstop, spec §3.2/§9).
+
+In `reconciler.ts`, add a sweep (alongside the existing `turn_ended`-no-PR
+cleanup): any Task in a gate state (`awaiting_verify` / `awaiting_ai_review`) whose
+`updatedAt` is older than `env.GATE_STALL_MS` is escalated to `awaiting_review`
+with a `gate.stalled` Ledger event. This bounds a Task whose validator
+persistently errors (it otherwise never advances and never increments
+`verifyRetryCount`), so it can't hold a concurrency slot or block Mission
+completion forever — the backstop when no budget is set. Add a
+`reconciler.test.ts` case: a stale gate Task escalates, a fresh one is left alone.
+
+- [ ] **Step 6:** `pnpm --filter tick test --run verify reconciler` then `typecheck`.
 
 ---
 
@@ -395,7 +420,7 @@ Return `{ tasksChecked, passed, retried, escalated, errors }`.
 
 ---
 
-### Task 10: Dispatcher — resolve criteria/policy + isolation guard
+### Task 10: Dispatcher — resolve criteria/policy at dispatch
 
 **Files:** Modify `apps/tick/src/dispatcher.ts`; tests in `dispatcher.test.ts`
 
@@ -417,18 +442,16 @@ Step 3), giving the first turn headroom. Stamping `now` at dispatch would measur
 the first turn against a 0 baseline and wrongly halt a legitimately large first
 task (spec §1.1 / §9).
 
-- [ ] **Step 4: Enforce the same-`(repo, branch)` isolation invariant** (block #2,
-  spec §9). When claiming `queued` Tasks, skip any Task whose `(repo, baseBranch)`
-  pair already has an in-flight Task (status in `INFLIGHT_STATUSES`) on the same
-  Mission — leave it `queued` for a later tick. Each Task already gets a unique
-  `forge/<taskId>` work branch, so this only guards the base-branch claim; it does
-  not change branch naming.
+> **No isolation guard.** An earlier draft added a same-`(repo, baseBranch)`
+> dispatcher guard. It's dropped (spec §9): each Task pushes to a unique
+> `forge/<taskId>` work branch, so two Tasks sharing a base branch never collide,
+> and the guard would only serialize sibling Tasks targeting `main` for no gain.
 
-- [ ] **Step 5: Update the inflight-count assertion** in `dispatcher.test.ts`
-  (the existing test that asserts the number of inflight statuses) to 9; add a
-  test that two same-`(repo, branch)` Tasks don't both go in-flight in one tick.
+- [ ] **Step 4: Update the `INFLIGHT_STATUSES` `toEqual` literal** in
+  `dispatcher.test.ts` to include `awaiting_verify` in the right position; the
+  capacity-count test iterates the array, so it auto-adjusts.
 
-- [ ] **Step 6:** `pnpm --filter tick test --run dispatcher` then `typecheck`.
+- [ ] **Step 5:** `pnpm --filter tick test --run dispatcher` then `typecheck`.
 
 ---
 

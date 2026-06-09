@@ -157,7 +157,11 @@ reads them.
   first PR raises `noProgressTokens` via its skill policy or a Mission override
   (§4.3) — the default is tuned for the common dependency-bump/codemod case. At
   dispatch, `costTokensAtProgress` is 0 and `lastProgressAt` is null (clock not
-  yet started).
+  yet started). Note the breach check is purely **token**-based
+  (`costTokens - costTokensAtProgress >= threshold`); `lastProgressAt` is recorded
+  for observability only (the §12 Console widget) and is *not* part of any breach
+  condition — no wall-clock no-progress guard exists, so implementers should not
+  wire one against it.
 
 ### 1.2 Why a dedicated subsystem (not folded into the reconciler)
 
@@ -274,15 +278,31 @@ spec only wires it for the verify gate.)
 doesn't advance (no `turn_ended` is polled at `awaiting_ci`), and an
 `awaiting_ci → awaiting_verify` re-promotion is not progress (§1.1), so it
 neither resets nor trips the no-progress budget. `VERIFY_RETRY_MAX = 2` keeps the
-loop short on its own. Two retry sub-cases must be handled explicitly:
+loop short on its own. Two sub-cases the implementation must handle so the loop
+neither re-grades a stale diff nor wedges:
 
-- **Agent pushed nothing** (CI already green on the unchanged HEAD): the next CI
-  poll re-promotes straight back to `awaiting_verify`, costing one validator call
-  and one `verifyRetryCount` per cycle until exhaustion → escalate. Bounded.
-- **CI checks not yet registered** after a push: `ci.ts` treats
-  `total_count === 0` as success, which could re-promote before the agent's push
-  lands. Verify must re-fetch the PR's current head SHA and skip re-validation
-  until checks for the latest SHA are complete, so it never grades a stale diff.
+- **Track the validated head SHA.** Verify records `lastVerifiedSha` (the PR head
+  it graded). On re-entry to `awaiting_verify`: if checks for the current head SHA
+  aren't complete, skip this tick (wait); if the head SHA is **unchanged** since
+  the last verdict (the agent pushed nothing in response to feedback), **escalate
+  to `awaiting_review` immediately** rather than re-grading the identical diff.
+  This bounds the no-push case to *zero* extra validator calls and side-steps the
+  fact that "a push is in flight" is not observable from the Checks API — a
+  CI-less repo always reports `total_count === 0`, so we cannot distinguish "no CI"
+  from "CI hasn't registered yet"; keying off the SHA instead of check state makes
+  that distinction unnecessary. Only a genuinely *new* SHA is re-validated.
+- **A wedged gate must not hold a slot forever.** A Task whose validator
+  persistently errors (API or diff-fetch failure) never gets a verdict, so it
+  neither advances nor increments `verifyRetryCount` — and because
+  `awaiting_verify` is in `INFLIGHT_STATUSES` but not
+  `MISSION_TERMINAL_TASK_STATUSES`, it would hold a concurrency slot and block
+  Mission completion indefinitely (the existing `awaiting_ai_review` gate has the
+  same exposure). The reconciler gains a **stall sweep**: a Task sitting in a gate
+  state (`awaiting_verify` / `awaiting_ai_review`) longer than `GATE_STALL_MS`
+  since `updatedAt` is escalated to `awaiting_review` with a `gate.stalled` Ledger
+  event. This is the backstop for a budget-less Mission (the budget hard-stop, §2,
+  only helps once a budget is set); turning self-verify on broadly should still
+  recommend a Mission budget.
 
 ### 3.3 Acceptance criteria source
 
@@ -362,6 +382,7 @@ editing the skill, and the env default is the floor for skill-less Missions.
 - `last_progress_at` (integer timestamp_ms, nullable)
 - `cost_tokens_at_progress` (integer, notNull, default 0)
 - `verify_retry_count` (integer, notNull, default 0)
+- `last_verified_sha` (text, nullable) — PR head SHA the verify gate last graded (stale-diff / no-push guard, §3.2)
 - `halt_reason` (text, nullable) — `max_turns | task_token_cap | no_progress | budget_hard_stop`
 - `acceptance_criteria` (text, nullable)
 
@@ -390,6 +411,7 @@ columns don't enforce enums, so no SQL constraint).
 | `BUDGET_HARD_STOP_PCT` | `100` | Mission-wide hard ceiling % (used when a Mission leaves it null) |
 | `VERIFY_RETRY_MAX` | `2` | Self-verify feedback turns before escalation |
 | `VERIFY_MODEL` | `claude-haiku-4-5` | Checker model for the verify gate (overridable per-skill via `loopPolicy.verifyModel`) |
+| `GATE_STALL_MS` | `1800000` (30 min) | A Task idle in a gate state (`awaiting_verify`/`awaiting_ai_review`) longer than this is escalated to `awaiting_review` by the reconciler stall sweep (§3.2) |
 
 `ANTHROPIC_API_KEY` already exists (used by `ai-review`); the verify validator
 reuses it. No new credentials.
@@ -461,23 +483,25 @@ It must **not** be added to:
 - **Self-verify + CI churn.** Covered in §3.2: `VERIFY_RETRY_MAX` is the sole
   bound on the verify loop; the §1 caps do **not** apply at `awaiting_ci`/
   `awaiting_verify`, so they are not a backstop here.
-- **A wedged verify gate blocks Mission completion.** `awaiting_verify` is not in
-  `MISSION_TERMINAL_TASK_STATUSES`, so a Task stuck there (validator repeatedly
-  erroring, or diff-fetch failing) counts as "remaining" and holds the Mission
-  open. Verify's error path mirrors `ai-review`'s — it logs and retries next tick,
-  no transition — which is consistent existing behavior, but the only backstop for
-  a permanently-wedged gate is the budget hard-stop (§2). Documented, not fixed
-  here.
+- **A wedged gate is bounded by the stall sweep.** `awaiting_verify` /
+  `awaiting_ai_review` are not in `MISSION_TERMINAL_TASK_STATUSES`, so a Task stuck
+  there (validator persistently erroring, diff-fetch failing) would hold a
+  concurrency slot and block Mission completion. §3.2's reconciler stall sweep
+  escalates any Task idle in a gate state past `GATE_STALL_MS` to
+  `awaiting_review` — the backstop for a budget-less Mission. This also covers the
+  pre-existing `awaiting_ai_review` exposure.
 - **Budget attribution.** Verify and CI-retry validator/turn costs already flow
   into `task.costTokens` (same path as `ai-review`), so they count against the
   Mission budget automatically — no separate metering.
-- **Same-repo isolation (block #2 invariant).** Two Tasks targeting the same repo
-  already get distinct branches (`forge/<taskId>`) and run in separate sandboxes,
-  so they don't collide. This spec only makes that an *explicit, tested
-  invariant*: the dispatcher must never put two in-flight Tasks on the same
-  `(repo, branch)` pair (a `verify`/CI-retry turn reuses the Task's own branch,
-  which is fine — it's the same Task). Full worktree-grade isolation on a shared
-  checkout is a separate workstream — see §12.
+- **Same-repo isolation (block #2) — no dispatcher guard needed.** Earlier drafts
+  proposed a dispatcher guard against two in-flight Tasks on the same
+  `(repo, baseBranch)`. On inspection that guards a non-problem and risks
+  starvation: each Task pushes to a **unique** `forge/<taskId>` work branch, so
+  two Tasks sharing a base branch never collide on what they push, and blocking
+  sibling Tasks that target `main` would serialize a fleet for no isolation gain.
+  Push-level isolation is already guaranteed by the unique work branch; true
+  shared-checkout (worktree-grade) isolation is a separate workstream (§12). So
+  this spec adds **no** isolation guard — it documents the existing guarantee.
 
 ---
 
@@ -491,11 +515,18 @@ It must **not** be added to:
 - `verify.test.ts` — validator-JSON parsing (incl. malformed → safe default);
   `done` routes correctly with/without AI review; `incomplete` under cap sends a
   turn and resets to `awaiting_ci`; exhaustion escalates to `awaiting_review`;
-  validator model resolves `loopPolicy.verifyModel` over `env.VERIFY_MODEL`.
+  validator model resolves `loopPolicy.verifyModel` over `env.VERIFY_MODEL`;
+  **unchanged head SHA since last verdict → escalate without a second validator
+  call**; a new SHA → re-validate; checks-incomplete → skip the tick.
+- `reconciler.test.ts` — gate stall sweep: a Task idle in `awaiting_verify` /
+  `awaiting_ai_review` past `GATE_STALL_MS` escalates to `awaiting_review` with a
+  `gate.stalled` event; a fresh gate Task is left alone.
 - `budgets.test.ts` — extend: hard-stop boundary; **paused** Missions are
   evaluated for the hard ceiling and the guarded update fires on the observed
   status; in-flight cancelled + queued abandoned + Mission cancelled; soft pause
   still fires strictly between thresholds.
+- `guardrails.test.ts` (cont.) — `cancelSession` throwing does **not** block the
+  `failed` transition (best-effort cancel).
 - `state.test.ts` / `poller` — `turnCount` increments per `turn_ended` event and
   counts **multiple** turns in one poll window (not once per `applyDelta`);
   no-progress baseline stamps on first `turn_ended` and on first PR, not at
@@ -505,8 +536,7 @@ It must **not** be added to:
   loads (back-compat).
 - `dispatcher.test.ts` — the `INFLIGHT_STATUSES` `toEqual` literal gains
   `awaiting_verify` (8 → 9, in the right position); the capacity-count test
-  auto-adjusts (it iterates the array); add a test that two same-`(repo, branch)`
-  Tasks don't both go in-flight in one tick.
+  auto-adjusts (it iterates the array).
 - Pure functions extracted for each subsystem so tests avoid mocking the DB
   where possible (matches existing style).
 
@@ -521,19 +551,21 @@ It must **not** be added to:
 
 ### Modified files
 - `packages/db/src/schema.ts` — new status, Task/Mission/skills columns, `LoopPolicy` type
-- `apps/tick/src/env.ts` — six new env vars (incl. `VERIFY_MODEL`)
+- `packages/db/src/schema.ts` — also adds `last_verified_sha` (tasks)
+- `apps/tick/src/env.ts` — seven new env vars (incl. `VERIFY_MODEL`, `GATE_STALL_MS`)
 - `apps/tick/src/tick.ts` — wire `guardrails` + `verify`
 - `apps/tick/src/state.ts` — per-event `turnCompleted` signal on `→ turn_ended`
 - `apps/tick/src/poller.ts` — count turns per-event; stamp progress markers (first turn / first PR)
 - `apps/tick/src/ci.ts` — route green CI to `awaiting_verify` when enabled
 - `apps/tick/src/budgets.ts` — hard-stop ceiling, evaluate paused Missions, `ALL_TASK_STATUSES += awaiting_verify`
-- `apps/tick/src/verify.ts` — checker model resolves `loopPolicy.verifyModel ?? env.VERIFY_MODEL`
-- `apps/tick/src/dispatcher.ts` — `INFLIGHT_STATUSES += awaiting_verify`; resolve `acceptanceCriteria` + `loopPolicy` at dispatch; same-`(repo, branch)` isolation guard
+- `apps/tick/src/verify.ts` — checker model resolves `loopPolicy.verifyModel ?? env.VERIFY_MODEL`; SHA-based stale-diff/no-push guard via `lastVerifiedSha`
+- `apps/tick/src/reconciler.ts` — gate stall sweep (`awaiting_verify`/`awaiting_ai_review` past `GATE_STALL_MS` → `awaiting_review`)
+- `apps/tick/src/dispatcher.ts` — `INFLIGHT_STATUSES += awaiting_verify`; resolve `acceptanceCriteria` + `loopPolicy` at dispatch
 - `apps/tick/src/skill-loader.ts` — parse YAML frontmatter → `loopPolicy`
 - `apps/web/src/components/task-status-badge.tsx` — `awaiting_verify` badge + `halt_reason` surfacing
 - `apps/web/src/app/missions/new/new-mission-form.tsx` — `selfVerifyEnabled`, hard-stop %, per-task caps
 - `skills/*/SKILL.md` — add `loopPolicy` frontmatter (acceptance criteria + bounds)
-- `apps/tick/src/dispatcher.test.ts`, `budgets.test.ts`, `ci.test.ts` — assertion updates
+- `apps/tick/src/dispatcher.test.ts`, `budgets.test.ts`, `ci.test.ts`, `reconciler.test.ts` — assertion updates
 
 ---
 
@@ -553,9 +585,10 @@ stay tracked against the six-block model rather than getting lost:
 - **Connector breadth (block #4).** Forge speaks GitHub MCP only. The "open the
   PR *and* update the Linear ticket *and* ping Slack when CI is green" loop needs
   more connectors wired through the existing MCP-vault seam. Separate spec.
-- **Worktree-grade isolation (block #2).** §9 nails down the minimal
-  same-`(repo, branch)` invariant; a true shared-history `git worktree` model
-  (multiple Tasks against one checkout) is a larger execution-plane change.
+- **Worktree-grade isolation (block #2).** Push-level isolation is already
+  guaranteed by unique `forge/<taskId>` work branches (§9), so this spec adds no
+  dispatcher guard; a true shared-history `git worktree` model (multiple Tasks
+  against one checkout) is a larger execution-plane change.
 - **Checker-model diversity for the AI-review gate (block #5).** This spec wires
   the configurable `verifyModel` only for the new verify gate; giving
   `ai-review` the same knob is a one-line follow-up.
