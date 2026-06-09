@@ -3,6 +3,14 @@ name: forge-dev
 description: Develop features and fixes in the Forge codebase
 version: "1"
 allowedTools: [bash, read, edit, write, glob, grep]
+loopPolicy:
+  maxTurns: 40
+  noProgressTokens: 300000
+  selfVerify: false
+  acceptanceCriteria: |
+    - The change implements the requested feature or fix.
+    - pnpm -r typecheck and pnpm -r test pass.
+    - Changes follow the repo conventions in AGENTS.md.
 ---
 
 # Forge codebase

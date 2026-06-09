@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { StateTransition } from './state';
-import { AUTO_ALLOW_TOOLS, hasAnyDelta, mergeDelta } from './poller';
+import { AUTO_ALLOW_TOOLS, hasAnyDelta, mergeDelta, progressMarkers, reduceEvents } from './poller';
 
 describe('mergeDelta', () => {
   it('merges two empty deltas', () => {
@@ -132,5 +132,90 @@ describe('AUTO_ALLOW_TOOLS', () => {
   it('blocks arbitrary tool names', () => {
     expect(AUTO_ALLOW_TOOLS.has('execute_shell')).toBe(false);
     expect(AUTO_ALLOW_TOOLS.has('')).toBe(false);
+  });
+});
+
+describe('reduceEvents (per-event turn counting)', () => {
+  const ev = (type: string, raw: Record<string, unknown> = {}, id = Math.random().toString()) => ({
+    id,
+    type,
+    processedAt: null,
+    raw,
+  });
+  const idle = (id: string) => ev('session.status_idle', { stop_reason: { type: 'end_turn' } }, id);
+  const running = (id: string) => ev('session.status_running', {}, id);
+
+  it('counts TWO turns when one poll window holds two idle→running→idle cycles', () => {
+    // running → idle (turn 1) → running → idle (turn 2). mergeDelta collapses
+    // the final status to turn_ended, but turnsCompleted must be 2.
+    const { turnsCompleted, pendingDelta } = reduceEvents('running', [
+      idle('a'),
+      running('b'),
+      idle('c'),
+    ]);
+    expect(turnsCompleted).toBe(2);
+    expect(pendingDelta.status).toBe('turn_ended');
+  });
+
+  it('counts a single turn once', () => {
+    expect(reduceEvents('running', [idle('a')]).turnsCompleted).toBe(1);
+  });
+
+  it('does not count turns for a task that only starts running', () => {
+    expect(reduceEvents('dispatching', [running('a')]).turnsCompleted).toBe(0);
+  });
+});
+
+describe('progressMarkers (no-progress clock)', () => {
+  const now = new Date('2026-06-08T00:00:00.000Z');
+
+  it('stamps on the first completed turn (clock not yet started)', () => {
+    const m = progressMarkers({
+      lastProgressAt: null,
+      prevPrUrl: null,
+      newPrUrl: undefined,
+      turnsCompleted: 1,
+      newCostTokens: 5000,
+      now,
+    });
+    expect(m).toEqual({ lastProgressAt: now, costTokensAtProgress: 5000 });
+  });
+
+  it('does NOT re-stamp on later turns once the clock is running', () => {
+    expect(
+      progressMarkers({
+        lastProgressAt: new Date('2026-06-07T00:00:00.000Z'),
+        prevPrUrl: null,
+        newPrUrl: undefined,
+        turnsCompleted: 1,
+        newCostTokens: 50_000,
+        now,
+      }),
+    ).toBeNull();
+  });
+
+  it('stamps on the first PR attach', () => {
+    const m = progressMarkers({
+      lastProgressAt: new Date('2026-06-07T00:00:00.000Z'),
+      prevPrUrl: null,
+      newPrUrl: 'https://github.com/o/r/pull/1',
+      turnsCompleted: 0,
+      newCostTokens: 80_000,
+      now,
+    });
+    expect(m).toEqual({ lastProgressAt: now, costTokensAtProgress: 80_000 });
+  });
+
+  it('a gate round-trip (no new turn, PR already attached) is NOT progress', () => {
+    expect(
+      progressMarkers({
+        lastProgressAt: new Date('2026-06-07T00:00:00.000Z'),
+        prevPrUrl: 'https://github.com/o/r/pull/1',
+        newPrUrl: 'https://github.com/o/r/pull/1',
+        turnsCompleted: 0,
+        newCostTokens: 120_000,
+        now,
+      }),
+    ).toBeNull();
   });
 });

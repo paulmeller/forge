@@ -21,6 +21,8 @@ export type StateTransition = {
   lastError?: string | null;
   /** Set true when the transition should stamp completedAt. */
   completed?: boolean;
+  /** True when this transition is a completed agent turn (running → turn_ended). */
+  turnCompleted?: boolean;
 };
 
 export function transition(current: TaskStatus, event: BackendEvent): StateTransition | null {
@@ -36,7 +38,7 @@ export function transition(current: TaskStatus, event: BackendEvent): StateTrans
       // requires_action is a transient idle — the agent is waiting on us to
       // provide a tool result or confirmation. Don't treat it as turn-ended.
       if (stopType === 'requires_action') return null;
-      if (current === 'running') return { status: 'turn_ended' };
+      if (current === 'running') return { status: 'turn_ended', turnCompleted: true };
       return null;
     }
 

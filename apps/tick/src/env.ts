@@ -33,4 +33,13 @@ export const env = {
 
   // Retry cap for CI-triggered follow-up turns (PRD §7.5).
   TASK_RETRY_MAX: Number(process.env.TASK_RETRY_MAX ?? 3),
+
+  // Loop guardrails (see specs/2026-06-08-loop-guardrails-design.md).
+  TASK_MAX_TURNS: Number(process.env.TASK_MAX_TURNS ?? 30),
+  TASK_NO_PROGRESS_TOKENS: Number(process.env.TASK_NO_PROGRESS_TOKENS ?? 200_000),
+  TASK_MAX_TOKENS: Number(process.env.TASK_MAX_TOKENS ?? 0), // 0 = unbounded
+  BUDGET_HARD_STOP_PCT: Number(process.env.BUDGET_HARD_STOP_PCT ?? 100),
+  VERIFY_RETRY_MAX: Number(process.env.VERIFY_RETRY_MAX ?? 2),
+  VERIFY_MODEL: process.env.VERIFY_MODEL ?? 'claude-haiku-4-5', // checker ≠ maker
+  GATE_STALL_MS: Number(process.env.GATE_STALL_MS ?? 1_800_000), // 30 min gate stall sweep
 };

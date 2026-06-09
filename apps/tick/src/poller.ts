@@ -25,12 +25,7 @@ export const AUTO_ALLOW_TOOLS = new Set<string>([
   'create_or_update_file',
 ]);
 
-const POLLABLE_STATUSES: TaskStatus[] = [
-  'dispatching',
-  'running',
-  'turn_ended',
-  'opening_pr',
-];
+const POLLABLE_STATUSES: TaskStatus[] = ['dispatching', 'running', 'turn_ended', 'opening_pr'];
 
 export type PollResult = {
   tasksPolled: number;
@@ -99,28 +94,20 @@ async function pollOne(task: Task): Promise<{ eventsIngested: number; transition
 
   if (events.length === 0) return { eventsIngested: 0, transitions: 0 };
 
-  let currentStatus = task.status;
-  let pendingDelta: StateTransition = {};
-  let ingested = 0;
-  let transitionCount = 0;
-
+  // Append only the events we haven't ingested before — ledger idempotency
+  // gates the reduction so a re-poll never re-counts turns or re-stamps cost.
+  const newEvents: BackendEvent[] = [];
   for (const ev of events) {
     const inserted = await appendLedger(task, ev);
     if (inserted === 0) continue; // already ingested by a previous tick
-    ingested += 1;
-
-    const delta = transition(currentStatus, ev);
-    if (!delta) continue;
-
-    pendingDelta = mergeDelta(pendingDelta, delta);
-    if (delta.status && delta.status !== currentStatus) {
-      currentStatus = delta.status;
-      transitionCount += 1;
-    }
+    newEvents.push(ev);
   }
+  const ingested = newEvents.length;
 
-  if (hasAnyDelta(pendingDelta)) {
-    await applyDelta(task, pendingDelta);
+  const { pendingDelta, turnsCompleted, transitionCount } = reduceEvents(task.status, newEvents);
+
+  if (hasAnyDelta(pendingDelta) || turnsCompleted > 0) {
+    await applyDelta(task, pendingDelta, turnsCompleted);
   }
 
   // After ingesting events, look at the latest session_idle event. If it's
@@ -203,6 +190,60 @@ async function appendLedger(task: Task, ev: BackendEvent): Promise<number> {
   return result.length;
 }
 
+/**
+ * Reduce a batch of new backend events to a single merged delta, the number of
+ * completed turns, and the count of distinct status changes. Pure — exported
+ * for testing. Turns are counted PER-EVENT (not from the merged delta), because
+ * `mergeDelta` collapses several `running ↔ turn_ended` cycles in one poll
+ * window down to a single status; counting on the merged delta would undercount
+ * the fast-spinning runaway the turn cap exists to catch (spec §1.1).
+ */
+export function reduceEvents(
+  startStatus: TaskStatus,
+  events: BackendEvent[],
+): { pendingDelta: StateTransition; turnsCompleted: number; transitionCount: number } {
+  let currentStatus = startStatus;
+  let pendingDelta: StateTransition = {};
+  let turnsCompleted = 0;
+  let transitionCount = 0;
+
+  for (const ev of events) {
+    const delta = transition(currentStatus, ev);
+    if (!delta) continue;
+    pendingDelta = mergeDelta(pendingDelta, delta);
+    if (delta.turnCompleted) turnsCompleted += 1;
+    if (delta.status && delta.status !== currentStatus) {
+      currentStatus = delta.status;
+      transitionCount += 1;
+    }
+  }
+
+  return { pendingDelta, turnsCompleted, transitionCount };
+}
+
+/**
+ * Decide whether this poll constitutes forward progress for the no-progress
+ * guard, and the markers to stamp. Progress is a code push, not a pipeline hop:
+ * the clock starts at the FIRST completed turn (headroom for the first turn) and
+ * re-stamps on the FIRST PR. Gate round-trips never reset it. Pure — exported
+ * for testing (spec §1.1).
+ */
+export function progressMarkers(opts: {
+  lastProgressAt: Date | null;
+  prevPrUrl: string | null;
+  newPrUrl: string | null | undefined;
+  turnsCompleted: number;
+  newCostTokens: number;
+  now: Date;
+}): { lastProgressAt: Date; costTokensAtProgress: number } | null {
+  const firstTurn = opts.turnsCompleted > 0 && opts.lastProgressAt === null;
+  const firstPr = opts.newPrUrl != null && !opts.prevPrUrl;
+  if (firstTurn || firstPr) {
+    return { lastProgressAt: opts.now, costTokensAtProgress: opts.newCostTokens };
+  }
+  return null;
+}
+
 export function mergeDelta(a: StateTransition, b: StateTransition): StateTransition {
   return {
     status: b.status ?? a.status,
@@ -225,7 +266,7 @@ export function hasAnyDelta(d: StateTransition): boolean {
   );
 }
 
-async function applyDelta(task: Task, d: StateTransition): Promise<void> {
+async function applyDelta(task: Task, d: StateTransition, turnsCompleted = 0): Promise<void> {
   const now = new Date();
   const patch: Record<string, unknown> = { updatedAt: now };
   if (d.status) patch.status = d.status;
@@ -234,10 +275,27 @@ async function applyDelta(task: Task, d: StateTransition): Promise<void> {
   if (d.lastError !== undefined) patch.lastError = d.lastError;
   if (d.completed) patch.completedAt = now;
 
-  if (d.costTokensDelta && d.costTokensDelta > 0) {
-    // Read-then-write is fine here: the poller only writes to each task from
-    // one tick at a time (tick is serial), so no concurrent-update race.
-    patch.costTokens = task.costTokens + d.costTokensDelta;
+  // Read-then-write is fine here: the poller only writes to each task from
+  // one tick at a time (tick is serial), so no concurrent-update race.
+  const newCostTokens =
+    d.costTokensDelta && d.costTokensDelta > 0
+      ? task.costTokens + d.costTokensDelta
+      : task.costTokens;
+  if (newCostTokens !== task.costTokens) patch.costTokens = newCostTokens;
+
+  if (turnsCompleted > 0) patch.turnCount = task.turnCount + turnsCompleted;
+
+  const progress = progressMarkers({
+    lastProgressAt: task.lastProgressAt,
+    prevPrUrl: task.prUrl,
+    newPrUrl: d.prUrl,
+    turnsCompleted,
+    newCostTokens,
+    now,
+  });
+  if (progress) {
+    patch.lastProgressAt = progress.lastProgressAt;
+    patch.costTokensAtProgress = progress.costTokensAtProgress;
   }
 
   await db.update(tasks).set(patch).where(eq(tasks.id, task.id));

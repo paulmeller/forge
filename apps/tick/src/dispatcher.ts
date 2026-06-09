@@ -18,6 +18,7 @@ export const INFLIGHT_STATUSES: TaskStatus[] = [
   'turn_ended',
   'opening_pr',
   'awaiting_ci',
+  'awaiting_verify',
   'awaiting_ai_review',
   'awaiting_review',
   'merging',
@@ -183,9 +184,20 @@ export async function dispatchOne(mission: Mission, task: Task): Promise<void> {
   });
 
   const now = new Date();
+  // Resolve acceptance criteria for the self-verify gate: prefer a per-task value
+  // (e.g. from the LLM planner), else inherit the skill's loop policy. Progress
+  // markers are intentionally NOT stamped here — the no-progress clock starts at
+  // the first completed turn (poller), giving the first turn headroom (spec §1.1).
   await db
     .update(tasks)
-    .set({ status: 'running', sessionId, updatedAt: now })
+    .set({
+      status: 'running',
+      sessionId,
+      updatedAt: now,
+      ...(!task.acceptanceCriteria && skill?.loopPolicy?.acceptanceCriteria
+        ? { acceptanceCriteria: skill.loopPolicy.acceptanceCriteria }
+        : {}),
+    })
     .where(and(eq(tasks.id, task.id), ne(tasks.status, 'queued')));
 
   await db.insert(ledgerEvents).values({

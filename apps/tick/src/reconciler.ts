@@ -1,15 +1,9 @@
 import { randomUUID } from 'node:crypto';
 
 import { Octokit } from '@octokit/rest';
-import { and, eq, inArray, isNotNull, isNull, notInArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, lt, notInArray, sql } from 'drizzle-orm';
 
-import {
-  ledgerEvents,
-  missions,
-  tasks,
-  type Mission,
-  type TaskStatus,
-} from '@forge/db';
+import { ledgerEvents, missions, tasks, type Mission, type TaskStatus } from '@forge/db';
 
 import { db } from './db';
 import { env } from './env';
@@ -25,9 +19,19 @@ export type ReconcileResult = {
   tasksAbandoned: number;
   tasksCascadeFailed: number;
   prsOpened: number;
+  gatesEscalated: number;
 };
 
 export const DEPENDENCY_FAILED_STATUSES: TaskStatus[] = ['failed', 'abandoned'];
+
+/**
+ * Gate states a Task can wedge in if its validator persistently errors. They are
+ * driven by the verify / ai-review subsystems (not by backend events), so a
+ * validator that keeps failing never advances the Task and never increments its
+ * retry counter. The stall sweep escalates such a Task to `awaiting_review` so it
+ * can't hold a concurrency slot or block Mission completion forever (spec §3.2).
+ */
+const GATE_STALL_STATUSES: TaskStatus[] = ['awaiting_verify', 'awaiting_ai_review'];
 
 const MISSION_TERMINAL_TASK_STATUSES: TaskStatus[] = [
   'merged',
@@ -127,11 +131,41 @@ export async function runReconciler(log: Logger): Promise<ReconcileResult> {
     }
   }
 
-  // (2) Complete Missions whose tasks are all in terminal states.
-  const candidates = await db
+  // (1.5) Gate stall sweep: escalate Tasks wedged in a gate state past
+  // GATE_STALL_MS (validator persistently erroring) to awaiting_review.
+  let gatesEscalated = 0;
+  const staleCutoff = new Date(Date.now() - env.GATE_STALL_MS);
+  const stalledGates = await db
     .select()
-    .from(missions)
-    .where(eq(missions.status, 'running'));
+    .from(tasks)
+    .where(and(inArray(tasks.status, GATE_STALL_STATUSES), lt(tasks.updatedAt, staleCutoff)));
+
+  for (const task of stalledGates) {
+    const now = new Date();
+    const [updated] = await db
+      .update(tasks)
+      .set({
+        status: 'awaiting_review',
+        lastError: `gate stalled in ${task.status} for >${env.GATE_STALL_MS}ms`,
+        updatedAt: now,
+      })
+      .where(and(eq(tasks.id, task.id), eq(tasks.status, task.status)))
+      .returning();
+    if (!updated) continue;
+    await db.insert(ledgerEvents).values({
+      id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
+      missionId: task.missionId,
+      taskId: task.id,
+      eventType: 'gate.stalled',
+      payload: { from: task.status, stalledMs: env.GATE_STALL_MS },
+      createdAt: now,
+    });
+    gatesEscalated += 1;
+    log.info({ taskId: task.id, from: task.status }, 'reconciler:gate_stalled');
+  }
+
+  // (2) Complete Missions whose tasks are all in terminal states.
+  const candidates = await db.select().from(missions).where(eq(missions.status, 'running'));
 
   for (const mission of candidates) {
     const nonTerminal = await db
@@ -157,7 +191,14 @@ export async function runReconciler(log: Logger): Promise<ReconcileResult> {
     log.info({ missionId: mission.id }, 'reconciler:mission_completed');
   }
 
-  return { missionsChecked: candidates.length, missionsCompleted, tasksAbandoned, tasksCascadeFailed, prsOpened };
+  return {
+    missionsChecked: candidates.length,
+    missionsCompleted,
+    tasksAbandoned,
+    tasksCascadeFailed,
+    prsOpened,
+    gatesEscalated,
+  };
 }
 
 let octokit: Octokit | undefined;
@@ -193,9 +234,7 @@ async function tryOpenPr(
     // Also check for any branch pushed in the last 10 minutes
     const { data: branches } = await gh().repos.listBranches({ owner, repo, per_page: 30 });
     const defaultBranch = task.baseBranch || 'main';
-    const recentBranches = branches
-      .filter((b) => b.name !== defaultBranch)
-      .map((b) => b.name);
+    const recentBranches = branches.filter((b) => b.name !== defaultBranch).map((b) => b.name);
 
     // Try candidates first, then any non-default branch
     const allCandidates = [...new Set([...candidates, ...recentBranches])];
@@ -242,9 +281,15 @@ async function tryOpenPr(
           const issueNum = task.issueRef.split('#')[1];
           if (issueNum) {
             try {
-              const { data: issue } = await gh().issues.get({ owner, repo, issue_number: Number(issueNum) });
+              const { data: issue } = await gh().issues.get({
+                owner,
+                repo,
+                issue_number: Number(issueNum),
+              });
               title = issue.title;
-            } catch { /* fall back to mission name */ }
+            } catch {
+              /* fall back to mission name */
+            }
           }
         } else if (mission.name.startsWith('GH:')) {
           title = mission.name.replace(/^GH:\s*\S+\s*—\s*/, '');

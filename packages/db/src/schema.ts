@@ -24,6 +24,7 @@ export const taskStatus = [
   'turn_ended',
   'opening_pr',
   'awaiting_ci',
+  'awaiting_verify',
   'awaiting_ai_review',
   'awaiting_review',
   'merging',
@@ -32,6 +33,24 @@ export const taskStatus = [
   'failed',
 ] as const;
 export type TaskStatus = (typeof taskStatus)[number];
+
+export const haltReason = [
+  'max_turns',
+  'task_token_cap',
+  'no_progress',
+  'budget_hard_stop',
+] as const;
+export type HaltReason = (typeof haltReason)[number];
+
+/** Loop policy carried by a skill (authored in SKILL.md frontmatter). */
+export type LoopPolicy = {
+  maxTurns?: number;
+  maxTokens?: number;
+  noProgressTokens?: number;
+  selfVerify?: boolean;
+  verifyModel?: string;
+  acceptanceCriteria?: string;
+};
 
 export const missions = sqliteTable('missions', {
   id: text('id').primaryKey(),
@@ -57,6 +76,12 @@ export const missions = sqliteTable('missions', {
   githubVaultId: text('github_vault_id'),
   skillId: text('skill_id'),
   aiReviewEnabled: integer('ai_review_enabled', { mode: 'boolean' }).notNull().default(false),
+  // Loop guardrails — per-task limit overrides (null → fall back to skill policy → env).
+  budgetHardStopPct: integer('budget_hard_stop_pct').notNull().default(100),
+  taskMaxTokens: integer('task_max_tokens'),
+  taskMaxTurns: integer('task_max_turns'),
+  noProgressTokens: integer('no_progress_tokens'),
+  selfVerifyEnabled: integer('self_verify_enabled', { mode: 'boolean' }).notNull().default(false),
   createdAt: integer('created_at', { mode: 'timestamp_ms' })
     .notNull()
     .default(sql`(unixepoch() * 1000)`),
@@ -88,6 +113,14 @@ export const tasks = sqliteTable(
     filesChanged: integer('files_changed'),
     retryCount: integer('retry_count').notNull().default(0),
     aiReviewRetryCount: integer('ai_review_retry_count').notNull().default(0),
+    // Loop guardrails — turn/progress tracking + verify gate state.
+    turnCount: integer('turn_count').notNull().default(0),
+    lastProgressAt: integer('last_progress_at', { mode: 'timestamp_ms' }),
+    costTokensAtProgress: integer('cost_tokens_at_progress').notNull().default(0),
+    verifyRetryCount: integer('verify_retry_count').notNull().default(0),
+    lastVerifiedSha: text('last_verified_sha'),
+    haltReason: text('halt_reason', { enum: haltReason }),
+    acceptanceCriteria: text('acceptance_criteria'),
     lastError: text('last_error'),
     costUsd: integer('cost_usd').notNull().default(0),
     costTokens: integer('cost_tokens').notNull().default(0),
@@ -144,6 +177,8 @@ export const skills = sqliteTable('skills', {
   promptTemplate: text('prompt_template').notNull(),
   /** Optional JSON list of allowed tool names. Narrows the agent toolset. */
   allowedTools: text('allowed_tools', { mode: 'json' }).$type<string[]>(),
+  /** Loop bounds + acceptance criteria, authored in SKILL.md frontmatter. */
+  loopPolicy: text('loop_policy', { mode: 'json' }).$type<LoopPolicy>(),
   /** If uploaded to MA Skills API, the remote skill_id for caching. */
   remoteSkillId: text('remote_skill_id'),
   builtIn: integer('built_in', { mode: 'boolean' }).notNull().default(true),

@@ -4,8 +4,9 @@ import { fileURLToPath } from 'node:url';
 
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
+import { parse as parseYaml } from 'yaml';
 
-import { skills, type Skill } from '@forge/db';
+import { skills, type LoopPolicy, type Skill } from '@forge/db';
 
 import { db } from './db';
 
@@ -16,7 +17,31 @@ export type SkillDefinition = {
   description: string;
   promptTemplate: string;
   allowedTools: string[] | null;
+  loopPolicy: LoopPolicy | null;
 };
+
+const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---\n?/;
+
+/**
+ * Split optional YAML frontmatter from a SKILL.md body. Parsed with a real YAML
+ * library so multi-line `acceptanceCriteria: |` block scalars round-trip (a
+ * hand-parser would silently truncate them — directly weakening the verify gate).
+ * Pure — exported for testing. The body is returned with the frontmatter stripped
+ * so the agent prompt is unchanged.
+ */
+export function parseFrontmatter(raw: string): { loopPolicy: LoopPolicy | null; body: string } {
+  const m = FRONTMATTER_RE.exec(raw);
+  if (!m) return { loopPolicy: null, body: raw };
+  const body = raw.slice(m[0].length);
+  try {
+    const fm = parseYaml(m[1] ?? '') as { loopPolicy?: LoopPolicy } | null;
+    const loopPolicy = fm && typeof fm === 'object' && fm.loopPolicy ? fm.loopPolicy : null;
+    return { loopPolicy, body };
+  } catch {
+    // Malformed frontmatter — keep the body, ignore the policy.
+    return { loopPolicy: null, body };
+  }
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -44,7 +69,8 @@ export function loadSkillsFromDisk(): SkillDefinition[] {
     const skillMdPath = join(dir, 'SKILL.md');
     if (!existsSync(skillMdPath)) continue;
 
-    const promptTemplate = readFileSync(skillMdPath, 'utf-8');
+    const rawMd = readFileSync(skillMdPath, 'utf-8');
+    const { loopPolicy, body: promptTemplate } = parseFrontmatter(rawMd);
 
     // Extract name from first markdown heading
     const headingMatch = promptTemplate.match(/^#\s+(.+)$/m);
@@ -82,6 +108,7 @@ export function loadSkillsFromDisk(): SkillDefinition[] {
       description,
       promptTemplate,
       allowedTools,
+      loopPolicy,
     });
   }
 
@@ -98,11 +125,7 @@ export async function syncSkillsToDb(): Promise<{ inserted: number; updated: num
   let updated = 0;
 
   for (const def of defs) {
-    const [existing] = await db
-      .select()
-      .from(skills)
-      .where(eq(skills.slug, def.slug))
-      .limit(1);
+    const [existing] = await db.select().from(skills).where(eq(skills.slug, def.slug)).limit(1);
 
     if (!existing) {
       await db.insert(skills).values({
@@ -113,6 +136,7 @@ export async function syncSkillsToDb(): Promise<{ inserted: number; updated: num
         description: def.description,
         promptTemplate: def.promptTemplate,
         allowedTools: def.allowedTools,
+        loopPolicy: def.loopPolicy,
         builtIn: true,
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -120,7 +144,8 @@ export async function syncSkillsToDb(): Promise<{ inserted: number; updated: num
       inserted += 1;
     } else if (
       existing.promptTemplate !== def.promptTemplate ||
-      JSON.stringify(existing.allowedTools) !== JSON.stringify(def.allowedTools)
+      JSON.stringify(existing.allowedTools) !== JSON.stringify(def.allowedTools) ||
+      JSON.stringify(existing.loopPolicy) !== JSON.stringify(def.loopPolicy)
     ) {
       await db
         .update(skills)
@@ -129,6 +154,7 @@ export async function syncSkillsToDb(): Promise<{ inserted: number; updated: num
           description: def.description,
           promptTemplate: def.promptTemplate,
           allowedTools: def.allowedTools,
+          loopPolicy: def.loopPolicy,
           updatedAt: new Date(),
         })
         .where(eq(skills.id, existing.id));

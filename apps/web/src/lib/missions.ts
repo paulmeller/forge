@@ -24,10 +24,15 @@ export const createMissionSchema = z.object({
   budgetUsd: z.coerce.number().int().positive().nullish(),
   budgetTokens: z.coerce.number().int().positive().nullish(),
   budgetThresholdPct: z.coerce.number().int().min(1).max(100).default(80),
+  budgetHardStopPct: z.coerce.number().int().min(1).max(500).default(100),
+  taskMaxTurns: z.coerce.number().int().positive().nullish(),
+  taskMaxTokens: z.coerce.number().int().positive().nullish(),
+  noProgressTokens: z.coerce.number().int().positive().nullish(),
   githubInstallationId: z.string().max(200).optional().nullable(),
   githubVaultId: z.string().max(200).optional().nullable(),
   skillId: z.string().max(200).optional().nullable(),
   aiReviewEnabled: z.coerce.boolean().default(false),
+  selfVerifyEnabled: z.coerce.boolean().default(false),
 });
 
 export function parseRepoList(raw: string | null | undefined): string[] {
@@ -67,11 +72,16 @@ export async function createMissionForUser(
     budgetUsd: input.budgetUsd ?? null,
     budgetTokens: input.budgetTokens ?? null,
     budgetThresholdPct: input.budgetThresholdPct,
+    budgetHardStopPct: input.budgetHardStopPct,
+    taskMaxTurns: input.taskMaxTurns ?? null,
+    taskMaxTokens: input.taskMaxTokens ?? null,
+    noProgressTokens: input.noProgressTokens ?? null,
     webhookSecret: randomBytes(32).toString('hex'),
     githubInstallationId: input.githubInstallationId ?? null,
     githubVaultId: input.githubVaultId ?? null,
     skillId: input.skillId ?? null,
     aiReviewEnabled: input.aiReviewEnabled ?? false,
+    selfVerifyEnabled: input.selfVerifyEnabled ?? false,
     createdAt: now,
     updatedAt: now,
   };
@@ -103,10 +113,6 @@ export async function listMissions(): Promise<Mission[]> {
 }
 
 export async function getMission(id: string): Promise<Mission | null> {
-  const [row] = await db
-    .select()
-    .from(missions)
-    .where(eq(missions.id, id))
-    .limit(1);
+  const [row] = await db.select().from(missions).where(eq(missions.id, id)).limit(1);
   return row ?? null;
 }
