@@ -179,6 +179,25 @@ export default function LandingPage() {
             </p>
           </div>
         </div>
+
+        <div className="mx-auto mt-10 max-w-[560px]">
+          <div className="rounded-lg border border-[#27272a] bg-[#0f0f11] p-5">
+            <p className="mb-3 font-mono text-xs text-[#52525b]">
+              skills/forge-dev/SKILL.md
+            </p>
+            <pre className="overflow-x-auto font-mono text-xs leading-relaxed text-[#a1a1aa]">
+{`loopPolicy:
+  maxTurns: 40
+  noProgressTokens: 300000
+  acceptanceCriteria: |
+    - pnpm -r typecheck and pnpm -r test pass`}
+            </pre>
+          </div>
+          <p className="mt-3 text-center text-[13px] leading-relaxed text-[#52525b]">
+            Real policy from the Forge skill library. Guardrails ship in the
+            skill, not the prompt.
+          </p>
+        </div>
       </section>
 
       <hr className="mx-auto max-w-[960px] border-[#1a1a1e]" />
