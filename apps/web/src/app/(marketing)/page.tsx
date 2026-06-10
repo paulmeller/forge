@@ -27,6 +27,8 @@ export default function LandingPage() {
           <div className="flex justify-center gap-3">
             <Link
               href={GITHUB_URL}
+              target="_blank"
+              rel="noopener noreferrer"
               className="rounded-md bg-[#fafafa] px-6 py-3 text-sm font-medium text-[#09090b] transition-colors hover:bg-[#e4e4e7]"
             >
               View on GitHub
@@ -446,6 +448,8 @@ pnpm dev`}
           </Link>
           <Link
             href={GITHUB_URL}
+            target="_blank"
+            rel="noopener noreferrer"
             className="rounded-md border border-[#27272a] px-6 py-3 text-sm text-[#a1a1aa] transition-colors hover:border-[#3f3f46] hover:text-[#d4d4d8]"
           >
             Star on GitHub
@@ -465,6 +469,8 @@ pnpm dev`}
           </Link>
           <Link
             href={GITHUB_URL}
+            target="_blank"
+            rel="noopener noreferrer"
             className="text-xs text-[#52525b] transition-colors hover:text-[#71717a]"
           >
             GitHub
