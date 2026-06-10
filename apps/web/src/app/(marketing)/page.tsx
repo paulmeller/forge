@@ -146,11 +146,10 @@ export default function LandingPage() {
           Stop prompting agents. Start designing loops.
         </h2>
         <p className="mx-auto mb-14 max-w-[560px] text-center text-sm text-[#71717a]">
-          The most-quoted idea in AI coding right now — and almost nobody can
-          say what it looks like in practice. This is what it looks like: a
-          mission is a loop. It prompts the agents, checks the work, and
-          decides whether to keep going. You write the intent and the stopping
-          conditions. Forge runs the loop.
+          A mission is a loop: it prompts the agents, checks the work, and
+          decides whether to keep going. Without stopping conditions, loops
+          run away — with them, they ship. You write the intent and the
+          limits. Forge enforces them.
         </p>
 
         <div className="grid gap-4 md:grid-cols-3">
