@@ -27,7 +27,19 @@ describe('transition', () => {
       'running',
       event('session.status_idle', { stop_reason: { type: 'end_turn' } }),
     );
-    expect(t).toEqual({ status: 'turn_ended' });
+    expect(t).toEqual({ status: 'turn_ended', turnCompleted: true });
+  });
+
+  it('only the running → turn_ended transition carries turnCompleted', () => {
+    // turn_ended is produced solely from `running`; a second idle while already
+    // turn_ended yields no transition, so turnCompleted deltas are inherently
+    // distinct (one per completed turn).
+    expect(
+      transition('turn_ended', event('session.status_idle', { stop_reason: { type: 'end_turn' } })),
+    ).toBeNull();
+    expect(
+      transition('dispatching', event('session.status_running'))?.turnCompleted,
+    ).toBeUndefined();
   });
 
   it('does not transition on session.status_idle with requires_action', () => {
@@ -50,10 +62,7 @@ describe('transition', () => {
   });
 
   it('any → failed on session.error', () => {
-    const t = transition(
-      'running',
-      event('session.error', { message: 'model refused' }),
-    );
+    const t = transition('running', event('session.error', { message: 'model refused' }));
     expect(t).toEqual({ status: 'failed', lastError: 'model refused', completed: true });
   });
 

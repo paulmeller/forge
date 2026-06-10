@@ -1,3 +1,14 @@
+---
+loopPolicy:
+  maxTurns: 12
+  noProgressTokens: 120000
+  selfVerify: true
+  acceptanceCriteria: |
+    - Only the named dependency changed in package.json + lockfile.
+    - No unrelated dependencies were bumped.
+    - typecheck and the existing test suite pass.
+    - A PR titled `chore(deps): bump <pkg> to <version>` is open.
+---
 # dependency-bump
 
 Bump a dependency to a target version across one or more repositories.

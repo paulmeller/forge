@@ -50,6 +50,13 @@
       "when": 1745625600000,
       "tag": "0007_dag_ai_review",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1781040430994,
+      "tag": "0008_loop_guardrails",
+      "breakpoints": true
     }
   ]
 }

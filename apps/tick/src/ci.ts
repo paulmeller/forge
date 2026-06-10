@@ -8,6 +8,7 @@ import { ledgerEvents, missions, tasks, type Task } from '@forge/db';
 import { getAdapter } from './adapters';
 import { db } from './db';
 import { env } from './env';
+import { postCiStatus } from './gates';
 
 type Logger = {
   info: (o: object, m?: string) => void;
@@ -86,13 +87,20 @@ async function checkOne(task: Task): Promise<Outcome> {
   if (!owner || !repo || !pullStr) return 'pending';
   const pullNumber = Number(pullStr);
 
-  // Look up mission to check if AI review is enabled
+  // Look up mission gate config (AI review + self-verify) to route green CI.
   const [missionRow] = await db
-    .select({ aiReviewEnabled: missions.aiReviewEnabled })
+    .select({
+      aiReviewEnabled: missions.aiReviewEnabled,
+      selfVerifyEnabled: missions.selfVerifyEnabled,
+    })
     .from(missions)
     .where(eq(missions.id, task.missionId))
     .limit(1);
-  const nextReviewStatus = missionRow?.aiReviewEnabled ? 'awaiting_ai_review' : 'awaiting_review';
+  const nextReviewStatus = postCiStatus({
+    selfVerifyEnabled: missionRow?.selfVerifyEnabled ?? false,
+    hasAcceptanceCriteria: task.acceptanceCriteria != null,
+    aiReviewEnabled: missionRow?.aiReviewEnabled ?? false,
+  });
 
   const gh = client();
   const { data: pr } = await gh.pulls.get({ owner, repo, pull_number: pullNumber });
@@ -100,7 +108,11 @@ async function checkOne(task: Task): Promise<Outcome> {
 
   const { data: checks } = await gh.checks.listForRef({ owner, repo, ref: sha, per_page: 100 });
   if (checks.total_count === 0) {
-    await transitionToReview(task, { sha, checksTotal: 0, verdict: 'no-checks-success' }, nextReviewStatus);
+    await transitionToReview(
+      task,
+      { sha, checksTotal: 0, verdict: 'no-checks-success' },
+      nextReviewStatus,
+    );
     return 'success';
   }
 
@@ -109,7 +121,8 @@ async function checkOne(task: Task): Promise<Outcome> {
 
   const failedRuns: FailedCheck[] = checks.check_runs
     .filter(
-      (c) => c.conclusion === 'failure' || c.conclusion === 'timed_out' || c.conclusion === 'cancelled',
+      (c) =>
+        c.conclusion === 'failure' || c.conclusion === 'timed_out' || c.conclusion === 'cancelled',
     )
     .map((c) => ({
       name: c.name,
@@ -131,11 +144,15 @@ async function checkOne(task: Task): Promise<Outcome> {
       // sendTurn failed for some reason — fall through to mark failed.
     }
 
-    await transitionToFailed(task, {
-      sha,
-      failedChecks: failedRuns.map((r) => `${r.name}:${r.conclusion}`),
-      retriesExhausted: task.retryCount >= env.TASK_RETRY_MAX,
-    }, `CI failed: ${failedRuns.map((r) => r.name).join(', ')}`);
+    await transitionToFailed(
+      task,
+      {
+        sha,
+        failedChecks: failedRuns.map((r) => `${r.name}:${r.conclusion}`),
+        retriesExhausted: task.retryCount >= env.TASK_RETRY_MAX,
+      },
+      `CI failed: ${failedRuns.map((r) => r.name).join(', ')}`,
+    );
     return 'failure';
   }
 
@@ -143,7 +160,11 @@ async function checkOne(task: Task): Promise<Outcome> {
     (c) => c.conclusion === 'success' || c.conclusion === 'skipped' || c.conclusion === 'neutral',
   );
   if (allSuccess) {
-    await transitionToReview(task, { sha, checksTotal: checks.total_count, verdict: 'all-passed' }, nextReviewStatus);
+    await transitionToReview(
+      task,
+      { sha, checksTotal: checks.total_count, verdict: 'all-passed' },
+      nextReviewStatus,
+    );
     return 'success';
   }
   return 'pending';
@@ -217,13 +238,10 @@ async function retryWithFeedback(
 async function transitionToReview(
   task: Task,
   payload: Record<string, unknown>,
-  targetStatus: 'awaiting_review' | 'awaiting_ai_review' = 'awaiting_review',
+  targetStatus: 'awaiting_review' | 'awaiting_ai_review' | 'awaiting_verify' = 'awaiting_review',
 ): Promise<void> {
   const now = new Date();
-  await db
-    .update(tasks)
-    .set({ status: targetStatus, updatedAt: now })
-    .where(eq(tasks.id, task.id));
+  await db.update(tasks).set({ status: targetStatus, updatedAt: now }).where(eq(tasks.id, task.id));
   await db.insert(ledgerEvents).values({
     id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
     missionId: task.missionId,
@@ -253,4 +271,3 @@ async function transitionToFailed(
     createdAt: now,
   });
 }
-

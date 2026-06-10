@@ -19,7 +19,13 @@ import { createMissionAction, type CreateMissionState } from './actions';
 
 const initialState: CreateMissionState = {};
 
-function FieldError({ errors, name }: { errors: Record<string, string> | undefined; name: string }) {
+function FieldError({
+  errors,
+  name,
+}: {
+  errors: Record<string, string> | undefined;
+  name: string;
+}) {
   if (!errors?.[name]) return null;
   return <p className="mt-1 text-xs text-destructive">{errors[name]}</p>;
 }
@@ -131,9 +137,7 @@ export function NewMissionForm({ availableSkills = [] }: { availableSkills?: Ski
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="rule-based">Rule-based (one Task per repo)</SelectItem>
-                <SelectItem value="llm">
-                  LLM (AI decomposes goal into dependent tasks)
-                </SelectItem>
+                <SelectItem value="llm">LLM (AI decomposes goal into dependent tasks)</SelectItem>
                 <SelectItem value="graph" disabled>
                   Graph / DAG (coming soon)
                 </SelectItem>
@@ -184,6 +188,21 @@ export function NewMissionForm({ availableSkills = [] }: { availableSkills?: Ski
               </p>
             </div>
           </div>
+          <div className="flex items-center gap-3">
+            <input
+              type="checkbox"
+              id="selfVerifyEnabled"
+              name="selfVerifyEnabled"
+              className="h-4 w-4 rounded border-input"
+            />
+            <div>
+              <Label htmlFor="selfVerifyEnabled">Self-verification gate</Label>
+              <p className="text-xs text-muted-foreground">
+                A checker model confirms each PR meets its skill&apos;s acceptance criteria before
+                review (a /goal-style done-check). Requires a skill with criteria.
+              </p>
+            </div>
+          </div>
         </CardContent>
       </Card>
 
@@ -211,15 +230,70 @@ export function NewMissionForm({ availableSkills = [] }: { availableSkills?: Ski
               />
             </div>
           </div>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div>
+              <Label htmlFor="budgetThresholdPct">Soft-pause threshold (%)</Label>
+              <Input
+                id="budgetThresholdPct"
+                name="budgetThresholdPct"
+                type="number"
+                min={1}
+                max={100}
+                defaultValue={80}
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Mission pauses; in-flight Tasks finish.
+              </p>
+            </div>
+            <div>
+              <Label htmlFor="budgetHardStopPct">Hard-stop ceiling (%)</Label>
+              <Input
+                id="budgetHardStopPct"
+                name="budgetHardStopPct"
+                type="number"
+                min={1}
+                max={500}
+                defaultValue={100}
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Cancels the Mission and kills in-flight sessions.
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Per-task hard stops</CardTitle>
+          <CardDescription>
+            Optional overrides. Leave blank to use the skill&apos;s loop policy, then the env
+            default. These halt a single runaway Task without pausing the whole Mission.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-3">
           <div>
-            <Label htmlFor="budgetThresholdPct">Pause threshold (%)</Label>
+            <Label htmlFor="taskMaxTurns">Max turns</Label>
+            <Input id="taskMaxTurns" name="taskMaxTurns" type="number" min={1} placeholder="30" />
+          </div>
+          <div>
+            <Label htmlFor="taskMaxTokens">Max tokens</Label>
             <Input
-              id="budgetThresholdPct"
-              name="budgetThresholdPct"
+              id="taskMaxTokens"
+              name="taskMaxTokens"
               type="number"
               min={1}
-              max={100}
-              defaultValue={80}
+              placeholder="unbounded"
+            />
+          </div>
+          <div>
+            <Label htmlFor="noProgressTokens">No-progress tokens</Label>
+            <Input
+              id="noProgressTokens"
+              name="noProgressTokens"
+              type="number"
+              min={1}
+              placeholder="200000"
             />
           </div>
         </CardContent>
@@ -233,11 +307,7 @@ export function NewMissionForm({ availableSkills = [] }: { availableSkills?: Ski
         <CardContent className="space-y-4">
           <div>
             <Label htmlFor="githubInstallationId">GitHub App installation ID (repo clone)</Label>
-            <Input
-              id="githubInstallationId"
-              name="githubInstallationId"
-              placeholder="12345678"
-            />
+            <Input id="githubInstallationId" name="githubInstallationId" placeholder="12345678" />
           </div>
           <div>
             <Label htmlFor="githubVaultId">GitHub MCP vault ID (PR creation)</Label>

@@ -1,3 +1,14 @@
+---
+loopPolicy:
+  maxTurns: 20
+  noProgressTokens: 200000
+  selfVerify: true
+  acceptanceCriteria: |
+    - The transformation is applied consistently across the targeted files.
+    - No unrelated changes are included.
+    - typecheck and the existing test suite pass.
+    - A PR describing the codemod is open.
+---
 # codemod-rollout
 
 Apply a codemod or automated transformation across one or more repositories.

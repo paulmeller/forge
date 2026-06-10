@@ -3,6 +3,14 @@ name: ci-fix
 description: Fix failing CI checks with minimum changes
 version: "1"
 allowedTools: [bash, read, edit, grep]
+loopPolicy:
+  maxTurns: 15
+  noProgressTokens: 120000
+  selfVerify: true
+  acceptanceCriteria: |
+    - The previously failing CI checks now pass.
+    - The fix is minimal — no unrelated changes.
+    - No new test or lint failures were introduced.
 ---
 
 # Protocol

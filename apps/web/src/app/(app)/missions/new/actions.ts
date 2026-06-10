@@ -31,10 +31,15 @@ export async function createMissionAction(
     budgetUsd: toNullableString(formData.get('budgetUsd')),
     budgetTokens: toNullableString(formData.get('budgetTokens')),
     budgetThresholdPct: formData.get('budgetThresholdPct') || 80,
+    budgetHardStopPct: formData.get('budgetHardStopPct') || 100,
+    taskMaxTurns: toNullableString(formData.get('taskMaxTurns')),
+    taskMaxTokens: toNullableString(formData.get('taskMaxTokens')),
+    noProgressTokens: toNullableString(formData.get('noProgressTokens')),
     githubInstallationId: toNullableString(formData.get('githubInstallationId')),
     githubVaultId: toNullableString(formData.get('githubVaultId')),
     skillId: toNullableString(formData.get('skillId')),
     aiReviewEnabled: formData.get('aiReviewEnabled') === 'on',
+    selfVerifyEnabled: formData.get('selfVerifyEnabled') === 'on',
   };
 
   let mission;
