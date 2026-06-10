@@ -36,12 +36,12 @@ When a user asks you to do something to their codebase, create a mission for it.
 If the user hasn't connected any repos yet, suggest they visit /setup first.`;
 
 function getChatModel() {
-  const id = process.env.FORGE_CHAT_MODEL ?? 'anthropic:claude-sonnet-4-5-20250514';
+  const id = process.env.FORGE_CHAT_MODEL ?? 'anthropic:claude-sonnet-4-6';
   const [provider, ...rest] = id.split(':');
   const model = rest.join(':');
   if (provider === 'openai') return openai(model || 'gpt-5.5');
   if (provider === 'google') return google(model || 'gemini-2.5-pro-preview-05-06');
-  return anthropic(model || 'claude-sonnet-4-5-20250514');
+  return anthropic(model || 'claude-sonnet-4-6');
 }
 
 export async function POST(req: Request) {
@@ -236,7 +236,7 @@ export async function POST(req: Request) {
           await db
             .update(missions)
             .set({ status: 'cancelled', updatedAt: now, completedAt: now })
-            .where(sql`${missions.id} = ${missionId}`);
+            .where(sql`${missions.id} = ${missionId} AND ${missions.userId} = ${userId}`);
 
           await db
             .update(tasks)
@@ -265,8 +265,8 @@ async function getDefaultRepo(userId: string): Promise<string | null> {
       )
       .where(eq(githubInstallations.userId, userId))
       .limit(1);
-    return row?.repo ?? 'paulmeller/forge';
+    return row?.repo ?? null;
   } catch {
-    return 'paulmeller/forge';
+    return null;
   }
 }

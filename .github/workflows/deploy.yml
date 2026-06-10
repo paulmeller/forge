@@ -82,7 +82,7 @@ jobs:
           env_vars: |
             NODE_ENV=production
             FORGE_BACKEND=gateway
-            FORGE_CHAT_MODEL=anthropic:claude-sonnet-4-5-20250514
+            FORGE_CHAT_MODEL=anthropic:claude-sonnet-4-6
           secrets: |
             DATABASE_URL=forge-database-url:latest
             DATABASE_AUTH_TOKEN=forge-database-auth-token:latest

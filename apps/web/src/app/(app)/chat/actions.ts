@@ -49,8 +49,8 @@ export async function listSkills(): Promise<SkillSummary[]> {
 }
 
 /**
- * Create a mission from a chat message. Uses the user's first connected repo
- * if available, otherwise falls back to a default.
+ * Create a mission from a chat message. Uses the user's first connected repo;
+ * errors if no repo is connected.
  */
 export async function createSessionFromChat(
   message: string,
@@ -78,7 +78,10 @@ export async function createSessionFromChat(
     // Table doesn't exist yet — fall back to defaults
   }
 
-  const repo = connectedRepos[0]?.repo ?? 'paulmeller/forge';
+  const repo = connectedRepos[0]?.repo;
+  if (!repo) {
+    throw new Error('No connected repositories. Connect a repo in /setup before creating a mission.');
+  }
   const agentId =
     connectedRepos[0]?.agentId ?? env.FORGE_DEFAULT_AGENT_ID ?? 'agent_unset';
   const githubVaultId =

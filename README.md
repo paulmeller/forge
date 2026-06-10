@@ -12,7 +12,7 @@ Full product spec: [`docs/forge-prd.md`](docs/forge-prd.md).
 
 ## Status
 
-**Early — scaffolding only.** The PRD is written and the repo is stood up; Phase 0 (schema + CRUD) is next. Do not run this against production repos yet.
+**Early, but working end to end.** Missions, parallel dispatch, CI gating, budget caps, and the audit ledger all function — this is young software, so expect rough edges and review what agents ship before merging it.
 
 ## Architecture in one paragraph
 
