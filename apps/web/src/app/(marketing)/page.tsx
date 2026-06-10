@@ -16,27 +16,26 @@ export default function LandingPage() {
             Results out.
           </h1>
           <p className="mx-auto mb-4 max-w-[540px] text-[18px] leading-relaxed text-[#a1a1aa]">
-            Forge turns any backlog into a fleet of autonomous agents. They
-            read the brief, do the work, and deliver reviewable artifacts.
-            Code today. Content, data, and ops tomorrow.
+            Forge is an open-source orchestrator that turns GitHub issues
+            into fleets of sandboxed coding agents — dispatched in parallel,
+            capped by budget, every action in an audit ledger you own.
           </p>
           <p className="mx-auto mb-10 max-w-[480px] text-[16px] leading-relaxed text-[#52525b]">
-            Everyone says design loops, not prompts. Forge is the
-            open-source infrastructure that makes that sentence mean
-            something.
+            Stripe merges 1,000+ autonomous PRs a week on internal
+            infrastructure. Forge is that pattern, MIT-licensed.
           </p>
           <div className="flex justify-center gap-3">
             <Link
-              href="/signup"
+              href={GITHUB_URL}
               className="rounded-md bg-[#fafafa] px-6 py-3 text-sm font-medium text-[#09090b] transition-colors hover:bg-[#e4e4e7]"
             >
-              Get Started Free
+              View on GitHub
             </Link>
             <Link
-              href="/docs"
+              href="/signup"
               className="rounded-md border border-[#27272a] px-6 py-3 text-sm text-[#a1a1aa] transition-colors hover:border-[#3f3f46] hover:text-[#d4d4d8]"
             >
-              Read the Docs
+              Get Started Free
             </Link>
           </div>
         </div>
