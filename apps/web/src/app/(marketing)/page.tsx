@@ -401,6 +401,32 @@ export default function LandingPage() {
         </blockquote>
       </section>
 
+      <hr className="mx-auto max-w-[960px] border-[#1a1a1e]" />
+
+      {/* Quickstart */}
+      <section className="mx-auto max-w-[960px] px-6 py-20 md:px-12">
+        <div className="mx-auto max-w-[600px]">
+          <h2 className="mb-4 text-2xl font-semibold tracking-tight">
+            Self-host it tonight
+          </h2>
+          <p className="mb-6 text-[15px] leading-relaxed text-[#71717a]">
+            Node 22 and pnpm 10. No Forge account required — bring your own
+            Anthropic API key. The managed service is optional.
+          </p>
+          <div className="rounded-lg border border-[#27272a] bg-[#0f0f11] p-5">
+            <pre className="overflow-x-auto font-mono text-xs leading-relaxed text-[#a1a1aa]">
+{`git clone https://github.com/paulmeller/forge && cd forge
+pnpm install
+cp apps/web/.env.example apps/web/.env.local
+cp apps/tick/.env.example apps/tick/.env.local
+pnpm --filter @forge/db db:generate
+pnpm --filter @forge/db db:migrate
+pnpm dev`}
+            </pre>
+          </div>
+        </div>
+      </section>
+
       <hr className="border-[#1a1a1e]" />
 
       {/* Footer CTA */}
