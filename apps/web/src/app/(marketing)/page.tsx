@@ -374,10 +374,16 @@ export default function LandingPage() {
         </h2>
         <div className="mb-6">
           <p className="mb-4 text-[15px] leading-relaxed">
-            Stripe&rsquo;s Minions system ships 1,300 PRs per week. It took a
-            dedicated infrastructure team to build. That capability
-            shouldn&rsquo;t require a $200/mo subscription and a proprietary
-            black box.
+            Stripe&rsquo;s internal{' '}
+            <a
+              href="https://stripe.dev/blog/minions-stripes-one-shot-end-to-end-coding-agents"
+              className="underline decoration-[#3f3f46] underline-offset-2 transition-colors hover:decoration-[#71717a]"
+            >
+              Minions system
+            </a>{' '}
+            merges over a thousand autonomous PRs a week. It took a dedicated
+            infrastructure team to build. That capability shouldn&rsquo;t
+            require a $200/mo subscription and a proprietary black box.
           </p>
           <p className="text-[15px] leading-relaxed text-[#a1a1aa]">
             Forge is MIT-licensed. Self-host the engine, or use the managed
@@ -387,12 +393,10 @@ export default function LandingPage() {
         </div>
         <blockquote className="border-l-2 border-[#27272a] pl-4">
           <p className="text-[13px] italic leading-normal text-[#71717a]">
-            &ldquo;The primary reason the Minions work has almost nothing to do
-            with the AI model. It has everything to do with the
-            infrastructure.&rdquo;
+            &ldquo;over a thousand pull requests merged each week&rdquo;
           </p>
           <cite className="mt-1.5 block text-xs not-italic text-[#52525b]">
-            — Patrick Collison, Stripe CEO
+            — Stripe Engineering, on Minions
           </cite>
         </blockquote>
       </section>
