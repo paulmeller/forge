@@ -21,8 +21,9 @@ export default function LandingPage() {
             Code today. Content, data, and ops tomorrow.
           </p>
           <p className="mx-auto mb-10 max-w-[480px] text-[16px] leading-relaxed text-[#52525b]">
-            Stripe built this pattern internally for 1,300 PRs per week.
-            Forge is that infrastructure — open source.
+            Everyone says design loops, not prompts. Forge is the
+            open-source infrastructure that makes that sentence mean
+            something.
           </p>
           <div className="flex justify-center gap-3">
             <Link
@@ -133,6 +134,50 @@ export default function LandingPage() {
             <p className="text-[13px] leading-relaxed text-[#52525b]">
               Every output is a reviewable artifact. You approve what ships.
               Full audit trail of what every agent did, and what it cost.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <hr className="mx-auto max-w-[960px] border-[#1a1a1e]" />
+
+      {/* Loops */}
+      <section className="mx-auto max-w-[960px] px-6 py-20 md:px-12">
+        <h2 className="mb-4 text-center text-2xl font-semibold tracking-tight">
+          Stop prompting agents. Start designing loops.
+        </h2>
+        <p className="mx-auto mb-14 max-w-[560px] text-center text-sm text-[#71717a]">
+          The most-quoted idea in AI coding right now — and almost nobody can
+          say what it looks like in practice. This is what it looks like: a
+          mission is a loop. It prompts the agents, checks the work, and
+          decides whether to keep going. You write the intent and the stopping
+          conditions. Forge runs the loop.
+        </p>
+
+        <div className="grid gap-4 md:grid-cols-3">
+          <div className="rounded-lg border border-[#27272a] bg-[#18181b] p-6">
+            <h3 className="mb-2 text-base font-semibold">Loops that halt</h3>
+            <p className="text-[13px] leading-relaxed text-[#71717a]">
+              Max-turn caps, no-progress detection, and budget ceilings —
+              enforced by the runtime, not the model&rsquo;s good intentions.
+            </p>
+          </div>
+          <div className="rounded-lg border border-[#27272a] bg-[#18181b] p-6">
+            <h3 className="mb-2 text-base font-semibold">
+              Loops that check their own work
+            </h3>
+            <p className="text-[13px] leading-relaxed text-[#71717a]">
+              Acceptance criteria and self-verification gates before any
+              artifact is marked done.
+            </p>
+          </div>
+          <div className="rounded-lg border border-[#27272a] bg-[#18181b] p-6">
+            <h3 className="mb-2 text-base font-semibold">
+              Loops that compound
+            </h3>
+            <p className="text-[13px] leading-relaxed text-[#71717a]">
+              Policy and method live in versioned skills, not prompts. Every
+              mission that runs a skill makes the next one cheaper.
             </p>
           </div>
         </div>
@@ -281,11 +326,11 @@ export default function LandingPage() {
             Budgeted.
           </span>
           <p className="mt-2 text-[15px] leading-relaxed text-[#71717a]">
-            Agent APIs bill per session with no cap. You discover what you
-            spent after the fact.{' '}
+            The expensive part isn&rsquo;t the model anymore — it&rsquo;s the
+            loop running it. Alerts after the fact don&rsquo;t work.{' '}
             <span className="text-[#a1a1aa]">
-              Forge caps spend per mission. Auto-pauses at 80%. You set the
-              ceiling before the first agent starts.
+              Forge caps spend per mission and auto-pauses at 80%. The loop
+              terminates at the ceiling — it doesn&rsquo;t email you about it.
             </span>
           </p>
         </div>
