@@ -167,8 +167,9 @@ export default function LandingPage() {
               Loops that check their own work
             </h3>
             <p className="text-[13px] leading-relaxed text-[#71717a]">
-              Acceptance criteria and self-verification gates before any
-              artifact is marked done.
+              Acceptance criteria gate every artifact before it ships.
+              Self-verification is policy, set per skill — not a promise in
+              a prompt.
             </p>
           </div>
           <div className="rounded-lg border border-[#27272a] bg-[#18181b] p-6">
@@ -176,8 +177,8 @@ export default function LandingPage() {
               Loops that compound
             </h3>
             <p className="text-[13px] leading-relaxed text-[#71717a]">
-              Policy and method live in versioned skills, not prompts. Every
-              mission that runs a skill makes the next one cheaper.
+              Policy and method live in versioned skills, not prompts.
+              Improve the skill once and every mission that uses it improves.
             </p>
           </div>
         </div>
@@ -191,8 +192,11 @@ export default function LandingPage() {
 {`loopPolicy:
   maxTurns: 40
   noProgressTokens: 300000
+  selfVerify: false
   acceptanceCriteria: |
-    - pnpm -r typecheck and pnpm -r test pass`}
+    - The change implements the requested feature or fix.
+    - pnpm -r typecheck and pnpm -r test pass.
+    - Changes follow the repo conventions in AGENTS.md.`}
             </pre>
           </div>
           <p className="mt-3 text-center text-[13px] leading-relaxed text-[#52525b]">
@@ -379,6 +383,8 @@ export default function LandingPage() {
             Stripe&rsquo;s internal{' '}
             <a
               href="https://stripe.dev/blog/minions-stripes-one-shot-end-to-end-coding-agents"
+              target="_blank"
+              rel="noopener noreferrer"
               className="underline decoration-[#3f3f46] underline-offset-2 transition-colors hover:decoration-[#71717a]"
             >
               Minions system
@@ -395,7 +401,7 @@ export default function LandingPage() {
         </div>
         <blockquote className="border-l-2 border-[#27272a] pl-4">
           <p className="text-[13px] italic leading-normal text-[#71717a]">
-            &ldquo;over a thousand pull requests merged each week&rdquo;
+            &ldquo;Over a thousand pull requests merged each week at Stripe are completely minion-produced, and while they&rsquo;re human-reviewed, they contain no human-written code.&rdquo;
           </p>
           <cite className="mt-1.5 block text-xs not-italic text-[#52525b]">
             — Stripe Engineering, on Minions
