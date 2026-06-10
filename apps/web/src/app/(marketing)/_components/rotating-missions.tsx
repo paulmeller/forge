@@ -32,7 +32,7 @@ export function RotatingMissions() {
 
   return (
     <p
-      className="text-center text-[28px] font-medium leading-snug tracking-tight text-[#a1a1aa] transition-opacity duration-300 md:text-[36px]"
+      className="text-center text-[28px] font-medium leading-snug tracking-tight text-muted-foreground transition-opacity duration-300 md:text-[36px]"
       style={{ opacity: visible ? 1 : 0 }}
     >
       &ldquo;{missions[index]}&rdquo;

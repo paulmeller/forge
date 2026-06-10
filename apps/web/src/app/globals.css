@@ -1,4 +1,12 @@
 @import 'tailwindcss';
+
+@font-face {
+  font-family: 'VVDSFifties';
+  src: url('/fonts/VVDSFifties-SExpSBold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
 @import 'fumadocs-ui/css/neutral.css';
 @import 'fumadocs-ui/css/preset.css';
 
@@ -27,7 +35,10 @@
     --border: 240 5.9% 90%;
     --input: 240 5.9% 90%;
     --ring: 240 5.9% 10%;
-    --radius: 0.5rem;
+    --radius: 0.625rem;
+    /* AgentStep product accent — lime gradient used on display headings and
+     * the closing CTA band. Matches agentstep.com's --text-gradient. */
+    --text-gradient: linear-gradient(135deg, oklch(0.93 0.26 110), oklch(0.9 0.29 132));
   }
 
   .dark {

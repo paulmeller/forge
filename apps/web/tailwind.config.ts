@@ -46,6 +46,13 @@ const config: Config = {
           foreground: 'hsl(var(--card-foreground))',
         },
       },
+      fontFamily: {
+        sans: ['var(--font-sans)', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        mono: ['var(--font-mono)', 'ui-monospace', 'monospace'],
+        // Display face from the AgentStep product design system. Only ever
+        // use with `uppercase` — mixed case ruins the proportions.
+        title: ['VVDSFifties', 'var(--font-sans)', 'sans-serif'],
+      },
       borderRadius: {
         lg: 'var(--radius)',
         md: 'calc(var(--radius) - 2px)',

@@ -8,38 +8,41 @@ export default function MarketingLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="dark bg-[#09090b] text-[#fafafa]" style={{ colorScheme: 'dark' }}>
-      <nav className="sticky top-0 z-50 flex items-center justify-between border-b border-[#1a1a1e] bg-[#09090b]/85 px-6 py-4 backdrop-blur-sm md:px-12">
-        <Link href="/" className="text-base font-bold tracking-tight">
-          Forge
+    <div className="dark bg-background text-muted-foreground" style={{ colorScheme: 'dark' }}>
+      <header className="fixed inset-x-0 top-0 z-50 flex h-16 items-center justify-between bg-background/80 px-6 backdrop-blur-sm sm:px-10">
+        <Link href="/" className="flex items-center gap-1.5">
+          <span className="size-2 rounded-full bg-lime-400 shadow-[0_0_8px_2px_rgba(163,230,53,0.6),0_0_20px_4px_rgba(163,230,53,0.3)]" />
+          <span className="font-mono text-[15px] font-semibold tracking-tight text-foreground">forge</span>
         </Link>
-        <div className="flex items-center gap-6">
+        <div className="flex items-center gap-5">
           <Link
             href="/docs"
-            className="text-[13px] text-[#71717a] transition-colors hover:text-[#a1a1aa]"
+            className="hidden text-sm text-muted-foreground transition-colors hover:text-foreground sm:block"
           >
             Docs
           </Link>
           <Link
             href={GITHUB_URL}
-            className="text-[13px] text-[#71717a] transition-colors hover:text-[#a1a1aa]"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hidden text-sm text-muted-foreground transition-colors hover:text-foreground sm:block"
           >
             GitHub
           </Link>
           <Link
             href="/login"
-            className="text-[13px] text-[#71717a] transition-colors hover:text-[#a1a1aa]"
+            className="text-sm text-muted-foreground transition-colors hover:text-foreground"
           >
             Log in
           </Link>
           <Link
             href="/signup"
-            className="rounded-md bg-[#fafafa] px-3.5 py-1.5 text-[13px] font-medium text-[#09090b] transition-colors hover:bg-[#e4e4e7]"
+            className="inline-flex h-9 items-center justify-center rounded-lg bg-primary px-5 text-sm font-medium text-primary-foreground transition-all hover:brightness-90"
           >
             Get Started
           </Link>
         </div>
-      </nav>
+      </header>
       {children}
     </div>
   );
