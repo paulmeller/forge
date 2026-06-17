@@ -71,3 +71,48 @@
     color: hsl(var(--foreground));
   }
 }
+
+/* ── Software Factory (/factory) animations ──────────────────────────── */
+@keyframes factory-sweep {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes factory-ping {
+  0% {
+    opacity: 0.9;
+    transform: scale(0.4);
+  }
+  80%,
+  100% {
+    opacity: 0;
+    transform: scale(1);
+  }
+}
+@keyframes factory-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+.factory-sweep {
+  transform-origin: center;
+  animation: factory-sweep 4s linear infinite;
+}
+.factory-ping {
+  transform-origin: center;
+  animation: factory-ping 2.4s ease-out infinite;
+}
+.factory-pulse {
+  animation: factory-pulse 1.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .factory-sweep,
+  .factory-ping,
+  .factory-pulse {
+    animation: none;
+  }
+}

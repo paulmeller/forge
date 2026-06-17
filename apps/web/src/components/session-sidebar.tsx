@@ -58,6 +58,7 @@ export function SessionSidebar({
           Navigation
         </p>
         <NavLink href="/missions">Dashboard</NavLink>
+        <NavLink href="/factory">Software Factory</NavLink>
         <NavLink href="/chat">Chat</NavLink>
         <NavLink href="/setup">Setup</NavLink>
       </nav>
