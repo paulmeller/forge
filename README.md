@@ -55,7 +55,7 @@ pnpm --filter @forge/db db:migrate
 pnpm dev
 ```
 
-`forge-web` is at [http://localhost:3000](http://localhost:3000). `forge-tick` listens on [http://localhost:8080](http://localhost:8080); trigger a tick manually with:
+`forge-web` is at [http://localhost:3100](http://localhost:3100). `forge-tick` listens on [http://localhost:8080](http://localhost:8080); trigger a tick manually with:
 
 ```bash
 curl -X POST http://localhost:8080/tick
@@ -103,7 +103,7 @@ From the repo root:
 
 | Command            | Effect                                     |
 | ------------------ | ------------------------------------------ |
-| `pnpm dev`         | Run `forge-web` (:3000) and `forge-tick` (:8080) in parallel |
+| `pnpm dev`         | Run `forge-web` (:3100) and `forge-tick` (:8080) in parallel |
 | `pnpm build`       | Build every workspace package              |
 | `pnpm typecheck`   | Run `tsc --noEmit` across all packages     |
 | `pnpm lint`        | Lint every package                         |
