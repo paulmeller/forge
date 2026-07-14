@@ -126,7 +126,7 @@ vi.mock('./memory', () => ({
 }));
 vi.mock('./skill-loader', () => ({ getSkill: mocks.getSkill }));
 
-import { claimNextBatch, dispatchOne, INFLIGHT_STATUSES } from './dispatcher';
+import { claimNextBatch, depsSatisfied, dispatchOne, INFLIGHT_STATUSES } from './dispatcher';
 import { renderPrompt } from './prompt';
 
 function mission(overrides: Partial<Mission> = {}): Mission {
@@ -351,5 +351,50 @@ describe('dispatchOne', () => {
       'GITHUB_APP_TOKEN not configured',
     );
     expect(mocks.adapter.createSession).not.toHaveBeenCalled();
+  });
+});
+
+describe('depsSatisfied (triage reproduce→fix gate)', () => {
+  it('unblocks when a standard dependency is merged', () => {
+    const dep = task('rep', { status: 'merged' });
+    expect(depsSatisfied(['rep'], [dep])).toBe(true);
+  });
+
+  it('unblocks a fix when its reproduce dep resolved with a positive verdict', () => {
+    const dep = task('rep', {
+      kind: 'reproduce',
+      status: 'resolved',
+      verdict: { reproduced: true, summary: 'confirmed' },
+    });
+    expect(depsSatisfied(['rep'], [dep])).toBe(true);
+  });
+
+  it('does NOT unblock when the reproduce verdict is negative', () => {
+    const dep = task('rep', {
+      kind: 'reproduce',
+      status: 'resolved',
+      verdict: { reproduced: false, summary: 'could not reproduce' },
+    });
+    expect(depsSatisfied(['rep'], [dep])).toBe(false);
+  });
+
+  it('does NOT unblock while the reproduce dep is still running', () => {
+    const dep = task('rep', { kind: 'reproduce', status: 'running' });
+    expect(depsSatisfied(['rep'], [dep])).toBe(false);
+  });
+
+  it('does NOT unblock a resolved reproduce dep that carries no verdict', () => {
+    const dep = task('rep', { kind: 'reproduce', status: 'resolved', verdict: null });
+    expect(depsSatisfied(['rep'], [dep])).toBe(false);
+  });
+
+  it('requires ALL dependencies to be satisfied', () => {
+    const a = task('a', { status: 'merged' });
+    const b = task('b', { kind: 'reproduce', status: 'running' });
+    expect(depsSatisfied(['a', 'b'], [a, b])).toBe(false);
+  });
+
+  it('is unsatisfied when a dependency row is missing', () => {
+    expect(depsSatisfied(['ghost'], [])).toBe(false);
   });
 });

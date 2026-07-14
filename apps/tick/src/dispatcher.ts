@@ -76,6 +76,23 @@ export async function runDispatcher(log: {
  *   2) UPDATE ... WHERE id IN (...) AND status='queued' RETURNING *
  *      — WHERE guard is the race barrier; two workers can't both win.
  */
+/**
+ * A dependent Task is claimable when every dependency is "satisfied":
+ *   - a standard dependency is satisfied once its PR is `merged`;
+ *   - a triage `reproduce` dependency is satisfied once it is `resolved` AND its
+ *     verdict says the bug reproduced. A negative verdict is NOT satisfaction —
+ *     the reconciler abandons the dependent fix instead of unblocking it.
+ * Pure and exported for testing.
+ */
+export function depsSatisfied(depIds: string[], deps: Task[]): boolean {
+  return depIds.every((id) => {
+    const dep = deps.find((d) => d.id === id);
+    if (!dep) return false;
+    if (dep.status === 'merged') return true;
+    return dep.kind === 'reproduce' && dep.status === 'resolved' && dep.verdict?.reproduced === true;
+  });
+}
+
 export async function claimNextBatch(mission: Mission): Promise<Task[]> {
   const inflightRows = await db
     .select({ count: sql<number>`count(*)` })
@@ -93,7 +110,7 @@ export async function claimNextBatch(mission: Mission): Promise<Task[]> {
     .limit(slots * 3); // over-fetch to account for blocked tasks
   if (allQueued.length === 0) return [];
 
-  // Filter out tasks whose dependencies haven't merged yet
+  // Filter out tasks whose dependencies aren't satisfied yet.
   const unblocked: string[] = [];
   for (const t of allQueued) {
     const depIds = (t.dependsOnIds as string[] | null) ?? [];
@@ -101,12 +118,8 @@ export async function claimNextBatch(mission: Mission): Promise<Task[]> {
       unblocked.push(t.id);
       continue;
     }
-    // Check if ALL dependencies are merged
-    const [depCount] = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(tasks)
-      .where(and(inArray(tasks.id, depIds), eq(tasks.status, 'merged')));
-    if (Number(depCount?.count ?? 0) === depIds.length) {
+    const deps = await db.select().from(tasks).where(inArray(tasks.id, depIds));
+    if (depsSatisfied(depIds, deps)) {
       unblocked.push(t.id);
     }
   }
@@ -139,11 +152,32 @@ export async function dispatchOne(mission: Mission, task: Task): Promise<void> {
   // mission goal so the agent has the playbook context, and narrow the toolset.
   const skill = mission.skillId ? await getSkill(mission.skillId) : null;
 
-  const vars = {
+  const vars: Record<string, unknown> = {
     repo: task.repo,
     base_branch: task.baseBranch,
     ...((task.promptVars as Record<string, unknown>) ?? {}),
   };
+
+  // For a triage `fix` Task, thread the upstream reproduce verdict into the
+  // prompt so the fixer starts from confirmed evidence (which versions are
+  // affected, how it repros) instead of re-deriving it. Exposed as
+  // {{repro_summary}}, {{repro_evidence}}, {{affected_versions}}.
+  if (task.kind === 'fix') {
+    const depIds = (task.dependsOnIds as string[] | null) ?? [];
+    if (depIds.length > 0) {
+      const deps = await db.select().from(tasks).where(inArray(tasks.id, depIds));
+      const repro = deps.find((d) => d.kind === 'reproduce' && d.verdict);
+      if (repro?.verdict) {
+        vars.repro_summary = repro.verdict.summary;
+        vars.repro_evidence = repro.verdict.evidence ?? '';
+        vars.affected_versions = repro.verdict.affectedVersions
+          ? Object.entries(repro.verdict.affectedVersions)
+              .map(([v, hit]) => `${v}: ${hit ? 'affected' : 'ok'}`)
+              .join(', ')
+          : '';
+      }
+    }
+  }
 
   // LLM planner stores a custom per-task prompt in promptVars.custom_prompt.
   const taskGoal =

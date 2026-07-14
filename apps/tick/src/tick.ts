@@ -98,6 +98,8 @@ export async function runTick(log: FastifyBaseLogger): Promise<TickResult> {
       tasksCascadeFailed: 0,
       prsOpened: 0,
       gatesEscalated: 0,
+      reproduceResolved: 0,
+      fixesGated: 0,
     };
   });
 

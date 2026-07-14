@@ -7,6 +7,7 @@ import { ledgerEvents, missions, tasks, type Mission, type TaskStatus } from '@f
 
 import { db } from './db';
 import { env } from './env';
+import { extractVerdictFromLedger } from './triage-verdict';
 
 type Logger = {
   info: (o: object, m?: string) => void;
@@ -20,6 +21,8 @@ export type ReconcileResult = {
   tasksCascadeFailed: number;
   prsOpened: number;
   gatesEscalated: number;
+  reproduceResolved: number;
+  fixesGated: number;
 };
 
 export const DEPENDENCY_FAILED_STATUSES: TaskStatus[] = ['failed', 'abandoned'];
@@ -89,6 +92,116 @@ export async function runReconciler(log: Logger): Promise<ReconcileResult> {
       });
       tasksCascadeFailed += 1;
       log.info({ taskId: task.id }, 'reconciler:dependency_failed');
+    }
+  }
+
+  // (0b) Triage gate: abandon queued `fix` Tasks whose `reproduce` dependency
+  // resolved with a negative verdict. The bug didn't reproduce on the tested
+  // versions, so there's nothing to fix — don't spend a fix session on it.
+  // (A positive verdict leaves the fix `queued`; the dispatcher then unblocks
+  // it. A failed/abandoned reproduce is handled by the cascade in step 0.)
+  let fixesGated = 0;
+  const pendingFixes = await db
+    .select()
+    .from(tasks)
+    .where(and(eq(tasks.status, 'queued'), eq(tasks.kind, 'fix'), isNotNull(tasks.dependsOnIds)));
+
+  for (const fix of pendingFixes) {
+    const depIds = (fix.dependsOnIds as string[] | null) ?? [];
+    if (depIds.length === 0) continue;
+    const deps = await db.select().from(tasks).where(inArray(tasks.id, depIds));
+    const negative = deps.some(
+      (d) => d.kind === 'reproduce' && d.status === 'resolved' && d.verdict?.reproduced === false,
+    );
+    if (!negative) continue;
+
+    const now = new Date();
+    const [updated] = await db
+      .update(tasks)
+      .set({
+        status: 'abandoned',
+        lastError: 'bug did not reproduce',
+        updatedAt: now,
+        completedAt: now,
+      })
+      .where(and(eq(tasks.id, fix.id), eq(tasks.status, 'queued')))
+      .returning();
+    if (!updated) continue;
+    await db.insert(ledgerEvents).values({
+      id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
+      missionId: fix.missionId,
+      taskId: fix.id,
+      eventType: 'triage.fix_skipped',
+      payload: { reason: 'reproduce verdict was negative', dependsOnIds: depIds },
+      createdAt: now,
+    });
+    fixesGated += 1;
+    log.info({ taskId: fix.id }, 'reconciler:fix_skipped_not_reproduced');
+  }
+
+  // (0c) Settle `reproduce` Tasks that have finished their turn. They open no
+  // PR — they emit a verdict. Lift the parsed verdict onto the Task and mark it
+  // `resolved`; if the agent produced no parseable verdict, abandon it. Runs
+  // before the generic turn_ended→open-PR sweep (step 1) so reproduce Tasks are
+  // never mistaken for "agent pushed a branch but opened no PR".
+  let reproduceResolved = 0;
+  const finishedRepro = await db
+    .select()
+    .from(tasks)
+    .where(and(eq(tasks.status, 'turn_ended'), eq(tasks.kind, 'reproduce')));
+
+  for (const task of finishedRepro) {
+    const evs = await db
+      .select({ eventType: ledgerEvents.eventType, payload: ledgerEvents.payload })
+      .from(ledgerEvents)
+      .where(eq(ledgerEvents.taskId, task.id))
+      .orderBy(ledgerEvents.createdAt);
+    const verdict = extractVerdictFromLedger(evs);
+    const now = new Date();
+
+    if (verdict) {
+      const [updated] = await db
+        .update(tasks)
+        .set({ status: 'resolved', verdict, updatedAt: now, completedAt: now })
+        .where(and(eq(tasks.id, task.id), eq(tasks.status, 'turn_ended')))
+        .returning();
+      if (!updated) continue;
+      await db.insert(ledgerEvents).values({
+        id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
+        missionId: task.missionId,
+        taskId: task.id,
+        eventType: 'triage.reproduced',
+        payload: {
+          reproduced: verdict.reproduced,
+          summary: verdict.summary,
+          affectedVersions: verdict.affectedVersions ?? null,
+        },
+        createdAt: now,
+      });
+      reproduceResolved += 1;
+      log.info({ taskId: task.id, reproduced: verdict.reproduced }, 'reconciler:reproduce_resolved');
+    } else {
+      const [updated] = await db
+        .update(tasks)
+        .set({
+          status: 'abandoned',
+          lastError: 'reproduce agent emitted no verdict',
+          updatedAt: now,
+          completedAt: now,
+        })
+        .where(and(eq(tasks.id, task.id), eq(tasks.status, 'turn_ended')))
+        .returning();
+      if (!updated) continue;
+      await db.insert(ledgerEvents).values({
+        id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
+        missionId: task.missionId,
+        taskId: task.id,
+        eventType: 'task.abandoned',
+        payload: { reason: 'reproduce turn ended with no forge-verdict block' },
+        createdAt: now,
+      });
+      tasksAbandoned += 1;
+      log.info({ taskId: task.id }, 'reconciler:reproduce_no_verdict');
     }
   }
 
@@ -199,6 +312,8 @@ export async function runReconciler(log: Logger): Promise<ReconcileResult> {
     tasksCascadeFailed,
     prsOpened,
     gatesEscalated,
+    reproduceResolved,
+    fixesGated,
   };
 }
 
