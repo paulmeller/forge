@@ -27,6 +27,7 @@ export async function createMissionAction(
     agentId: formData.get('agentId'),
     plannerStrategy: formData.get('plannerStrategy') || 'rule-based',
     targetRepos: parseRepoList(typeof targetReposRaw === 'string' ? targetReposRaw : ''),
+    issueQuery: toNullableString(formData.get('issueQuery')),
     concurrencyCap: formData.get('concurrencyCap') || 5,
     budgetUsd: toNullableString(formData.get('budgetUsd')),
     budgetTokens: toNullableString(formData.get('budgetTokens')),

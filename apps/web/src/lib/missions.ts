@@ -20,6 +20,7 @@ export const createMissionSchema = z.object({
     .array(z.string().regex(repoSlugPattern, 'Expected "owner/repo"'))
     .max(500)
     .default([]),
+  issueQuery: z.string().max(500).optional().nullable(),
   concurrencyCap: z.coerce.number().int().min(1).max(100).default(5),
   budgetUsd: z.coerce.number().int().positive().nullish(),
   budgetTokens: z.coerce.number().int().positive().nullish(),
@@ -33,6 +34,15 @@ export const createMissionSchema = z.object({
   skillId: z.string().max(200).optional().nullable(),
   aiReviewEnabled: z.coerce.boolean().default(false),
   selfVerifyEnabled: z.coerce.boolean().default(false),
+}).superRefine((val, ctx) => {
+  // The triage Planner enumerates issues from issueQuery instead of repos.
+  if (val.plannerStrategy === 'triage' && !val.issueQuery?.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['issueQuery'],
+      message: 'Triage missions need a GitHub issue search query.',
+    });
+  }
 });
 
 export function parseRepoList(raw: string | null | undefined): string[] {
@@ -68,6 +78,7 @@ export async function createMissionForUser(
     agentId: input.agentId,
     plannerStrategy: input.plannerStrategy,
     targetRepos: input.targetRepos,
+    issueQuery: input.issueQuery ?? null,
     concurrencyCap: input.concurrencyCap,
     budgetUsd: input.budgetUsd ?? null,
     budgetTokens: input.budgetTokens ?? null,

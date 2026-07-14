@@ -63,16 +63,35 @@ export default async function MissionDetailPage({
             </div>
           </div>
           <div className="flex items-start gap-2">
-            {mission.status === 'draft' ? (
-              <MissionActionButton
-                missionId={mission.id}
-                op="plan"
-                label="Plan Mission"
-                pendingLabel="Planning…"
-                disabled={targetRepos.length === 0}
-                disabledReason={targetRepos.length === 0 ? 'Add target repos first' : undefined}
-              />
+            {mission.plannerStrategy === 'triage' ? (
+              <Button asChild variant="outline">
+                <Link href={`/missions/${mission.id}/issues`}>View by issue →</Link>
+              </Button>
             ) : null}
+            {mission.status === 'draft'
+              ? (() => {
+                  const isTriage = mission.plannerStrategy === 'triage';
+                  const missingSource = isTriage
+                    ? !mission.issueQuery?.trim()
+                    : targetRepos.length === 0;
+                  return (
+                    <MissionActionButton
+                      missionId={mission.id}
+                      op="plan"
+                      label="Plan Mission"
+                      pendingLabel="Planning…"
+                      disabled={missingSource}
+                      disabledReason={
+                        missingSource
+                          ? isTriage
+                            ? 'Add an issue search query first'
+                            : 'Add target repos first'
+                          : undefined
+                      }
+                    />
+                  );
+                })()
+              : null}
             {mission.status === 'planning' ? (
               <>
                 <Button asChild variant="outline">

@@ -138,6 +138,9 @@ export function NewMissionForm({ availableSkills = [] }: { availableSkills?: Ski
               <SelectContent>
                 <SelectItem value="rule-based">Rule-based (one Task per repo)</SelectItem>
                 <SelectItem value="llm">LLM (AI decomposes goal into dependent tasks)</SelectItem>
+                <SelectItem value="triage">
+                  Triage (reproduce → fix, one pair per issue)
+                </SelectItem>
                 <SelectItem value="graph" disabled>
                   Graph / DAG (coming soon)
                 </SelectItem>
@@ -155,9 +158,25 @@ export function NewMissionForm({ availableSkills = [] }: { availableSkills?: Ski
             />
             <p className="mt-1 text-xs text-muted-foreground">
               One <span className="font-mono">owner/repo</span> per line. Commas or whitespace also
-              work. The Planner emits one Task per repo.
+              work. Rule-based and LLM planners emit Tasks from this list.
             </p>
             <FieldError errors={state.fieldErrors} name="targetRepos" />
+          </div>
+          <div>
+            <Label htmlFor="issueQuery">Issue search query (triage)</Label>
+            <Input
+              id="issueQuery"
+              name="issueQuery"
+              placeholder="repo:vercel/ai is:issue is:open label:bug"
+              maxLength={500}
+              className="font-mono text-sm"
+            />
+            <p className="mt-1 text-xs text-muted-foreground">
+              Used only by the <span className="font-medium">Triage</span> planner. A GitHub issue
+              search; each matching issue becomes a gated{' '}
+              <span className="font-mono">reproduce → fix</span> Task pair.
+            </p>
+            <FieldError errors={state.fieldErrors} name="issueQuery" />
           </div>
           <div>
             <Label htmlFor="concurrencyCap">Concurrency cap</Label>
