@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState } from 'react';
+import { useActionState, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -34,6 +34,8 @@ type SkillOption = { id: string; name: string; slug: string; description: string
 
 export function NewMissionForm({ availableSkills = [] }: { availableSkills?: SkillOption[] }) {
   const [state, formAction, pending] = useActionState(createMissionAction, initialState);
+  const [strategy, setStrategy] = useState('rule-based');
+  const isTriage = strategy === 'triage';
 
   return (
     <form action={formAction} className="space-y-6">
@@ -131,7 +133,7 @@ export function NewMissionForm({ availableSkills = [] }: { availableSkills?: Ski
           </div>
           <div>
             <Label htmlFor="plannerStrategy">Planner strategy</Label>
-            <Select name="plannerStrategy" defaultValue="rule-based">
+            <Select name="plannerStrategy" value={strategy} onValueChange={setStrategy}>
               <SelectTrigger id="plannerStrategy">
                 <SelectValue />
               </SelectTrigger>
@@ -147,37 +149,39 @@ export function NewMissionForm({ availableSkills = [] }: { availableSkills?: Ski
               </SelectContent>
             </Select>
           </div>
-          <div>
-            <Label htmlFor="targetRepos">Target repositories</Label>
-            <Textarea
-              id="targetRepos"
-              name="targetRepos"
-              rows={6}
-              placeholder="acme/api&#10;acme/web&#10;acme/mobile"
-              className="font-mono text-sm"
-            />
-            <p className="mt-1 text-xs text-muted-foreground">
-              One <span className="font-mono">owner/repo</span> per line. Commas or whitespace also
-              work. Rule-based and LLM planners emit Tasks from this list.
-            </p>
-            <FieldError errors={state.fieldErrors} name="targetRepos" />
-          </div>
-          <div>
-            <Label htmlFor="issueQuery">Issue search query (triage)</Label>
-            <Input
-              id="issueQuery"
-              name="issueQuery"
-              placeholder="repo:vercel/ai is:issue is:open label:bug"
-              maxLength={500}
-              className="font-mono text-sm"
-            />
-            <p className="mt-1 text-xs text-muted-foreground">
-              Used only by the <span className="font-medium">Triage</span> planner. A GitHub issue
-              search; each matching issue becomes a gated{' '}
-              <span className="font-mono">reproduce → fix</span> Task pair.
-            </p>
-            <FieldError errors={state.fieldErrors} name="issueQuery" />
-          </div>
+          {isTriage ? (
+            <div>
+              <Label htmlFor="issueQuery">Issue search query</Label>
+              <Input
+                id="issueQuery"
+                name="issueQuery"
+                placeholder="repo:vercel/ai is:issue is:open label:bug"
+                maxLength={500}
+                className="font-mono text-sm"
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                A GitHub issue search. Each matching issue becomes a gated{' '}
+                <span className="font-mono">reproduce → fix</span> Task pair.
+              </p>
+              <FieldError errors={state.fieldErrors} name="issueQuery" />
+            </div>
+          ) : (
+            <div>
+              <Label htmlFor="targetRepos">Target repositories</Label>
+              <Textarea
+                id="targetRepos"
+                name="targetRepos"
+                rows={6}
+                placeholder="acme/api&#10;acme/web&#10;acme/mobile"
+                className="font-mono text-sm"
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                One <span className="font-mono">owner/repo</span> per line. Commas or whitespace also
+                work. The Planner emits Tasks from this list.
+              </p>
+              <FieldError errors={state.fieldErrors} name="targetRepos" />
+            </div>
+          )}
           <div>
             <Label htmlFor="concurrencyCap">Concurrency cap</Label>
             <Input

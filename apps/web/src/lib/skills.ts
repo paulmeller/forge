@@ -12,3 +12,8 @@ export async function getSkill(skillId: string): Promise<Skill | null> {
   const [row] = await db.select().from(skills).where(eq(skills.id, skillId)).limit(1);
   return row ?? null;
 }
+
+export async function getSkillBySlug(slug: string): Promise<Skill | null> {
+  const [row] = await db.select().from(skills).where(eq(skills.slug, slug)).limit(1);
+  return row ?? null;
+}

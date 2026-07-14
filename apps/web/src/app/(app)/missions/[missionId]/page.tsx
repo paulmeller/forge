@@ -10,7 +10,7 @@ import { TaskCard } from '@/components/task-card';
 import { TemplateText } from '@/components/template-text';
 import { listLedgerForMission } from '@/lib/ledger';
 import { getMission } from '@/lib/missions';
-import { getSkill } from '@/lib/skills';
+import { getSkill, getSkillBySlug } from '@/lib/skills';
 import { rollupTasks, tokensToUsd } from '@/lib/rollups';
 import { listTasksForMission } from '@/lib/tasks';
 
@@ -39,6 +39,13 @@ export default async function MissionDetailPage({
   ]);
 
   const skill = mission.skillId ? await getSkill(mission.skillId) : null;
+  // Triage Missions attach their playbooks by Task kind, not via mission.skillId.
+  const triageSkills =
+    mission.plannerStrategy === 'triage'
+      ? (await Promise.all([getSkillBySlug('bug-reproduce'), getSkillBySlug('bug-fix')])).filter(
+          (s): s is NonNullable<typeof s> => s !== null,
+        )
+      : [];
   const targetRepos = mission.targetRepos ?? [];
   const totalSpentUsd = tokensToUsd(mission.spentTokens || 0);
 
@@ -216,6 +223,27 @@ export default async function MissionDetailPage({
               />
             </CardContent>
           </Card>
+
+          {triageSkills.length > 0 && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Triage skills</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 text-xs">
+                <p className="text-[11px] text-muted-foreground">
+                  Attached per Task kind — reproduce and fix run different playbooks.
+                </p>
+                {triageSkills.map((s) => (
+                  <div key={s.id} className="flex items-center justify-between gap-2 border-b py-1">
+                    <span className="font-mono">{s.name}</span>
+                    {s.allowedTools && (
+                      <span className="text-muted-foreground">{s.allowedTools.length} tools</span>
+                    )}
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
 
           {skill && (
             <Card>
