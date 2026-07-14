@@ -250,7 +250,10 @@ Decompose this goal into agent tasks. Remember: respond with JSON only.`;
         repo: t.repo,
         base_branch: 'main',
         label: t.label,
-        prompt: t.prompt,
+        // Key must be `custom_prompt` — that's what the dispatcher reads to
+        // override the mission goal per Task (dispatcher.ts). Writing `prompt`
+        // silently fell back to mission.goal for every LLM-planned Task.
+        custom_prompt: t.prompt,
       },
       dependsOnIds:
         t.dependsOnIndices.length > 0

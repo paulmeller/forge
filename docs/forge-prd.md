@@ -100,13 +100,15 @@ Fleet-fix their own repos (dependency bumps, CI migrations). Sensitive to cost �
 - Task lifecycle: `queued → dispatching → running → turn_ended → opening_pr → awaiting_ci → (awaiting_review) → merging → merged` (terminal) with failure branches `abandoned` and `failed`.
 - Tasks carry input (repo, base branch, prompt template variables, optional issue reference) and output (session ID, PR URL, diff stats, CI status, cost).
 - Tasks support retry-with-feedback: on CI failure, Forge sends a follow-up turn to the same session with the failing log; up to `retry_count_max` (default 3).
-- Tasks support DAG dependencies: a Task can declare `depends_on` another Task; it stays `queued` until the predecessor reaches `merged`.
+- Tasks support DAG dependencies: a Task can declare `depends_on` another Task; it stays `queued` until the predecessor is *satisfied*. Satisfaction is `merged` for a standard Task, or — for a triage `reproduce` Task, which opens no PR — `resolved` with a positive verdict (see below).
+- **Task kinds.** A Task has a `kind`: `standard` (the default — open a PR, gate on CI) or the triage pair `reproduce` / `fix`. A `reproduce` Task confirms a bug and terminates in `resolved` carrying a `verdict` (`reproduced`, affected versions, evidence, a handoff branch) instead of opening a PR. A `fix` Task `depends_on` its `reproduce` Task and is dispatched only when the verdict is positive; on a negative verdict Forge abandons it ("bug did not reproduce"). Implemented — see §7.3 triage strategy.
 
 ### 7.3 Planner
 
 - **v1: Rule-based** — operator supplies a repo list (or a GitHub search query); Planner emits one Task per repo. Prompt is a template with `{{repo}}`, `{{base_branch}}`, `{{issue_body}}` variables.
 - **v2: LLM-driven** — operator supplies a goal; Planner reads a configured issue tracker and emits Tasks grouping related work.
 - **v3: Graph-based** — Planner output can include `depends_on` edges.
+- **Triage (shipped)** — operator supplies a GitHub issue-search query (`issue_query`); Planner enumerates matching issues and emits, per issue, a gated `reproduce → fix` Task pair. Exercises the DAG/verdict machinery above. The issue view (`/missions/[id]/issues`) surfaces each issue's pipeline state.
 - Planner output is inspected and editable before Mission starts — operators can remove, add, or rewrite Tasks.
 
 ### 7.4 Dispatcher
@@ -178,7 +180,8 @@ Fleet-fix their own repos (dependency bumps, CI migrations). Sensitive to cost �
 Skills are the **declarative playbook** a Mission runs under. They answer "how should this kind of Mission be executed" — the protocol, invariants, tool discipline, and templates that keep the agent on the golden path.
 
 - A Mission has an optional `skill_id`. When set, Forge uploads the skill to Managed Agents via the Skills API at Mission start and attaches it to the agent config used for every Task in that Mission.
-- **Library + BYO:** Forge ships a `skills/` directory of curated skills for common Mission classes (dependency bump, codemod rollout, OTel backfill, CVE patch). Operators can select from the library or paste their own SKILL.md in the Create Mission form. Library skills are versioned with the repo; BYO skills are stored in the Forge database alongside the Mission.
+- **Per-kind attachment.** Most Missions attach one skill to every Task. Triage Missions are the exception: they attach a skill *by Task kind* — `bug-reproduce` to reproduce Tasks, `bug-fix` to fix Tasks — because the two stages need different playbooks and toolsets than a single `skill_id` can express. `bug-reproduce` emits the machine-readable `forge-verdict` block the gate keys on and carries no PR tools; `bug-fix` starts from that verdict (and the reproduce stage's regression-test branch) and opens the PR.
+- **Library + BYO:** Forge ships a `skills/` directory of curated skills for common Mission classes (dependency bump, codemod rollout, CI fix, bug reproduce/fix). Operators can select from the library or paste their own SKILL.md in the Create Mission form. Library skills are versioned with the repo; BYO skills are stored in the Forge database alongside the Mission. The on-disk library is synced into the DB at `forge-tick` startup.
 - **Scope:** skills are per-Mission-class, not per-operator — they encode knowledge that travels across fleets (e.g. "push to `origin`, never to an alternate remote" is true for every MA-backed Mission, not just yours).
 - **Authoring:** v1 is manual (operator writes Markdown). The **Retrospective** process (§7.13) produces reviewed diffs against skills — Forge never auto-mutates a skill.
 - **Tool discipline:** a skill may declare a minimum toolset. The dispatcher narrows the agent's effective tool list to that minimum when a skill is attached, reducing prompt-cache surface and removing "temptation to wander."
