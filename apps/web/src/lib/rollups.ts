@@ -21,6 +21,7 @@ type RawCounts = {
   inFlight: number;
   awaitingReview: number;
   merged: number;
+  resolved: number;
   abandoned: number;
   failed: number;
   spentTokens: number;
@@ -61,6 +62,7 @@ export async function rollupMissions(missionIds: string[]): Promise<Map<string, 
     inFlight: 0,
     awaitingReview: 0,
     merged: 0,
+    resolved: 0,
     abandoned: 0,
     failed: 0,
     spentTokens: 0,
@@ -74,6 +76,7 @@ export async function rollupMissions(missionIds: string[]): Promise<Map<string, 
     if (IN_FLIGHT.includes(row.status as TaskStatus)) c.inFlight += n;
     else if (row.status === 'awaiting_review') c.awaitingReview += n;
     else if (row.status === 'merged') c.merged += n;
+    else if (row.status === 'resolved') c.resolved += n;
     else if (row.status === 'abandoned') c.abandoned += n;
     else if (row.status === 'failed') c.failed += n;
     counts.set(row.missionId, c);

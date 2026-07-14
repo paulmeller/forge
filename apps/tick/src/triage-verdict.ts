@@ -50,6 +50,7 @@ function coerceVerdict(raw: string): ReproduceVerdict | null {
     if (Object.keys(versions).length > 0) verdict.affectedVersions = versions;
   }
   if (typeof o.evidence === 'string') verdict.evidence = o.evidence;
+  if (typeof o.branch === 'string' && o.branch.trim()) verdict.branch = o.branch.trim();
   return verdict;
 }
 

@@ -36,6 +36,19 @@ export const DEPENDENCY_FAILED_STATUSES: TaskStatus[] = ['failed', 'abandoned'];
  */
 const GATE_STALL_STATUSES: TaskStatus[] = ['awaiting_verify', 'awaiting_ai_review'];
 
+/**
+ * Post-turn states a `reproduce` Task may be found in when the reconciler settles
+ * it to a verdict. Normally just `turn_ended`; the PR-gate states are a defensive
+ * belt in case a reproduce agent opened a PR despite its narrowed toolset.
+ */
+const REPRODUCE_SETTLE_STATUSES: TaskStatus[] = [
+  'turn_ended',
+  'opening_pr',
+  'awaiting_ci',
+  'awaiting_verify',
+  'awaiting_ai_review',
+];
+
 const MISSION_TERMINAL_TASK_STATUSES: TaskStatus[] = [
   'merged',
   'resolved',
@@ -145,10 +158,13 @@ export async function runReconciler(log: Logger): Promise<ReconcileResult> {
   // before the generic turn_ended→open-PR sweep (step 1) so reproduce Tasks are
   // never mistaken for "agent pushed a branch but opened no PR".
   let reproduceResolved = 0;
+  // A reproduce Task should only ever sit in `turn_ended` (it opens no PR), but
+  // narrow the toolset can't be fully trusted — if one wandered into a PR-gate
+  // state, settle it by verdict anyway rather than let it ride the CI/merge path.
   const finishedRepro = await db
     .select()
     .from(tasks)
-    .where(and(eq(tasks.status, 'turn_ended'), eq(tasks.kind, 'reproduce')));
+    .where(and(inArray(tasks.status, REPRODUCE_SETTLE_STATUSES), eq(tasks.kind, 'reproduce')));
 
   for (const task of finishedRepro) {
     const evs = await db
@@ -163,7 +179,7 @@ export async function runReconciler(log: Logger): Promise<ReconcileResult> {
       const [updated] = await db
         .update(tasks)
         .set({ status: 'resolved', verdict, updatedAt: now, completedAt: now })
-        .where(and(eq(tasks.id, task.id), eq(tasks.status, 'turn_ended')))
+        .where(and(eq(tasks.id, task.id), eq(tasks.status, task.status)))
         .returning();
       if (!updated) continue;
       await db.insert(ledgerEvents).values({
@@ -189,7 +205,7 @@ export async function runReconciler(log: Logger): Promise<ReconcileResult> {
           updatedAt: now,
           completedAt: now,
         })
-        .where(and(eq(tasks.id, task.id), eq(tasks.status, 'turn_ended')))
+        .where(and(eq(tasks.id, task.id), eq(tasks.status, task.status)))
         .returning();
       if (!updated) continue;
       await db.insert(ledgerEvents).values({

@@ -179,6 +179,7 @@ export async function dispatchOne(mission: Mission, task: Task): Promise<void> {
       if (repro?.verdict) {
         vars.repro_summary = repro.verdict.summary;
         vars.repro_evidence = repro.verdict.evidence ?? '';
+        vars.repro_branch = repro.verdict.branch ?? '';
         vars.affected_versions = repro.verdict.affectedVersions
           ? Object.entries(repro.verdict.affectedVersions)
               .map(([v, hit]) => `${v}: ${hit ? 'affected' : 'ok'}`)

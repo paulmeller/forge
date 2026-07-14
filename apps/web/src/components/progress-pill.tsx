@@ -67,6 +67,7 @@ export type MissionRollup = {
   inFlight: number; // dispatching, running, turn_ended, opening_pr, awaiting_ci, merging
   awaitingReview: number;
   merged: number;
+  resolved: number; // triage reproduce Tasks settled with a verdict (no PR)
   abandoned: number;
   failed: number;
   spentUsd: number; // dollars
@@ -75,7 +76,8 @@ export type MissionRollup = {
 };
 
 export function MissionProgressPill({ rollup }: { rollup: MissionRollup }) {
-  const settled = rollup.merged + rollup.awaitingReview + rollup.abandoned + rollup.failed;
+  const settled =
+    rollup.merged + rollup.resolved + rollup.awaitingReview + rollup.abandoned + rollup.failed;
   const pct = rollup.total === 0 ? 0 : Math.round((settled / rollup.total) * 100);
   const hasFailures = rollup.failed > 0;
 
@@ -87,6 +89,7 @@ export function MissionProgressPill({ rollup }: { rollup: MissionRollup }) {
       </Chip>
       {rollup.inFlight > 0 && <Chip tone="live">{rollup.inFlight} in flight</Chip>}
       {rollup.merged > 0 && <Chip tone="good">{rollup.merged} merged</Chip>}
+      {rollup.resolved > 0 && <Chip tone="muted">{rollup.resolved} triaged</Chip>}
       {rollup.awaitingReview > 0 && <Chip tone="muted">{rollup.awaitingReview} review</Chip>}
       {hasFailures && <Chip tone="bad">{rollup.failed} failed</Chip>}
       {rollup.abandoned > 0 && <Chip tone="muted">{rollup.abandoned} abandoned</Chip>}

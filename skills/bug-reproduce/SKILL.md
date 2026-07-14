@@ -25,10 +25,10 @@ Confirm whether a reported bug actually reproduces, and record a machine-readabl
 ## Protocol
 
 1. Read the issue and identify the smallest observable symptom (a failing assertion, a wrong return value, a thrown error).
-2. Write the **minimum** reproduction — a focused failing test, or a short script under `/tmp`. Prefer adding a test in the repo's existing test layout when one fits; it becomes the fix stage's regression guard.
-3. Run it. Observe the actual vs. expected behaviour.
+2. Write the **minimum** reproduction — a focused failing test in the repo's existing test layout. It becomes the fix stage's regression guard, so make it a real test, not a throwaway script.
+3. Run it. Observe the actual vs. expected behaviour (you want to see it fail).
 4. If the issue names specific versions (e.g. "broken in v5, works in v6"), check each version you reasonably can — `git checkout` the tag, or install the pinned version in a scratch dir — and record which are affected.
-5. Do **not** attempt a fix, and do **not** open a pull request. Your only output is the verdict.
+5. If (and only if) the bug reproduced, commit the failing test on a branch named exactly `forge/triage-{{issue_number}}` and push it to `origin`. Report that branch in the verdict's `branch` field so the fix stage can build on it. Do **not** attempt a fix, and do **not** open a pull request.
 
 ## Emitting the verdict
 
@@ -39,12 +39,13 @@ End your final turn with exactly one fenced `forge-verdict` block. Forge parses 
   "reproduced": true,
   "summary": "one sentence: what the bug is and how it manifests",
   "affectedVersions": { "v5.0": true, "v6.0": false },
-  "evidence": "the failing test name or a one-line stack/assertion excerpt"
+  "evidence": "the failing test name or a one-line stack/assertion excerpt",
+  "branch": "forge/triage-{{issue_number}}"
 }
 ```
 
 ## Rules
 
-- `reproduced` is `true` only if you observed the symptom yourself. If you could not reproduce it, emit `"reproduced": false` with a summary of what you tried — do not guess.
+- `reproduced` is `true` only if you observed the symptom yourself. If you could not reproduce it, emit `"reproduced": false` with a summary of what you tried — do not guess. Omit `branch` in that case (there is nothing to hand off).
 - `affectedVersions` is optional; include it only when you actually tested versions.
-- Keep any repro test minimal and unrelated-change-free. Push to `origin` only if you committed a test; never open a PR.
+- Keep the repro test minimal and unrelated-change-free. Push to `origin` only; never open a PR.

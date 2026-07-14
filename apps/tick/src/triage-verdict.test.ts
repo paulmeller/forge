@@ -18,6 +18,17 @@ describe('parseVerdict', () => {
     });
   });
 
+  it('carries the handoff branch through', () => {
+    const text =
+      '```forge-verdict\n{"reproduced": true, "summary": "x", "branch": "forge/triage-12389"}\n```';
+    expect(parseVerdict(text)?.branch).toBe('forge/triage-12389');
+  });
+
+  it('drops a blank branch', () => {
+    const text = '```forge-verdict\n{"reproduced": true, "summary": "x", "branch": "   "}\n```';
+    expect(parseVerdict(text)?.branch).toBeUndefined();
+  });
+
   it('parses a cannot-reproduce verdict', () => {
     const text = '```forge-verdict\n{"reproduced": false, "summary": "works on all versions"}\n```';
     expect(parseVerdict(text)).toEqual({ reproduced: false, summary: 'works on all versions' });

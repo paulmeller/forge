@@ -40,6 +40,8 @@ export type ReproduceVerdict = {
   affectedVersions?: Record<string, boolean>;
   /** Free-form evidence pointer (failing test name, stack excerpt, repro steps). */
   evidence?: string;
+  /** Branch the reproduce agent pushed a failing regression test to, for the fix stage to build on. */
+  branch?: string;
 };
 
 export const taskStatus = [

@@ -23,6 +23,7 @@ Fix a bug that has already been confirmed to reproduce, and open a pull request.
 - Confirmed reproduction: {{repro_summary}}
 - Affected versions: {{affected_versions}}
 - Evidence: {{repro_evidence}}
+- Regression test branch: `{{repro_branch}}` (the reproduce stage pushed a failing test here)
 
 Original report:
 
@@ -30,7 +31,7 @@ Original report:
 
 ## Protocol
 
-1. Reproduce locally first — run the failing test or repro the reproduce stage left behind, so you see red before you change anything.
+1. Bring in the failing regression test the reproduce stage pushed: if `{{repro_branch}}` is set, `git fetch origin {{repro_branch}}` and cherry-pick or check out its test onto your working branch. Run it and confirm it fails (red) before you change anything. If no branch was provided, reproduce the failure yourself from the evidence above.
 2. Find the root cause. Fix it with the **minimum** change that makes the reproduction pass.
 3. Keep (or add) a regression test that fails without your fix and passes with it.
 4. Run the repo's test and lint commands. Ensure nothing new breaks.

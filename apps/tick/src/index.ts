@@ -4,9 +4,22 @@ import './bootstrap';
 
 import { env } from './env';
 import { buildServer } from './server';
+import { syncSkillsToDb } from './skill-loader';
 
 async function main(): Promise<void> {
   const app = await buildServer();
+
+  // Sync the on-disk skill library (skills/*) into the DB at startup so
+  // Missions can attach them and the dispatcher can resolve built-in skills
+  // (e.g. the triage bug-reproduce/bug-fix pair) by slug. Non-fatal: a sync
+  // failure must not stop the tick loop from serving.
+  try {
+    const { inserted, updated } = await syncSkillsToDb();
+    app.log.info({ inserted, updated }, 'skills synced');
+  } catch (err) {
+    app.log.error({ err: String(err) }, 'skill sync failed');
+  }
+
   try {
     await app.listen({ host: '0.0.0.0', port: env.PORT });
   } catch (err) {
