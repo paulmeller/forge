@@ -63,4 +63,10 @@ export const env = {
   get GITHUB_APP_SLUG(): string {
     return optional('GITHUB_APP_SLUG') ?? 'forge-dev';
   },
+  // Token used by the triage Planner to search GitHub issues (same PAT/app
+  // token forge-tick uses for its Octokit calls). Read-only search scope is
+  // sufficient.
+  get GITHUB_APP_TOKEN(): string | undefined {
+    return optional('GITHUB_APP_TOKEN');
+  },
 };
