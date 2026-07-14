@@ -20,9 +20,16 @@ export type TriageIssue = {
   url: string;
 };
 
+/** Result of an issue search: the fetched issues plus GitHub's total match count. */
+export type IssueSearchResult = {
+  issues: TriageIssue[];
+  /** GitHub's `total_count` for the query — may exceed `issues.length`. */
+  totalCount: number;
+};
+
 /** Injectable issue source so the Planner core is testable without GitHub. */
 export type TriageDeps = {
-  listIssues: (query: string) => Promise<TriageIssue[]>;
+  listIssues: (query: string) => Promise<IssueSearchResult>;
 };
 
 const SEARCH_PAGE_SIZE = 100;
@@ -66,7 +73,9 @@ export async function runTriagePlanner(
     throw new PlannerError('triage mission has no issue query', 'NO_TARGET_REPOS');
   }
 
-  const issues = (await deps.listIssues(query)).slice(0, MAX_ISSUES);
+  const search = await deps.listIssues(query);
+  const issues = search.issues.slice(0, MAX_ISSUES);
+  const truncated = search.totalCount > issues.length;
 
   return db.transaction(async (tx) => {
     // Re-read inside the tx and re-check the guard to stay race-safe with a
@@ -105,6 +114,10 @@ export async function runTriagePlanner(
         strategy: 'triage',
         taskIds: rows.map((r) => r.id),
         issueCount: issues.length,
+        matchedCount: search.totalCount,
+        // True when GitHub matched more issues than the per-Mission cap planned.
+        truncated,
+        maxIssues: MAX_ISSUES,
         repos: [...new Set(issues.map((i) => i.repo))],
       },
       createdAt: now,
@@ -180,36 +193,56 @@ export type GithubSearchItem = {
   pull_request?: unknown;
 };
 
+/** Pages to fetch at most — enough to cover MAX_ISSUES at SEARCH_PAGE_SIZE, plus headroom. */
+const MAX_SEARCH_PAGES = 3;
+
 /**
  * Default issue source: GitHub's issue-search API. `query` is a raw search
- * qualifier string, e.g. `repo:vercel/ai is:issue is:open label:bug`.
- * Pull requests are filtered out (the search API returns PRs as "issues").
+ * qualifier string, e.g. `repo:vercel/ai is:issue is:open label:bug`. Uses the
+ * same GITHUB_APP_TOKEN the rest of Forge authenticates with (a PAT/app token,
+ * not the installation OAuth flow). Pull requests are filtered out (the search
+ * API returns PRs as "issues"). Paginates up to MAX_SEARCH_PAGES and reports
+ * GitHub's total_count so the Planner can flag truncation.
  */
-export async function githubSearchIssues(query: string): Promise<TriageIssue[]> {
+export async function githubSearchIssues(query: string): Promise<IssueSearchResult> {
   const token = env.GITHUB_APP_TOKEN;
   if (!token) {
     throw new PlannerError('GITHUB_APP_TOKEN not configured for triage search', 'NO_TARGET_REPOS');
   }
-  const url = new URL('https://api.github.com/search/issues');
-  url.searchParams.set('q', query);
-  url.searchParams.set('per_page', String(SEARCH_PAGE_SIZE));
 
-  const res = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: 'application/vnd.github+json',
-      'X-GitHub-Api-Version': '2022-11-28',
-    },
-  });
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '');
-    throw new PlannerError(
-      `github issue search failed (${res.status}): ${detail.slice(0, 200)}`,
-      'NO_TARGET_REPOS',
-    );
+  const issues: TriageIssue[] = [];
+  let totalCount = 0;
+
+  for (let page = 1; page <= MAX_SEARCH_PAGES; page += 1) {
+    const url = new URL('https://api.github.com/search/issues');
+    url.searchParams.set('q', query);
+    url.searchParams.set('per_page', String(SEARCH_PAGE_SIZE));
+    url.searchParams.set('page', String(page));
+
+    const res = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+    });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      throw new PlannerError(
+        `github issue search failed (${res.status}): ${detail.slice(0, 200)}`,
+        'NO_TARGET_REPOS',
+      );
+    }
+    const json = (await res.json()) as { items?: GithubSearchItem[]; total_count?: number };
+    totalCount = json.total_count ?? totalCount;
+    const items = json.items ?? [];
+    issues.push(...mapSearchItems(items));
+    // Last page reached when GitHub returned fewer than a full page, or we've
+    // collected enough to fill the Mission cap.
+    if (items.length < SEARCH_PAGE_SIZE || issues.length >= MAX_ISSUES) break;
   }
-  const json = (await res.json()) as { items?: GithubSearchItem[] };
-  return mapSearchItems(json.items ?? []);
+
+  return { issues, totalCount };
 }
 
 /**

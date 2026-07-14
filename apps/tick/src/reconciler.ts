@@ -108,55 +108,12 @@ export async function runReconciler(log: Logger): Promise<ReconcileResult> {
     }
   }
 
-  // (0b) Triage gate: abandon queued `fix` Tasks whose `reproduce` dependency
-  // resolved with a negative verdict. The bug didn't reproduce on the tested
-  // versions, so there's nothing to fix — don't spend a fix session on it.
-  // (A positive verdict leaves the fix `queued`; the dispatcher then unblocks
-  // it. A failed/abandoned reproduce is handled by the cascade in step 0.)
-  let fixesGated = 0;
-  const pendingFixes = await db
-    .select()
-    .from(tasks)
-    .where(and(eq(tasks.status, 'queued'), eq(tasks.kind, 'fix'), isNotNull(tasks.dependsOnIds)));
-
-  for (const fix of pendingFixes) {
-    const depIds = (fix.dependsOnIds as string[] | null) ?? [];
-    if (depIds.length === 0) continue;
-    const deps = await db.select().from(tasks).where(inArray(tasks.id, depIds));
-    const negative = deps.some(
-      (d) => d.kind === 'reproduce' && d.status === 'resolved' && d.verdict?.reproduced === false,
-    );
-    if (!negative) continue;
-
-    const now = new Date();
-    const [updated] = await db
-      .update(tasks)
-      .set({
-        status: 'abandoned',
-        lastError: 'bug did not reproduce',
-        updatedAt: now,
-        completedAt: now,
-      })
-      .where(and(eq(tasks.id, fix.id), eq(tasks.status, 'queued')))
-      .returning();
-    if (!updated) continue;
-    await db.insert(ledgerEvents).values({
-      id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
-      missionId: fix.missionId,
-      taskId: fix.id,
-      eventType: 'triage.fix_skipped',
-      payload: { reason: 'reproduce verdict was negative', dependsOnIds: depIds },
-      createdAt: now,
-    });
-    fixesGated += 1;
-    log.info({ taskId: fix.id }, 'reconciler:fix_skipped_not_reproduced');
-  }
-
-  // (0c) Settle `reproduce` Tasks that have finished their turn. They open no
+  // (0b) Settle `reproduce` Tasks that have finished their turn. They open no
   // PR — they emit a verdict. Lift the parsed verdict onto the Task and mark it
   // `resolved`; if the agent produced no parseable verdict, abandon it. Runs
-  // before the generic turn_ended→open-PR sweep (step 1) so reproduce Tasks are
-  // never mistaken for "agent pushed a branch but opened no PR".
+  // before the fix gate (0c) so a negative verdict is acted on the same tick,
+  // and before the generic turn_ended→open-PR sweep (step 1) so reproduce Tasks
+  // are never mistaken for "agent pushed a branch but opened no PR".
   let reproduceResolved = 0;
   // A reproduce Task should only ever sit in `turn_ended` (it opens no PR), but
   // narrow the toolset can't be fully trusted — if one wandered into a PR-gate
@@ -219,6 +176,50 @@ export async function runReconciler(log: Logger): Promise<ReconcileResult> {
       tasksAbandoned += 1;
       log.info({ taskId: task.id }, 'reconciler:reproduce_no_verdict');
     }
+  }
+
+  // (0c) Triage gate: abandon queued `fix` Tasks whose `reproduce` dependency
+  // resolved with a negative verdict. The bug didn't reproduce on the tested
+  // versions, so there's nothing to fix — don't spend a fix session on it.
+  // (A positive verdict leaves the fix `queued`; the dispatcher then unblocks
+  // it. A failed/abandoned reproduce is handled by the cascade in step 0.)
+  let fixesGated = 0;
+  const pendingFixes = await db
+    .select()
+    .from(tasks)
+    .where(and(eq(tasks.status, 'queued'), eq(tasks.kind, 'fix'), isNotNull(tasks.dependsOnIds)));
+
+  for (const fix of pendingFixes) {
+    const depIds = (fix.dependsOnIds as string[] | null) ?? [];
+    if (depIds.length === 0) continue;
+    const deps = await db.select().from(tasks).where(inArray(tasks.id, depIds));
+    const negative = deps.some(
+      (d) => d.kind === 'reproduce' && d.status === 'resolved' && d.verdict?.reproduced === false,
+    );
+    if (!negative) continue;
+
+    const now = new Date();
+    const [updated] = await db
+      .update(tasks)
+      .set({
+        status: 'abandoned',
+        lastError: 'bug did not reproduce',
+        updatedAt: now,
+        completedAt: now,
+      })
+      .where(and(eq(tasks.id, fix.id), eq(tasks.status, 'queued')))
+      .returning();
+    if (!updated) continue;
+    await db.insert(ledgerEvents).values({
+      id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
+      missionId: fix.missionId,
+      taskId: fix.id,
+      eventType: 'triage.fix_skipped',
+      payload: { reason: 'reproduce verdict was negative', dependsOnIds: depIds },
+      createdAt: now,
+    });
+    fixesGated += 1;
+    log.info({ taskId: fix.id }, 'reconciler:fix_skipped_not_reproduced');
   }
 
   // (1) turn_ended with no PR → try to open a PR via Octokit.

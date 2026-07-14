@@ -1,6 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { buildTriageTaskRows, mapSearchItems, type TriageIssue } from './triage-planner';
+import {
+  buildTriageTaskRows,
+  githubSearchIssues,
+  mapSearchItems,
+  type TriageIssue,
+} from './triage-planner';
 
 const issue = (over: Partial<TriageIssue> = {}): TriageIssue => ({
   repo: 'vercel/ai',
@@ -95,5 +100,63 @@ describe('mapSearchItems', () => {
   it('drops items whose repo cannot be parsed', () => {
     const mapped = mapSearchItems([item({ repository_url: 'garbage' })]);
     expect(mapped).toHaveLength(0);
+  });
+});
+
+describe('githubSearchIssues', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  const searchItem = (n: number) => ({
+    number: n,
+    title: `bug ${n}`,
+    body: 'x',
+    html_url: `https://github.com/vercel/ai/issues/${n}`,
+    repository_url: 'https://api.github.com/repos/vercel/ai',
+  });
+
+  const jsonResponse = (body: unknown, ok = true, status = 200) =>
+    ({ ok, status, json: async () => body, text: async () => JSON.stringify(body) }) as Response;
+
+  it('throws when GITHUB_APP_TOKEN is not configured', async () => {
+    vi.stubEnv('GITHUB_APP_TOKEN', '');
+    await expect(githubSearchIssues('repo:vercel/ai is:issue')).rejects.toThrow(
+      'GITHUB_APP_TOKEN not configured',
+    );
+  });
+
+  it('returns mapped issues and the total count from one page', async () => {
+    vi.stubEnv('GITHUB_APP_TOKEN', 'tok');
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ total_count: 2, items: [searchItem(1), searchItem(2)] }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { issues, totalCount } = await githubSearchIssues('repo:vercel/ai is:issue');
+    expect(issues).toHaveLength(2);
+    expect(totalCount).toBe(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1); // partial page → no second request
+  });
+
+  it('stops after one full page (already past the per-Mission cap) but reports the true total', async () => {
+    vi.stubEnv('GITHUB_APP_TOKEN', 'tok');
+    const fullPage = Array.from({ length: 100 }, (_, i) => searchItem(i + 1));
+    const fetchMock = vi.fn(async () => jsonResponse({ total_count: 999, items: fullPage }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { issues, totalCount } = await githubSearchIssues('repo:vercel/ai is:issue');
+    // One full page fills the cap, so no further pages are fetched...
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(issues).toHaveLength(100);
+    // ...but total_count is preserved so the Planner can flag truncation.
+    expect(totalCount).toBe(999);
+  });
+
+  it('throws a PlannerError on a non-ok response', async () => {
+    vi.stubEnv('GITHUB_APP_TOKEN', 'tok');
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ message: 'bad creds' }, false, 401)));
+    await expect(githubSearchIssues('repo:vercel/ai')).rejects.toThrow('github issue search failed (401)');
   });
 });
