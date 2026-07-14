@@ -35,6 +35,7 @@ const GATE_STALL_STATUSES: TaskStatus[] = ['awaiting_verify', 'awaiting_ai_revie
 
 const MISSION_TERMINAL_TASK_STATUSES: TaskStatus[] = [
   'merged',
+  'resolved',
   'awaiting_review',
   'abandoned',
   'failed',

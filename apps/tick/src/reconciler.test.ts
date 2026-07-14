@@ -30,8 +30,12 @@ describe('MISSION_TERMINAL_TASK_STATUSES', () => {
     expect(MISSION_TERMINAL_TASK_STATUSES).not.toContain('merging');
   });
 
-  it('has exactly 4 terminal states', () => {
-    expect(MISSION_TERMINAL_TASK_STATUSES).toHaveLength(4);
+  it('includes resolved as terminal (reproduce verdict recorded, no PR)', () => {
+    expect(MISSION_TERMINAL_TASK_STATUSES).toContain('resolved');
+  });
+
+  it('has exactly 5 terminal states', () => {
+    expect(MISSION_TERMINAL_TASK_STATUSES).toHaveLength(5);
   });
 });
 

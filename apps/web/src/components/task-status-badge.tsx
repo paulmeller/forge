@@ -13,6 +13,7 @@ const VARIANT: Record<TaskStatus, 'default' | 'secondary' | 'outline' | 'destruc
   awaiting_review: 'secondary',
   merging: 'default',
   merged: 'default',
+  resolved: 'default',
   abandoned: 'outline',
   failed: 'destructive',
 };
