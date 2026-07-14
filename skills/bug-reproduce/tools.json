@@ -1,0 +1,8 @@
+{
+  "description": "Minimum toolset for bug reproduction — read/run/write a repro, no PR tools",
+  "allowedTools": [
+    "get_file_contents",
+    "search_code",
+    "list_commits"
+  ]
+}

@@ -124,7 +124,10 @@ vi.mock('./memory', () => ({
   formatMemoriesForPrompt: mocks.formatMemoriesForPrompt,
   getRelevantMemories: mocks.getRelevantMemories,
 }));
-vi.mock('./skill-loader', () => ({ getSkill: mocks.getSkill }));
+vi.mock('./skill-loader', () => ({
+  getSkill: mocks.getSkill,
+  getSkillBySlug: mocks.getSkill,
+}));
 
 import { claimNextBatch, depsSatisfied, dispatchOne, INFLIGHT_STATUSES } from './dispatcher';
 import { renderPrompt } from './prompt';

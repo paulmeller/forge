@@ -45,7 +45,8 @@ export function parseFrontmatter(raw: string): { loopPolicy: LoopPolicy | null; 
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const SKILLS_DIR = resolve(__dirname, '../../../../skills');
+// apps/tick/src → repo root is three levels up (src → tick → apps → root).
+const SKILLS_DIR = resolve(__dirname, '../../../skills');
 
 /**
  * Load curated skill definitions from the `skills/` directory at repo root.
@@ -170,6 +171,16 @@ export async function syncSkillsToDb(): Promise<{ inserted: number; updated: num
  */
 export async function getSkill(skillId: string): Promise<Skill | null> {
   const [row] = await db.select().from(skills).where(eq(skills.id, skillId)).limit(1);
+  return row ?? null;
+}
+
+/**
+ * Get a skill by its stable slug (directory name). Used to attach the built-in
+ * triage skills (`bug-reproduce`, `bug-fix`) by Task kind, since a triage
+ * Mission's two Task kinds need different playbooks than its single skill_id.
+ */
+export async function getSkillBySlug(slug: string): Promise<Skill | null> {
+  const [row] = await db.select().from(skills).where(eq(skills.slug, slug)).limit(1);
   return row ?? null;
 }
 

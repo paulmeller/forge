@@ -10,7 +10,7 @@ import { env } from './env';
 import { db } from './db';
 import { getRelevantMemories, formatMemoriesForPrompt } from './memory';
 import { renderPrompt } from './prompt';
-import { getSkill } from './skill-loader';
+import { getSkill, getSkillBySlug } from './skill-loader';
 
 export const INFLIGHT_STATUSES: TaskStatus[] = [
   'dispatching',
@@ -150,7 +150,16 @@ export async function dispatchOne(mission: Mission, task: Task): Promise<void> {
 
   // When a Skill is attached, prepend the skill's prompt template before the
   // mission goal so the agent has the playbook context, and narrow the toolset.
-  const skill = mission.skillId ? await getSkill(mission.skillId) : null;
+  // Triage Tasks pick their playbook by kind — the reproduce and fix stages need
+  // different skills than the Mission's single skill_id can express.
+  const skill =
+    task.kind === 'reproduce'
+      ? await getSkillBySlug('bug-reproduce')
+      : task.kind === 'fix'
+        ? await getSkillBySlug('bug-fix')
+        : mission.skillId
+          ? await getSkill(mission.skillId)
+          : null;
 
   const vars: Record<string, unknown> = {
     repo: task.repo,
