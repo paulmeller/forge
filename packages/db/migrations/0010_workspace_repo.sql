@@ -1,0 +1,1 @@
+ALTER TABLE `missions` ADD `workspace_repo` text;

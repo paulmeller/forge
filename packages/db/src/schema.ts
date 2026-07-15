@@ -98,6 +98,13 @@ export const missions = sqliteTable('missions', {
    * emitted per matching issue. Null for non-triage strategies.
    */
   issueQuery: text('issue_query'),
+  /**
+   * Set only for a repo's "standing" workspace Mission (one per user+repo,
+   * created lazily by the Repo Workspace's "Work on it" action). Null for
+   * ordinary composer-authored missions. The reconciler must never
+   * auto-complete a mission with this set — see reconciler.ts.
+   */
+  workspaceRepo: text('workspace_repo'),
   concurrencyCap: integer('concurrency_cap').notNull().default(5),
   budgetUsd: integer('budget_usd'),
   budgetTokens: integer('budget_tokens'),

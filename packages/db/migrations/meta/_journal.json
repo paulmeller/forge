@@ -71,6 +71,13 @@
       "when": 1784105699448,
       "tag": "0009_glamorous_korath",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1784119664571,
+      "tag": "0010_workspace_repo",
+      "breakpoints": true
     }
   ]
 }
