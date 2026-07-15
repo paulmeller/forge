@@ -218,6 +218,8 @@ export async function githubSearchIssues(query: string): Promise<IssueSearchResu
     url.searchParams.set('q', query);
     url.searchParams.set('per_page', String(SEARCH_PAGE_SIZE));
     url.searchParams.set('page', String(page));
+    url.searchParams.set('sort', 'created');
+    url.searchParams.set('order', 'desc');
 
     const res = await fetch(url, {
       headers: {
