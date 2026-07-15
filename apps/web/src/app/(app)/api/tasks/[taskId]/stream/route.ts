@@ -17,13 +17,21 @@ export async function GET(
   await withAuth();
   const { taskId } = await params;
 
-  const upstream = await fetch(`${env.TICK_INTERNAL_URL}/tasks/${taskId}/stream`);
-
-  if (!upstream.ok || !upstream.body) {
-    return new Response(JSON.stringify({ error: 'stream unavailable' }), {
-      status: upstream.status || 502,
+  const streamUnavailable = (status: number) =>
+    new Response(JSON.stringify({ error: 'stream unavailable' }), {
+      status,
       headers: { 'content-type': 'application/json' },
     });
+
+  let upstream: Response;
+  try {
+    upstream = await fetch(`${env.TICK_INTERNAL_URL}/tasks/${taskId}/stream`);
+  } catch {
+    return streamUnavailable(502);
+  }
+
+  if (!upstream.ok || !upstream.body) {
+    return streamUnavailable(upstream.status || 502);
   }
 
   return new Response(upstream.body, {
