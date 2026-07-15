@@ -31,6 +31,16 @@ export async function dbFindExistingWorkspaceMission(
   return row ?? null;
 }
 
+/**
+ * Read-only lookup for a repo's standing triage Mission, for use on page
+ * loads. Unlike `getOrCreateWorkspaceMission`, this never creates one —
+ * viewing a page isn't "Work on it". "No mission yet" just means no issues
+ * in this repo have been worked on.
+ */
+export async function findWorkspaceMission(userId: string, repo: string): Promise<Mission | null> {
+  return dbFindExistingWorkspaceMission(userId, repo);
+}
+
 export async function dbInsertMission(values: NewMission): Promise<Mission> {
   const [created] = await db.insert(missions).values(values).returning();
   if (!created) throw new Error('workspace mission insert returned no rows');
