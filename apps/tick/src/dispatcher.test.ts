@@ -155,6 +155,7 @@ function mission(overrides: Partial<Mission> = {}): Mission {
     webhookSecret: 'secret',
     githubInstallationId: 'inst_1',
     githubVaultId: null,
+    workspaceRepo: null,
     skillId: null,
     aiReviewEnabled: false,
     budgetHardStopPct: 100,
