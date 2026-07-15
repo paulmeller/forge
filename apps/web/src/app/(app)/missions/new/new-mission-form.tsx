@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useState } from 'react';
+import { useActionState, useEffect, useState } from 'react';
 import { Bug, Check, GitBranch, LayoutGrid } from 'lucide-react';
 import Link from 'next/link';
 
@@ -39,6 +39,20 @@ const MISSION_TYPES = [
   },
 ] as const;
 
+const ADVANCED_FIELDS = new Set([
+  'name',
+  'backend',
+  'agentId',
+  'concurrencyCap',
+  'budgetUsd',
+  'budgetTokens',
+  'budgetThresholdPct',
+  'budgetHardStopPct',
+  'taskMaxTurns',
+  'taskMaxTokens',
+  'noProgressTokens',
+]);
+
 export function NewMissionForm({
   availableSkills = [],
   availableRepos = [],
@@ -52,10 +66,12 @@ export function NewMissionForm({
   const [missionType, setMissionType] = useState<'fleet' | 'single' | 'triage'>('single');
   const [decompStrategy, setDecompStrategy] = useState('rule-based');
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [repoError, setRepoError] = useState<string | null>(null);
   const isTriage = missionType === 'triage';
   const plannerStrategy = isTriage ? 'triage' : decompStrategy;
 
-  const needsSetup = !defaults.agentId || !defaults.githubInstallationId;
+  const missingAgent = !defaults.agentId;
+  const missingInstallation = !defaults.githubInstallationId;
   const agentNote =
     defaults.source === 'setup'
       ? 'agent from Setup'
@@ -63,8 +79,35 @@ export function NewMissionForm({
         ? 'agent from env default'
         : 'no agent — connect in Setup';
 
+  useEffect(() => {
+    const errorKeys = Object.keys(state.fieldErrors ?? {});
+    if (errorKeys.some((key) => ADVANCED_FIELDS.has(key))) {
+      setShowAdvanced(true);
+    }
+  }, [state.fieldErrors]);
+
+  useEffect(() => {
+    setRepoError(null);
+  }, [missionType]);
+
+  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    setRepoError(null);
+    if (missionType !== 'triage') {
+      const targetRepos = new FormData(e.currentTarget).get('targetRepos');
+      if (!targetRepos || !String(targetRepos).trim()) {
+        e.preventDefault();
+        setRepoError('Pick at least one repository.');
+      }
+    }
+  }
+
   return (
-    <form action={formAction} className="space-y-6">
+    <form
+      action={formAction}
+      onSubmit={handleSubmit}
+      onInvalidCapture={() => setShowAdvanced(true)}
+      className="space-y-6"
+    >
       <input type="hidden" name="plannerStrategy" value={plannerStrategy} />
 
       <div>
@@ -79,7 +122,6 @@ export function NewMissionForm({
           maxLength={10_000}
         />
         <FieldError errors={state.fieldErrors} name="goal" />
-        <FieldError errors={state.fieldErrors} name="name" />
       </div>
 
       <div>
@@ -141,11 +183,19 @@ export function NewMissionForm({
         <RepoPicker
           mode={missionType === 'fleet' ? 'multi' : 'single'}
           availableRepos={availableRepos}
-          error={state.fieldErrors?.targetRepos}
+          error={repoError ?? state.fieldErrors?.targetRepos}
         />
       )}
 
-      {needsSetup ? (
+      {missingAgent ? (
+        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
+          No agent configured — set an Agent ID in Advanced settings, or connect one in{' '}
+          <Link href="/setup" className="underline underline-offset-2">
+            Setup
+          </Link>
+          , before creating.
+        </div>
+      ) : missingInstallation ? (
         <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
           Missions can be planned now, but connect GitHub in{' '}
           <Link href="/setup" className="underline underline-offset-2">
