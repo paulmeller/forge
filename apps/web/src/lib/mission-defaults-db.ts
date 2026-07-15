@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 
 import { githubInstallationRepos, githubInstallations } from '@forge/db';
 
@@ -16,6 +16,7 @@ export async function resolveMissionDefaults(userId: string): Promise<MissionDef
     })
     .from(githubInstallations)
     .where(eq(githubInstallations.userId, userId))
+    .orderBy(desc(githubInstallations.createdAt))
     .limit(1);
 
   return pickMissionDefaults(installation, {
@@ -35,5 +36,5 @@ export async function listUserRepos(userId: string): Promise<string[]> {
     )
     .where(eq(githubInstallations.userId, userId));
 
-  return rows.map((r) => r.repo).sort();
+  return [...new Set(rows.map((r) => r.repo))].sort();
 }
