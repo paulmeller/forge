@@ -31,6 +31,17 @@ export async function GET(
   }
 
   if (!upstream.ok || !upstream.body) {
+    // Tick returns 404 both when the task doesn't exist and when it exists
+    // but has no sessionId yet (e.g. still `queued`). The latter is the
+    // realistic case here — the browser only ever calls this with a real
+    // task id it already has from a real page — and EventSource does NOT
+    // auto-retry non-5xx statuses, so relaying a bare 404 would strand the
+    // client forever even once dispatch happens and a session shows up.
+    // Map it to a retryable 503 so the client's EventSource keeps polling
+    // until the session is live. Other non-ok statuses are relayed as-is.
+    if (upstream.status === 404) {
+      return streamUnavailable(503);
+    }
     return streamUnavailable(upstream.status || 502);
   }
 

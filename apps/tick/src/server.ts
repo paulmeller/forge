@@ -48,16 +48,22 @@ export async function buildServer(): Promise<FastifyInstance> {
     if (!task) return reply.notFound(`no task ${taskId}`);
     if (!task.sessionId) return reply.notFound(`task ${taskId} has no session yet`);
 
-    const upstream = await fetch(
-      `${env.ANTHROPIC_BASE_URL}/v1/sessions/${task.sessionId}/events/stream`,
-      {
-        headers: {
-          'x-api-key': env.ANTHROPIC_API_KEY ?? '',
-          'anthropic-version': '2023-06-01',
-          'anthropic-beta': 'managed-agents-2026-04-01',
+    let upstream: Response;
+    try {
+      upstream = await fetch(
+        `${env.ANTHROPIC_BASE_URL}/v1/sessions/${task.sessionId}/events/stream`,
+        {
+          headers: {
+            'x-api-key': env.ANTHROPIC_API_KEY ?? '',
+            'anthropic-version': '2023-06-01',
+            'anthropic-beta': 'managed-agents-2026-04-01',
+          },
         },
-      },
-    );
+      );
+    } catch (err) {
+      request.log.warn({ err }, 'engine stream fetch failed');
+      return reply.code(502).send({ error: 'upstream stream unavailable' });
+    }
 
     if (!upstream.ok || !upstream.body) {
       return reply.code(upstream.status || 502).send({ error: 'upstream stream unavailable' });
