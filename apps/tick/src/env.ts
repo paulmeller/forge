@@ -27,6 +27,11 @@ export const env = {
   // back to this same env var internally when unset.
   ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com',
   FORGE_MA_ENVIRONMENT_ID: process.env.FORGE_MA_ENVIRONMENT_ID,
+  // Vault carrying the model-provider credential (CLAUDE_CODE_OAUTH_TOKEN /
+  // ANTHROPIC_API_KEY) every session needs to run its coding agent — distinct
+  // from the per-mission GitHub PR-creation vault. Attached to every session
+  // alongside any mission-specific vault.
+  FORGE_MA_DEFAULT_VAULT_ID: process.env.FORGE_MA_DEFAULT_VAULT_ID,
   GATEWAY_URL: process.env.GATEWAY_URL,
   GATEWAY_API_KEY: process.env.GATEWAY_API_KEY,
   GATEWAY_ENVIRONMENT_ID: process.env.GATEWAY_ENVIRONMENT_ID,
