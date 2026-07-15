@@ -61,10 +61,11 @@ Master-detail layout:
   fixed / not_reproduced / fix_skipped / failed) for the standing mission's
   tasks. No new pill vocabulary — this is the same derivation
   `/missions/[id]/issues` already uses.
-- **Right pane:** issue detail. Untouched issue → title/body + **"Work on
-  it"** button. Touched issue → reproduce/fix stage tabs with task status,
-  verdict, and links, reusing the data assembly behind
-  `/missions/[id]/issues` (the `triage-view` lib).
+- **Right pane:** issue detail. Untouched issue (no `IssueGroup` for its
+  `issueRef` in the standing mission's tasks) → title/body + **"Work on
+  it"** button. Touched issue → render the existing `IssueTriageCard`
+  component verbatim (same one `/missions/[id]/issues` uses) plus the
+  duplicate-guard button below it. No new stage-tab UI.
 - Quiet "view mission" link to the standing mission's page.
 
 ## Concept: standing vs campaign missions
