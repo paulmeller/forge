@@ -28,6 +28,9 @@ export const env = {
   get FORGE_BACKEND(): 'managed-agents' | 'gateway' {
     return (optional('FORGE_BACKEND') ?? 'managed-agents') as 'managed-agents' | 'gateway';
   },
+  get TICK_INTERNAL_URL(): string {
+    return optional('TICK_INTERNAL_URL') ?? 'http://localhost:8180';
+  },
   get ANTHROPIC_API_KEY(): string | undefined {
     return optional('ANTHROPIC_API_KEY');
   },
