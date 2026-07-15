@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 
 import { IssueTriageCard } from '@/components/issue-triage-card';
+import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import type { WorkspaceIssueRow } from '@/lib/workspace-issues';
 
@@ -19,14 +20,36 @@ export function WorkspaceList({
 }) {
   const [query, setQuery] = useState('');
   const [selectedNumber, setSelectedNumber] = useState<number | null>(rows[0]?.issue.number ?? null);
+  const [selectedLabels, setSelectedLabels] = useState<Set<string>>(new Set());
+
+  const allLabels = useMemo(() => {
+    const labels = new Set<string>();
+    for (const row of rows) {
+      for (const label of row.issue.labels ?? []) labels.add(label);
+    }
+    return [...labels].sort((a, b) => a.localeCompare(b));
+  }, [rows]);
+
+  const toggleLabel = (label: string) => {
+    setSelectedLabels((prev) => {
+      const next = new Set(prev);
+      if (next.has(label)) next.delete(label);
+      else next.add(label);
+      return next;
+    });
+  };
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter(
-      (r) => r.issue.title.toLowerCase().includes(q) || String(r.issue.number).includes(q),
-    );
-  }, [rows, query]);
+    return rows.filter((r) => {
+      const matchesQuery =
+        !q || r.issue.title.toLowerCase().includes(q) || String(r.issue.number).includes(q);
+      if (!matchesQuery) return false;
+      if (selectedLabels.size === 0) return true;
+      const issueLabels = new Set(r.issue.labels ?? []);
+      return [...selectedLabels].every((label) => issueLabels.has(label));
+    });
+  }, [rows, query, selectedLabels]);
 
   const selected = filtered.find((r) => r.issue.number === selectedNumber) ?? filtered[0] ?? null;
 
@@ -47,6 +70,22 @@ export function WorkspaceList({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
+          {allLabels.length > 0 ? (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {allLabels.map((label) => (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => toggleLabel(label)}
+                  aria-pressed={selectedLabels.has(label)}
+                >
+                  <Badge variant={selectedLabels.has(label) ? 'default' : 'outline'}>
+                    {label}
+                  </Badge>
+                </button>
+              ))}
+            </div>
+          ) : null}
         </div>
         <div className="max-h-[70vh] overflow-y-auto">
           {filtered.map((row) => (

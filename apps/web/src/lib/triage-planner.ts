@@ -17,6 +17,8 @@ export type TriageIssue = {
   number: number;
   title: string;
   body: string;
+  /** Label names on the issue, e.g. `['bug', 'p1']`. Empty when unknown. */
+  labels?: string[];
   url: string;
 };
 
@@ -191,6 +193,7 @@ export type GithubSearchItem = {
   html_url: string;
   repository_url: string;
   pull_request?: unknown;
+  labels?: Array<{ name: string }>;
 };
 
 /** Pages to fetch at most — enough to cover MAX_ISSUES at SEARCH_PAGE_SIZE, plus headroom. */
@@ -260,6 +263,7 @@ export function mapSearchItems(items: GithubSearchItem[]): TriageIssue[] {
       number: it.number,
       title: it.title,
       body: it.body ?? '',
+      labels: (it.labels ?? []).map((l) => l.name),
       url: it.html_url,
     }))
     .filter((i) => i.repo.length > 0);

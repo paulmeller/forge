@@ -12,6 +12,7 @@ const issue = (over: Partial<TriageIssue> = {}): TriageIssue => ({
   number: 12389,
   title: 'convertToOpenAIChatMessages sends content: "" instead of null',
   body: 'Tool-call-only assistant messages...',
+  labels: [],
   url: 'https://github.com/vercel/ai/issues/12389',
   ...over,
 });
@@ -100,6 +101,18 @@ describe('mapSearchItems', () => {
   it('drops items whose repo cannot be parsed', () => {
     const mapped = mapSearchItems([item({ repository_url: 'garbage' })]);
     expect(mapped).toHaveLength(0);
+  });
+
+  it('extracts label names from search result label objects', () => {
+    const [mapped] = mapSearchItems([
+      item({ labels: [{ id: 1, name: 'bug', color: 'red' }, { id: 2, name: 'p1' }] }),
+    ]);
+    expect(mapped!.labels).toEqual(['bug', 'p1']);
+  });
+
+  it('defaults labels to an empty array when absent', () => {
+    const [mapped] = mapSearchItems([item()]);
+    expect(mapped!.labels).toEqual([]);
   });
 });
 
