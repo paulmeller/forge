@@ -91,18 +91,18 @@ describe('getOrCreateWorkspaceMission', () => {
     expect(values.goal).toContain('acme/api');
   });
 
-  it('propagates a null agentId from defaults rather than inventing one', async () => {
+  it('throws instead of inserting a mission when no agent is configured', async () => {
     const noAgentDefaults: MissionDefaults = { ...defaults, agentId: null, source: 'none' };
-    const inserted = fakeMission({ agentId: '' });
     const findExisting = vi.fn().mockResolvedValue(null);
-    const insertMission = vi.fn().mockResolvedValue(inserted);
+    const insertMission = vi.fn();
 
-    await getOrCreateWorkspaceMission('usr_1', 'acme/api', noAgentDefaults, {
-      findExisting,
-      insertMission,
-    });
+    await expect(
+      getOrCreateWorkspaceMission('usr_1', 'acme/api', noAgentDefaults, {
+        findExisting,
+        insertMission,
+      }),
+    ).rejects.toThrow(/no agent configured/i);
 
-    const values = insertMission.mock.calls[0]![0] as NewMission;
-    expect(values.agentId).toBe('');
+    expect(insertMission).not.toHaveBeenCalled();
   });
 });

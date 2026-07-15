@@ -68,6 +68,12 @@ export async function getOrCreateWorkspaceMission(
   const existing = await deps.findExisting(userId, repo);
   if (existing) return existing;
 
+  if (!defaults.agentId) {
+    throw new Error(
+      'No agent configured. Connect GitHub in Setup, or set FORGE_DEFAULT_AGENT_ID.',
+    );
+  }
+
   const now = new Date();
   const values: NewMission = {
     id: `msn_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
@@ -76,7 +82,7 @@ export async function getOrCreateWorkspaceMission(
     goal: `Triage open issues in ${repo}.`,
     status: 'running',
     backend: 'managed-agents',
-    agentId: defaults.agentId ?? '',
+    agentId: defaults.agentId,
     plannerStrategy: 'triage',
     targetRepos: [repo],
     issueQuery: null,
