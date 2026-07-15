@@ -2,6 +2,7 @@ import Link from 'next/link';
 
 import { Button } from '@/components/ui/button';
 import { env } from '@/lib/env';
+import { listLedgerForTask } from '@/lib/ledger';
 import { listTasksForMission } from '@/lib/tasks';
 import { githubSearchIssues } from '@/lib/triage-planner';
 import { groupTasksByIssue } from '@/lib/triage-view';
@@ -58,6 +59,19 @@ export default async function RepoWorkspacePage({
   const groups = groupTasksByIssue(tasks);
   const rows = mergeIssuesWithGroups(search.issues, groups);
 
+  const ledgersByTaskIdMap = new Map<string, Awaited<ReturnType<typeof listLedgerForTask>>>();
+  await Promise.all(
+    rows.flatMap((row) => {
+      const ids = [row.group?.reproduce?.id, row.group?.fix?.id].filter(
+        (id): id is string => !!id,
+      );
+      return ids.map(async (id) => {
+        ledgersByTaskIdMap.set(id, await listLedgerForTask(id, 200));
+      });
+    }),
+  );
+  const ledgersByTaskId = Object.fromEntries(ledgersByTaskIdMap);
+
   return (
     <main className="container max-w-[1100px] py-8">
       <Button asChild variant="ghost" size="sm" className="-ml-2 mb-3">
@@ -76,7 +90,12 @@ export default async function RepoWorkspacePage({
           </Button>
         ) : null}
       </div>
-      <WorkspaceList repo={repo} rows={rows} missionId={mission?.id ?? null} />
+      <WorkspaceList
+        repo={repo}
+        rows={rows}
+        missionId={mission?.id ?? null}
+        ledgersByTaskId={ledgersByTaskId}
+      />
     </main>
   );
 }

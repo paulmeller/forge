@@ -2,21 +2,26 @@
 
 import { useMemo, useState } from 'react';
 
-import { IssueTriageCard } from '@/components/issue-triage-card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import type { WorkspaceIssueRow } from '@/lib/workspace-issues';
 
+import { IssueRunPanel } from './issue-run-panel';
 import { WorkOnItButton } from './work-on-it-button';
 
 export function WorkspaceList({
   repo,
   rows,
   missionId,
+  ledgersByTaskId,
 }: {
   repo: string;
   rows: WorkspaceIssueRow[];
   missionId: string | null;
+  ledgersByTaskId: Record<
+    string,
+    Array<{ id: string; eventType: string; payload: unknown; createdAt: Date }>
+  >;
 }) {
   const [query, setQuery] = useState('');
   const [selectedNumber, setSelectedNumber] = useState<number | null>(rows[0]?.issue.number ?? null);
@@ -128,7 +133,18 @@ export function WorkspaceList({
               </a>
             </div>
             {selected.group && missionId ? (
-              <IssueTriageCard group={selected.group} missionId={missionId} />
+              <IssueRunPanel
+                group={selected.group}
+                missionId={missionId}
+                reproduceLedger={
+                  selected.group.reproduce
+                    ? (ledgersByTaskId[selected.group.reproduce.id] ?? [])
+                    : []
+                }
+                fixLedger={
+                  selected.group.fix ? (ledgersByTaskId[selected.group.fix.id] ?? []) : []
+                }
+              />
             ) : (
               <p className="whitespace-pre-wrap text-sm text-muted-foreground">
                 {selected.issue.body || 'No description.'}
