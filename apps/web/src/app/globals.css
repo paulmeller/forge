@@ -39,6 +39,10 @@
     /* AgentStep product accent — lime gradient used on display headings and
      * the closing CTA band. Matches agentstep.com's --text-gradient. */
     --text-gradient: linear-gradient(135deg, oklch(0.93 0.26 110), oklch(0.9 0.29 132));
+    /* Console interaction accent — same lime family as --text-gradient. */
+    --forge-accent-from: oklch(0.93 0.26 110);
+    --forge-accent-to: oklch(0.9 0.29 132);
+    --forge-accent-ink: oklch(0.25 0.06 130);
   }
 
   .dark {
@@ -59,6 +63,10 @@
     --border: 240 3.7% 15.9%;
     --input: 240 3.7% 15.9%;
     --ring: 240 4.9% 83.9%;
+    /* Console interaction accent — same lime family as --text-gradient. */
+    --forge-accent-from: oklch(0.93 0.26 110);
+    --forge-accent-to: oklch(0.9 0.29 132);
+    --forge-accent-ink: oklch(0.25 0.06 130);
   }
 }
 
@@ -69,5 +77,11 @@
   body {
     background-color: hsl(var(--background));
     color: hsl(var(--foreground));
+  }
+}
+
+@layer utilities {
+  .accent-checkbox {
+    accent-color: var(--forge-accent-to);
   }
 }
