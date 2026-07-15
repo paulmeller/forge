@@ -295,8 +295,14 @@ export async function runReconciler(log: Logger): Promise<ReconcileResult> {
     log.info({ taskId: task.id, from: task.status }, 'reconciler:gate_stalled');
   }
 
-  // (2) Complete Missions whose tasks are all in terminal states.
-  const candidates = await db.select().from(missions).where(eq(missions.status, 'running'));
+  // (2) Complete Missions whose tasks are all in terminal states. Standing
+  // (workspace) missions are fed incrementally by the repo workspace feature
+  // and must never auto-complete just because their tasks are momentarily
+  // all terminal, so they're excluded from the candidate set entirely.
+  const candidates = await db
+    .select()
+    .from(missions)
+    .where(and(eq(missions.status, 'running'), isNull(missions.workspaceRepo)));
 
   for (const mission of candidates) {
     const nonTerminal = await db
