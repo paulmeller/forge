@@ -43,7 +43,9 @@ export function RepoPicker({
 
   return (
     <div>
-      <Label htmlFor="targetRepos">{label}</Label>
+      <Label id="targetRepos-label" htmlFor="targetRepos">
+        {label}
+      </Label>
       {hasList ? (
         <>
           {mode === 'single' ? (
@@ -51,7 +53,11 @@ export function RepoPicker({
               value={selected[0] ?? ''}
               onValueChange={(v) => setSelected([v])}
             >
-              <SelectTrigger id="targetRepos" className="font-mono text-sm">
+              <SelectTrigger
+                id="targetRepos"
+                className="font-mono text-sm"
+                aria-describedby={error ? 'targetRepos-error' : undefined}
+              >
                 <SelectValue placeholder="Pick a repo" />
               </SelectTrigger>
               <SelectContent>
@@ -63,7 +69,12 @@ export function RepoPicker({
               </SelectContent>
             </Select>
           ) : (
-            <div className="mt-1 max-h-48 overflow-y-auto rounded-md border">
+            <div
+              role="group"
+              aria-labelledby="targetRepos-label"
+              aria-describedby={error ? 'targetRepos-error' : undefined}
+              className="mt-1 max-h-48 overflow-y-auto rounded-md border"
+            >
               {availableRepos.map((repo) => (
                 <label
                   key={repo}
@@ -97,6 +108,7 @@ export function RepoPicker({
               className="font-mono text-sm"
               value={freeText}
               onChange={(e) => setFreeText(e.target.value)}
+              aria-describedby={error ? 'targetRepos-error' : undefined}
             />
           ) : (
             <Textarea
@@ -107,6 +119,7 @@ export function RepoPicker({
               className="font-mono text-sm"
               value={freeText}
               onChange={(e) => setFreeText(e.target.value)}
+              aria-describedby={error ? 'targetRepos-error' : undefined}
             />
           )}
           <p className="mt-1 text-xs text-muted-foreground">
@@ -121,7 +134,11 @@ export function RepoPicker({
           </p>
         </>
       )}
-      {error ? <p className="mt-1 text-xs text-destructive">{error}</p> : null}
+      {error ? (
+        <p id="targetRepos-error" className="mt-1 text-xs text-destructive">
+          {error}
+        </p>
+      ) : null}
     </div>
   );
 }
