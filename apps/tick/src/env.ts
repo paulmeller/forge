@@ -22,6 +22,10 @@ export const env = {
 
   // Backend adapter config — only required for the backend(s) actually in use.
   ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+  // Only read directly by the /tasks/:taskId/stream proxy (Task 2 of the
+  // live-run-view plan) — the Anthropic SDK client itself already falls
+  // back to this same env var internally when unset.
+  ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com',
   FORGE_MA_ENVIRONMENT_ID: process.env.FORGE_MA_ENVIRONMENT_ID,
   GATEWAY_URL: process.env.GATEWAY_URL,
   GATEWAY_API_KEY: process.env.GATEWAY_API_KEY,
