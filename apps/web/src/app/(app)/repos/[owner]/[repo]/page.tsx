@@ -2,7 +2,6 @@ import Link from 'next/link';
 
 import { Button } from '@/components/ui/button';
 import { env } from '@/lib/env';
-import { resolveMissionDefaults } from '@/lib/mission-defaults-db';
 import { listTasksForMission } from '@/lib/tasks';
 import { githubSearchIssues } from '@/lib/triage-planner';
 import { groupTasksByIssue } from '@/lib/triage-view';
@@ -54,10 +53,7 @@ export default async function RepoWorkspacePage({
     );
   }
 
-  const [mission, defaults] = await Promise.all([
-    findWorkspaceMission(user.id, repo),
-    resolveMissionDefaults(user.id),
-  ]);
+  const mission = await findWorkspaceMission(user.id, repo);
   const tasks = mission ? await listTasksForMission(mission.id) : [];
   const groups = groupTasksByIssue(tasks);
   const rows = mergeIssuesWithGroups(search.issues, groups);
