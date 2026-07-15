@@ -66,7 +66,7 @@ export default async function RepoWorkspacePage({
         (id): id is string => !!id,
       );
       return ids.map(async (id) => {
-        ledgersByTaskIdMap.set(id, await listLedgerForTask(id, 200));
+        ledgersByTaskIdMap.set(id, [...(await listLedgerForTask(id, 200))].reverse());
       });
     }),
   );
