@@ -54,10 +54,13 @@ installation) mirrors Setup's install prompt.
 Master-detail layout:
 
 - **Left pane:** all open issues (newest first) via GitHub issue search,
-  with client-side search box and label chips. Each row: number, title,
-  and — when Forge has touched the issue — a pipeline pill (Queued /
-  Reproducing / Awaiting review / Merged / Not reproduced / Failed) derived
-  from the standing mission's tasks by `issueRef`.
+  with client-side search box and label chips. Each row: number, title, and
+  — when Forge has touched the issue — a pipeline pill showing the
+  `TriageHeadline` already computed by `triage-view.ts`'s
+  `groupTasksByIssue`/`headlineFor` (reproducing / fixing / fix_review /
+  fixed / not_reproduced / fix_skipped / failed) for the standing mission's
+  tasks. No new pill vocabulary — this is the same derivation
+  `/missions/[id]/issues` already uses.
 - **Right pane:** issue detail. Untouched issue → title/body + **"Work on
   it"** button. Touched issue → reproduce/fix stage tabs with task status,
   verdict, and links, reusing the data assembly behind
@@ -120,10 +123,12 @@ checks, guardrails, task-level reconciliation) still applies to them.
 
 ### Duplicate guard
 
-- Issue has a non-terminal pair (`queued` / `running` / `awaiting_*` /
-  other in-flight states) → button disabled, showing current stage.
-- Terminal outcome (merged, failed, abandoned/not-reproduced) → button
-  becomes "Work again" and inserts a fresh pair.
+Reuses the same `TriageHeadline` from the pill above — no separate
+taxonomy. `fixed` / `not_reproduced` / `fix_skipped` / `failed` are
+terminal → button reads "Work again" and inserts a fresh pair.
+`reproducing` / `fixing` / `fix_review` are in-flight → button disabled,
+showing the current headline as its label. No existing pair for the
+issue's `issueRef` → button reads "Work on it".
 
 ## Issue fetching
 
@@ -148,10 +153,9 @@ fetched page(s), inheriting the planner's existing pagination caps.
 - Unit (vitest, injectable-deps pattern per `triage-planner.test.ts`):
   - `getOrCreateWorkspaceMission` idempotency: two calls → one mission;
     completed/cancelled standing missions are not reused.
-  - Duplicate-guard predicate: in-flight vs terminal task states → correct
-    button state.
 - Already covered elsewhere: `buildTriageTaskRows` (pair emission),
-  `triage-view` (pill/pipeline derivation), `githubSearchIssues`
+  `groupTasksByIssue`/`headlineFor` (pill + duplicate-guard derivation —
+  the workspace adds no new predicate here), `githubSearchIssues`
   (pagination/truncation).
 - Manual: connect repo → workspace lists issues → Work on it → standing
   mission appears in /missions → pill advances after a tick.
