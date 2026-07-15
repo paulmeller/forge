@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import { ZodError } from 'zod';
 
 import { createMission, createMissionSchema, parseRepoList } from '@/lib/missions';
+import { deriveMissionName } from '@/lib/mission-defaults';
 
 export type CreateMissionState = {
   error?: string;
@@ -20,8 +21,11 @@ export async function createMissionAction(
   formData: FormData,
 ): Promise<CreateMissionState> {
   const targetReposRaw = formData.get('targetRepos');
+  const goalRaw = formData.get('goal');
   const raw = {
-    name: formData.get('name'),
+    name:
+      toNullableString(formData.get('name')) ??
+      deriveMissionName(typeof goalRaw === 'string' ? goalRaw : ''),
     goal: formData.get('goal'),
     backend: formData.get('backend'),
     agentId: formData.get('agentId'),
@@ -38,7 +42,8 @@ export async function createMissionAction(
     noProgressTokens: toNullableString(formData.get('noProgressTokens')),
     githubInstallationId: toNullableString(formData.get('githubInstallationId')),
     githubVaultId: toNullableString(formData.get('githubVaultId')),
-    skillId: toNullableString(formData.get('skillId')),
+    skillId:
+      formData.get('skillId') === 'none' ? null : toNullableString(formData.get('skillId')),
     aiReviewEnabled: formData.get('aiReviewEnabled') === 'on',
     selfVerifyEnabled: formData.get('selfVerifyEnabled') === 'on',
   };
