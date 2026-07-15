@@ -4,9 +4,12 @@ import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { SessionLogView } from '@/components/session-log-view';
 import { getMission } from '@/lib/missions';
 import { getTask } from '@/lib/tasks';
 import { listLedgerForTask } from '@/lib/ledger';
+
+import { TaskFileTabs } from './file-tabs';
 
 export const dynamic = 'force-dynamic';
 
@@ -119,6 +122,30 @@ export default async function TaskDetailPage({
           </CardContent>
         </Card>
       </div>
+
+      <Card className="mt-6">
+        <CardHeader>
+          <CardTitle>Run</CardTitle>
+          <CardDescription>
+            prompt.txt, agent.log, and status.json are Forge-captured data presented as
+            files — not a view of the actual sandbox filesystem.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <TaskFileTabs
+            promptVars={task.promptVars as Record<string, unknown> | null}
+            status={task.status}
+            verdict={task.verdict}
+            ledger={ledger}
+          />
+          <SessionLogView
+            taskId={task.id}
+            isLive={['queued', 'dispatching', 'running'].includes(task.status)}
+            initialEvents={[...ledger].reverse()}
+            className="h-[400px]"
+          />
+        </CardContent>
+      </Card>
 
       <Card className="mt-6">
         <CardHeader>
