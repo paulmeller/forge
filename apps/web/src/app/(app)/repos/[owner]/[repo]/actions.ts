@@ -40,13 +40,15 @@ export async function workOnIssue(
   const now = new Date();
   const rows = buildTriageTaskRows(mission.id, [triageIssue], now);
 
-  await db.insert(tasks).values(rows);
-  await db.insert(ledgerEvents).values({
-    id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
-    missionId: mission.id,
-    eventType: 'workspace.issue.enqueued',
-    payload: { issueRef: `${repo}#${issue.number}`, taskIds: rows.map((r) => r.id) },
-    createdAt: now,
+  await db.transaction(async (tx) => {
+    await tx.insert(tasks).values(rows);
+    await tx.insert(ledgerEvents).values({
+      id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
+      missionId: mission.id,
+      eventType: 'workspace.issue.enqueued',
+      payload: { issueRef: `${repo}#${issue.number}`, taskIds: rows.map((r) => r.id) },
+      createdAt: now,
+    });
   });
 
   return { ok: true };
