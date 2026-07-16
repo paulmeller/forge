@@ -42,7 +42,7 @@ export function SessionSidebar({
     <aside className="flex h-full w-[260px] shrink-0 flex-col border-r bg-muted/30">
       {/* Top */}
       <div className="flex items-center justify-between border-b px-4 py-3">
-        <Link href="/" className="text-sm font-bold tracking-tight">
+        <Link href="/home" className="text-sm font-bold tracking-tight">
           Forge
         </Link>
         <ThemeToggleSmall />
@@ -57,8 +57,9 @@ export function SessionSidebar({
         <p className="mb-1.5 px-3 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
           Navigation
         </p>
+        <NavLink href="/home">Home</NavLink>
         <NavLink href="/repos">Repos</NavLink>
-        <NavLink href="/missions">Dashboard</NavLink>
+        <NavLink href="/missions">Missions</NavLink>
         <NavLink href="/chat">Chat</NavLink>
         <NavLink href="/setup">Setup</NavLink>
       </nav>
