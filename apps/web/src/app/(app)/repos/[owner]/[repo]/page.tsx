@@ -89,7 +89,7 @@ export default async function RepoWorkspacePage({
           <NewIssueDialog owner={owner} repo={repoName} />
           {mission ? (
             <Button asChild variant="ghost" size="sm">
-              <Link href={`/missions/${mission.id}`}>View mission</Link>
+              <Link href={`/missions?repo=${encodeURIComponent(repo)}`}>View missions</Link>
             </Button>
           ) : null}
         </div>
