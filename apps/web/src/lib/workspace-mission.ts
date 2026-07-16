@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 
-import { and, desc, eq, notInArray } from 'drizzle-orm';
+import { and, desc, eq, isNull, notInArray } from 'drizzle-orm';
 
 import { missions, type Mission, type NewMission } from '@forge/db';
 
@@ -12,6 +12,18 @@ export type WorkspaceMissionDeps = {
   insertMission: (values: NewMission) => Promise<Mission>;
 };
 
+/**
+ * Find a repo's container Mission for this user — the pure budget/
+ * concurrency envelope (workspaceRepo set, issueRef null, parentMissionId
+ * null, owns zero tasks). The issueRef/parentMissionId IS NULL conditions
+ * below are load-bearing, not redundant with the status filter: a repo's
+ * issue leaf missions also have `workspaceRepo` set to this same repo, and
+ * are typically non-terminal (`running`) for as long as the container is.
+ * Without excluding leaves explicitly, `ORDER BY createdAt DESC LIMIT 1`
+ * would return whichever issue leaf was created most recently — not the
+ * container — as soon as the repo had more than one issue ever worked in
+ * it, since leaves are always created after their container.
+ */
 export async function dbFindExistingWorkspaceMission(
   userId: string,
   repo: string,
@@ -23,6 +35,8 @@ export async function dbFindExistingWorkspaceMission(
       and(
         eq(missions.userId, userId),
         eq(missions.workspaceRepo, repo),
+        isNull(missions.issueRef),
+        isNull(missions.parentMissionId),
         notInArray(missions.status, ['completed', 'cancelled']),
       ),
     )

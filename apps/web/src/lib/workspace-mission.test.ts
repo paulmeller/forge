@@ -1,9 +1,64 @@
-import { describe, expect, it, vi } from 'vitest';
+import { existsSync, rmSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { randomUUID } from 'node:crypto';
 
+import { migrate } from 'drizzle-orm/libsql/migrator';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+
+import type { LibSQLDatabase } from 'drizzle-orm/libsql';
 import type { Mission, NewMission } from '@forge/db';
 
 import type { MissionDefaults } from './mission-defaults';
-import { getOrCreateIssueMission, getOrCreateWorkspaceMission } from './workspace-mission';
+
+const DB_FILE = `/tmp/forge-workspace-mission-${process.pid}.db`;
+for (const suffix of ['', '-wal', '-shm']) {
+  if (existsSync(DB_FILE + suffix)) rmSync(DB_FILE + suffix);
+}
+process.env.DATABASE_URL = `file:${DB_FILE}`;
+
+let db: LibSQLDatabase<Record<string, unknown>>;
+let client: { close: () => void };
+let schema: typeof import('@forge/db');
+let dbFindExistingWorkspaceMission: typeof import('./workspace-mission').dbFindExistingWorkspaceMission;
+let getOrCreateWorkspaceMission: typeof import('./workspace-mission').getOrCreateWorkspaceMission;
+let getOrCreateIssueMission: typeof import('./workspace-mission').getOrCreateIssueMission;
+
+beforeAll(async () => {
+  const dbMod = await import('./db');
+  db = dbMod.db as unknown as LibSQLDatabase<Record<string, unknown>>;
+  client = dbMod.client as unknown as { close: () => void };
+  await migrate(dbMod.db, {
+    migrationsFolder: resolve(__dirname, '../../../../packages/db/migrations'),
+  });
+  schema = await import('@forge/db');
+  ({ dbFindExistingWorkspaceMission, getOrCreateWorkspaceMission, getOrCreateIssueMission } =
+    await import('./workspace-mission'));
+});
+
+afterAll(() => {
+  client.close();
+  for (const suffix of ['', '-wal', '-shm']) {
+    if (existsSync(DB_FILE + suffix)) rmSync(DB_FILE + suffix);
+  }
+});
+
+async function insertMission(id: string, over: Record<string, unknown> = {}) {
+  const now = new Date();
+  await db.insert(schema.missions).values({
+    id,
+    userId: 'user_1',
+    name: 'Test mission',
+    goal: 'test',
+    status: 'running',
+    backend: 'managed-agents',
+    agentId: 'agent_1',
+    plannerStrategy: 'rule-based',
+    webhookSecret: 'secret',
+    createdAt: now,
+    updatedAt: now,
+    ...over,
+  });
+}
 
 const defaults: MissionDefaults = {
   agentId: 'agent_abc',
@@ -51,6 +106,58 @@ function fakeMission(over: Partial<Mission> = {}): Mission {
     ...over,
   } as Mission;
 }
+
+describe('dbFindExistingWorkspaceMission', () => {
+  it('returns the container, not the newest issue leaf, when a repo has leaves', async () => {
+    // Regression test for the bug where dbFindExistingWorkspaceMission's
+    // WHERE clause only excluded terminal statuses, not issue leaves. Since
+    // leaves share workspaceRepo with their container and are typically
+    // non-terminal, ORDER BY createdAt DESC LIMIT 1 would pick the most
+    // recently created leaf instead of the true container as soon as a repo
+    // had any issue ever worked in it.
+    const repo = 'paulmeller/leaf-vs-container';
+    const containerId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const leafId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+
+    await insertMission(containerId, {
+      workspaceRepo: repo,
+      issueRef: null,
+      parentMissionId: null,
+      status: 'running',
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+    });
+    await insertMission(leafId, {
+      workspaceRepo: repo,
+      issueRef: `${repo}#4`,
+      parentMissionId: containerId,
+      status: 'running',
+      createdAt: new Date('2026-01-02T00:00:00.000Z'),
+      updatedAt: new Date('2026-01-02T00:00:00.000Z'),
+    });
+
+    const found = await dbFindExistingWorkspaceMission('user_1', repo);
+
+    expect(found?.id).toBe(containerId);
+    expect(found?.id).not.toBe(leafId);
+  });
+
+  it('still finds a container correctly when it has no leaves yet', async () => {
+    const repo = 'paulmeller/lonely-container';
+    const containerId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+
+    await insertMission(containerId, {
+      workspaceRepo: repo,
+      issueRef: null,
+      parentMissionId: null,
+      status: 'running',
+    });
+
+    const found = await dbFindExistingWorkspaceMission('user_1', repo);
+
+    expect(found?.id).toBe(containerId);
+  });
+});
 
 describe('getOrCreateWorkspaceMission', () => {
   it('returns the existing mission without inserting when one is found', async () => {
