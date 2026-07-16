@@ -270,25 +270,53 @@ to:
 
 (`HomeTaskRow.isStanding`'s field name is left as-is — `/home`'s `TaskRow` component and its "Standing" badge copy are unchanged in this plan; only the underlying predicate that computes the boolean is corrected. Renaming the field itself is Phase 3/polish territory, not this task's job.)
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [ ] **Step 5: Fix `missions/page.tsx`'s compile-time reference (minimal — full rework is Task 3)**
+
+`isStandingMission` has a SECOND consumer: `apps/web/src/app/(app)/missions/page.tsx`. Left untouched, deleting `isStandingMission` from `mission-shape.ts` breaks this file's build. Make ONLY the following two mechanical substitutions here — do not touch this file's searchParams type, its `showStanding`/`standing` filter logic, `hasFilters`, or its subtitle; those are Task 3's job, later in this same plan.
+
+Change the import:
+
+```ts
+import { isCampaignMission, isStandingMission, missionShapeLabel } from '@/lib/mission-shape';
+```
+
+to:
+
+```ts
+import { isCampaignMission, isIssueMission, missionShapeLabel } from '@/lib/mission-shape';
+```
+
+Change the one call site in the shape-label rendering block:
+
+```tsx
+                      {isStandingMission(mission) ? (
+```
+
+to:
+
+```tsx
+                      {isIssueMission(mission) ? (
+```
+
+- [ ] **Step 6: Run tests to verify they pass**
 
 Run: `pnpm --filter @forge/web test -- mission-shape`
 Expected: PASS (10 tests: 2 isCampaignMission + 3 isContainerMission + 2 isIssueMission + 5 missionShapeLabel).
 
-- [ ] **Step 6: Typecheck**
+- [ ] **Step 7: Typecheck**
 
 Run: `pnpm --filter @forge/web typecheck`
-Expected: clean.
+Expected: clean — including `missions/page.tsx`, now that Step 5's fix is in place. No file anywhere should fail to compile after this task.
 
-- [ ] **Step 7: Run the full web test suite**
+- [ ] **Step 8: Run the full web test suite**
 
 Run: `pnpm --filter @forge/web test`
 Expected: all suites pass (this confirms nothing else in the codebase still references `isStandingMission`).
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
-git add apps/web/src/lib/mission-shape.ts apps/web/src/lib/mission-shape.test.ts apps/web/src/lib/home.ts
+git add apps/web/src/lib/mission-shape.ts apps/web/src/lib/mission-shape.test.ts apps/web/src/lib/home.ts "apps/web/src/app/(app)/missions/page.tsx"
 git commit -m "feat(missions): isStandingMission -> isIssueMission/isContainerMission, issueRef-based shape label"
 ```
 
@@ -461,21 +489,9 @@ to:
 
 (No `else` branch for the default "all" case — an unrecognized or absent `kind` value shows everything, matching `MissionFilters`' own `'all'` default.)
 
-- [ ] **Step 3: Update the import**
+Note: this file's import line and its shape-label rendering block already read `isCampaignMission, isIssueMission, missionShapeLabel` and `{isIssueMission(mission) ? (` — Task 1 (earlier in this plan) already made both of those substitutions as a minimal compile-fix, since deleting `isStandingMission` from `mission-shape.ts` would otherwise have broken this file. Nothing further to change on either of those two spots; verify they read that way already before continuing.
 
-Change:
-
-```ts
-import { isCampaignMission, isStandingMission, missionShapeLabel } from '@/lib/mission-shape';
-```
-
-to:
-
-```ts
-import { isCampaignMission, isIssueMission, missionShapeLabel } from '@/lib/mission-shape';
-```
-
-- [ ] **Step 4: Update `hasFilters`**
+- [ ] **Step 3: Update `hasFilters`**
 
 Change:
 
@@ -495,23 +511,9 @@ to:
   );
 ```
 
-- [ ] **Step 5: Update the shape-label rendering**
+(The rest of the shape-label conditional block — the `<Link href={`/repos/${mission.workspaceRepo}`}>` vs plain `<p>` — is unchanged; `mission.workspaceRepo` is still correctly set on issue missions, so the href continues to resolve to the right repo workspace.)
 
-Change:
-
-```tsx
-                      {isStandingMission(mission) ? (
-```
-
-to:
-
-```tsx
-                      {isIssueMission(mission) ? (
-```
-
-(The rest of that conditional block — the `<Link href={`/repos/${mission.workspaceRepo}`}>` vs plain `<p>` — is unchanged; `mission.workspaceRepo` is still correctly set on issue missions, so the href continues to resolve to the right repo workspace.)
-
-- [ ] **Step 6: Update the "Missions" page subtitle**
+- [ ] **Step 4: Update the "Missions" page subtitle**
 
 The current subtitle ("Active and recent fleet operations.") describes only campaigns — now that the page shows both kinds by default, update it:
 
@@ -529,7 +531,7 @@ becomes:
           </p>
 ```
 
-- [ ] **Step 7: Typecheck and verify the dev server**
+- [ ] **Step 5: Typecheck and verify the dev server**
 
 Run: `pnpm --filter @forge/web typecheck`
 Expected: clean.
@@ -538,7 +540,7 @@ Expected: `200` (this page's existing `getOptionalUser()` auth posture is unchan
 Run: `curl -s -o /dev/null -w "%{http_code}" "http://localhost:3100/missions?repo=paulmeller/forge"`
 Expected: `200`.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add "apps/web/src/app/(app)/missions/page.tsx"
