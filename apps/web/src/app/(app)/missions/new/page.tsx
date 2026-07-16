@@ -9,7 +9,12 @@ import { NewMissionForm } from './new-mission-form';
 
 export const dynamic = 'force-dynamic';
 
-export default async function NewMissionPage() {
+export default async function NewMissionPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ repo?: string }>;
+}) {
+  const { repo } = await searchParams;
   const user = await withAuth();
   const [skills, defaults, availableRepos] = await Promise.all([
     listSkills(),
@@ -37,6 +42,7 @@ export default async function NewMissionPage() {
         }))}
         availableRepos={availableRepos}
         defaults={defaults}
+        initialRepo={repo}
       />
     </main>
   );

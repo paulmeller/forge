@@ -57,10 +57,12 @@ export function NewMissionForm({
   availableSkills = [],
   availableRepos = [],
   defaults,
+  initialRepo,
 }: {
   availableSkills?: SkillOption[];
   availableRepos?: string[];
   defaults: MissionDefaults;
+  initialRepo?: string;
 }) {
   const [state, formAction, pending] = useActionState(createMissionAction, initialState);
   const [missionType, setMissionType] = useState<'fleet' | 'single' | 'triage'>('single');
@@ -184,6 +186,7 @@ export function NewMissionForm({
           mode={missionType === 'fleet' ? 'multi' : 'single'}
           availableRepos={availableRepos}
           error={repoError ?? state.fieldErrors?.targetRepos}
+          initialRepo={initialRepo}
         />
       )}
 

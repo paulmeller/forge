@@ -23,13 +23,15 @@ export function RepoPicker({
   mode,
   availableRepos,
   error,
+  initialRepo,
 }: {
   mode: 'single' | 'multi';
   availableRepos: string[];
   error?: string;
+  initialRepo?: string;
 }) {
-  const [selected, setSelected] = useState<string[]>([]);
-  const [freeText, setFreeText] = useState('');
+  const [selected, setSelected] = useState<string[]>(initialRepo ? [initialRepo] : []);
+  const [freeText, setFreeText] = useState(initialRepo ?? '');
   const hasList = availableRepos.length > 0;
 
   const label = mode === 'multi' ? 'Target repositories' : 'Target repository';
