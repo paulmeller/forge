@@ -26,6 +26,7 @@ export function getAdapter(kind: BackendKind): BackendAdapter {
       adapter = new ManagedAgentsAdapter({
         apiKey: env.ANTHROPIC_API_KEY,
         environmentId: env.FORGE_MA_ENVIRONMENT_ID,
+        defaultVaultId: env.FORGE_MA_DEFAULT_VAULT_ID,
       });
       break;
     }

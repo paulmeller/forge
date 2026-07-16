@@ -6,6 +6,7 @@ import { NextResponse } from 'next/server';
 import { githubInstallations } from '@forge/db';
 
 import { db } from '@/lib/db';
+import { syncGithubInstallation } from '@/lib/github-installation-sync';
 import { getOptionalUser } from '@/lib/with-auth';
 
 export const runtime = 'nodejs';
@@ -46,25 +47,35 @@ export async function GET(request: Request) {
     .where(eq(githubInstallations.installationId, installationId))
     .limit(1);
 
+  let installationRowId: string;
   if (existing) {
-    // Already stored — redirect to setup
-    return NextResponse.redirect(new URL('/setup', url.origin));
+    // Already stored — re-sync in case grants changed (e.g. "Add more repos")
+    installationRowId = existing.id;
+  } else {
+    // Store with placeholder account details; syncGithubInstallation below
+    // corrects them from GitHub's own installation record.
+    const id = `ghi_${randomUUID().replaceAll('-', '').slice(0, 20)}`;
+    const now = new Date();
+
+    await db.insert(githubInstallations).values({
+      id,
+      userId: user.id,
+      installationId,
+      accountLogin: user.name ?? user.email,
+      accountType: 'User',
+      createdAt: now,
+      updatedAt: now,
+    });
+    installationRowId = id;
   }
 
-  // Fetch installation details from GitHub API
-  // For now, store with placeholder values — the setup page can populate details
-  const id = `ghi_${randomUUID().replaceAll('-', '').slice(0, 20)}`;
-  const now = new Date();
-
-  await db.insert(githubInstallations).values({
-    id,
-    userId: user.id,
-    installationId,
-    accountLogin: user.name ?? user.email,
-    accountType: 'User',
-    createdAt: now,
-    updatedAt: now,
-  });
+  try {
+    await syncGithubInstallation(installationRowId);
+  } catch (err) {
+    // Don't block the redirect — Setup's manual repo entry remains a
+    // fallback if the GitHub sync fails (e.g. misconfigured App credentials).
+    console.error('syncGithubInstallation failed', err);
+  }
 
   return NextResponse.redirect(new URL('/setup', url.origin));
 }

@@ -45,7 +45,7 @@ export default async function AppLayout({
       <SessionSidebar userName={user.name} userEmail={user.email} />
 
       {/* Main content */}
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex flex-1 flex-col overflow-y-auto">
         {children}
       </div>
     </div>

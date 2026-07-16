@@ -27,6 +27,12 @@ type MaSession = {
 export type ManagedAgentsAdapterOptions = {
   apiKey: string;
   environmentId: string;
+  /**
+   * Vault carrying the model-provider credential (CLAUDE_CODE_OAUTH_TOKEN /
+   * ANTHROPIC_API_KEY) every session needs — attached alongside any
+   * mission-specific vault (e.g. GitHub PR-creation) on every createSession.
+   */
+  defaultVaultId?: string;
   client?: Anthropic;
 };
 
@@ -34,13 +40,18 @@ export class ManagedAgentsAdapter implements BackendAdapter {
   readonly kind = 'managed-agents' as const;
   private readonly client: Anthropic;
   private readonly environmentId: string;
+  private readonly defaultVaultId?: string;
 
   constructor(opts: ManagedAgentsAdapterOptions) {
     this.client = opts.client ?? new Anthropic({ apiKey: opts.apiKey });
     this.environmentId = opts.environmentId;
+    this.defaultVaultId = opts.defaultVaultId;
   }
 
   async createSession(input: CreateSessionInput): Promise<CreateSessionResult> {
+    const vaultIds = [this.defaultVaultId, input.githubMcpVaultId].filter(
+      (id): id is string => !!id,
+    );
     const session = await this.client.beta.sessions.create({
       agent: input.agentId,
       environment_id: this.environmentId,
@@ -53,7 +64,7 @@ export class ManagedAgentsAdapter implements BackendAdapter {
           checkout: { type: 'branch', name: input.baseBranch },
         },
       ],
-      ...(input.githubMcpVaultId ? { vault_ids: [input.githubMcpVaultId] } : {}),
+      ...(vaultIds.length > 0 ? { vault_ids: vaultIds } : {}),
     } as never);
 
     await this.sendTurn(session.id, input.prompt);

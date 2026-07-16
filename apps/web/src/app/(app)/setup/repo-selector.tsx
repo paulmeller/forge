@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 
 import { connectRepos } from './actions';
 
@@ -49,8 +49,10 @@ export function RepoSelector({ installationId }: { installationId: string }) {
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div>
-        <Input
-          placeholder="owner/repo (one per line or comma-separated)"
+        <Textarea
+          placeholder={'owner/repo\nowner/another-repo'}
+          rows={6}
+          className="font-mono text-sm"
           value={repos}
           onChange={(e) => setRepos(e.target.value)}
           autoFocus
