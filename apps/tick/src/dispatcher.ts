@@ -38,12 +38,33 @@ export async function runDispatcher(log: {
 }): Promise<DispatchResult> {
   const runningMissions = await db.select().from(missions).where(eq(missions.status, 'running'));
 
+  const parentIds = Array.from(
+    new Set(runningMissions.map((m) => m.parentMissionId).filter((id): id is string => !!id)),
+  );
+  let siblingInflightByParentId = new Map<string, number>();
+  if (parentIds.length > 0) {
+    const rows = await db
+      .select({ parentMissionId: missions.parentMissionId, count: sql<number>`count(*)` })
+      .from(tasks)
+      .innerJoin(missions, eq(tasks.missionId, missions.id))
+      .where(
+        and(inArray(missions.parentMissionId, parentIds), inArray(tasks.status, INFLIGHT_STATUSES)),
+      )
+      .groupBy(missions.parentMissionId);
+    siblingInflightByParentId = new Map(
+      rows
+        .filter((r): r is typeof r & { parentMissionId: string } => !!r.parentMissionId)
+        .map((r) => [r.parentMissionId, Number(r.count)]),
+    );
+  }
+  const containerCaps = computeContainerCaps(runningMissions, siblingInflightByParentId);
+
   let totalClaimed = 0;
   let totalDispatched = 0;
   let totalFailed = 0;
 
   for (const mission of runningMissions) {
-    const claimed = await claimNextBatch(mission);
+    const claimed = await claimNextBatch(mission, containerCaps.get(mission.id));
     totalClaimed += claimed.length;
     if (claimed.length === 0) continue;
 
@@ -93,13 +114,46 @@ export function depsSatisfied(depIds: string[], deps: Task[]): boolean {
   });
 }
 
-export async function claimNextBatch(mission: Mission): Promise<Task[]> {
+/**
+ * For every currently-running mission that has a parent (an issue leaf
+ * nested under a repo's container), computes how many of that container's
+ * slots remain this tick, given the container's own concurrencyCap and how
+ * many tasks are already inflight across ALL its children (siblings).
+ * Missions with no parent are unconstrained and don't appear in the
+ * result.
+ *
+ * Pure given its inputs — the caller (runDispatcher) queries the live
+ * sibling-inflight counts once per tick and passes them in. This is a
+ * per-tick snapshot, not perfectly atomic across siblings claimed within
+ * the same tick — two siblings under a busy container could each be handed
+ * the same remaining-slots ceiling and jointly claim slightly over cap in
+ * one tick; the next tick's fresh snapshot self-corrects. Exported for
+ * testing.
+ */
+export function computeContainerCaps(
+  runningMissions: Mission[],
+  siblingInflightByParentId: Map<string, number>,
+): Map<string, number> {
+  const byId = new Map(runningMissions.map((m) => [m.id, m]));
+  const caps = new Map<string, number>();
+  for (const mission of runningMissions) {
+    if (!mission.parentMissionId) continue;
+    const container = byId.get(mission.parentMissionId);
+    if (!container) continue;
+    const inflight = siblingInflightByParentId.get(mission.parentMissionId) ?? 0;
+    caps.set(mission.id, Math.max(0, container.concurrencyCap - inflight));
+  }
+  return caps;
+}
+
+export async function claimNextBatch(mission: Mission, maxSlots?: number): Promise<Task[]> {
   const inflightRows = await db
     .select({ count: sql<number>`count(*)` })
     .from(tasks)
     .where(and(eq(tasks.missionId, mission.id), inArray(tasks.status, INFLIGHT_STATUSES)));
   const inflight = Number(inflightRows[0]?.count ?? 0);
-  const slots = Math.max(0, mission.concurrencyCap - inflight);
+  let slots = Math.max(0, mission.concurrencyCap - inflight);
+  if (maxSlots !== undefined) slots = Math.min(slots, maxSlots);
   if (slots === 0) return [];
 
   // Get all queued tasks for this mission

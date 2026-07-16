@@ -26,6 +26,7 @@ const mocks = vi.hoisted(() => {
     selectedIdBatches: [] as string[][],
     concurrencyCap: 1,
     lastInflight: 0,
+    maxSlotsOverride: undefined as number | undefined,
     selectAllStatuses: false,
     env: { GITHUB_APP_TOKEN: undefined as string | undefined },
   };
@@ -36,6 +37,7 @@ const mocks = vi.hoisted(() => {
     state.selectedIdBatches = [];
     state.concurrencyCap = 1;
     state.lastInflight = 0;
+    state.maxSlotsOverride = undefined;
     state.selectAllStatuses = false;
     state.env.GITHUB_APP_TOKEN = undefined;
   };
@@ -75,7 +77,11 @@ const mocks = vi.hoisted(() => {
                 ? state.tasks
                 : state.tasks.filter((task) => task.status === 'queued');
               const selected = rows.slice(0, limit);
-              const slots = Math.max(0, state.concurrencyCap - state.lastInflight);
+              const ownSlots = Math.max(0, state.concurrencyCap - state.lastInflight);
+              const slots =
+                state.maxSlotsOverride !== undefined
+                  ? Math.min(ownSlots, state.maxSlotsOverride)
+                  : ownSlots;
               state.selectedIdBatches.push(selected.slice(0, slots).map((task) => task.id));
               return selected;
             }),
@@ -129,7 +135,7 @@ vi.mock('./skill-loader', () => ({
   getSkillBySlug: mocks.getSkill,
 }));
 
-import { claimNextBatch, depsSatisfied, dispatchOne, INFLIGHT_STATUSES } from './dispatcher';
+import { claimNextBatch, computeContainerCaps, depsSatisfied, dispatchOne, INFLIGHT_STATUSES } from './dispatcher';
 import { renderPrompt } from './prompt';
 
 function mission(overrides: Partial<Mission> = {}): Mission {
@@ -156,6 +162,8 @@ function mission(overrides: Partial<Mission> = {}): Mission {
     githubInstallationId: 'inst_1',
     githubVaultId: null,
     workspaceRepo: null,
+    issueRef: null,
+    parentMissionId: null,
     skillId: null,
     aiReviewEnabled: false,
     budgetHardStopPct: 100,
@@ -210,10 +218,11 @@ function task(id: string, overrides: Partial<Task> = {}): Task {
   };
 }
 
-async function claim(overrides: Partial<Mission> = {}): Promise<Task[]> {
+async function claim(overrides: Partial<Mission> = {}, maxSlots?: number): Promise<Task[]> {
   const currentMission = mission(overrides);
   mocks.state.concurrencyCap = currentMission.concurrencyCap;
-  return claimNextBatch(currentMission);
+  mocks.state.maxSlotsOverride = maxSlots;
+  return claimNextBatch(currentMission, maxSlots);
 }
 
 beforeEach(() => {
@@ -265,6 +274,23 @@ describe('claimNextBatch', () => {
       'dispatching',
       'queued',
     ]);
+  });
+
+  it('returns empty when maxSlots is 0, even though the mission concurrencyCap has room', async () => {
+    mocks.state.countQueue = [0];
+    mocks.state.tasks = [task('t1'), task('t2')];
+
+    await expect(claim({ concurrencyCap: 3 }, 0)).resolves.toEqual([]);
+    expect(mocks.db.update).not.toHaveBeenCalled();
+  });
+
+  it('caps claimed tasks to maxSlots when it is more restrictive than the mission concurrencyCap', async () => {
+    mocks.state.countQueue = [0];
+    mocks.state.tasks = [task('t1'), task('t2'), task('t3')];
+
+    const claimed = await claim({ concurrencyCap: 3 }, 1);
+
+    expect(claimed.map((row) => row.id)).toEqual(['t1']);
   });
 
   it('counts every INFLIGHT_STATUSES value against capacity', async () => {
@@ -328,6 +354,43 @@ describe('claimNextBatch', () => {
 
     expect(claimedIds).toEqual(['t1']);
     expect(mocks.state.tasks[0]?.status).toBe('dispatching');
+  });
+});
+
+describe('computeContainerCaps', () => {
+  it('returns no cap for missions without a parent', () => {
+    const campaign = mission({ id: 'msn_campaign' });
+    const caps = computeContainerCaps([campaign], new Map());
+    expect(caps.has('msn_campaign')).toBe(false);
+  });
+
+  it('caps a leaf mission by its container concurrencyCap minus sibling inflight', () => {
+    const container = mission({ id: 'msn_container', concurrencyCap: 3 });
+    const leaf = mission({ id: 'msn_leaf', parentMissionId: 'msn_container' });
+    const caps = computeContainerCaps([container, leaf], new Map([['msn_container', 2]]));
+    expect(caps.get('msn_leaf')).toBe(1);
+  });
+
+  it('floors at zero when sibling inflight already meets or exceeds the container cap', () => {
+    const container = mission({ id: 'msn_container', concurrencyCap: 2 });
+    const leaf = mission({ id: 'msn_leaf', parentMissionId: 'msn_container' });
+    const caps = computeContainerCaps([container, leaf], new Map([['msn_container', 5]]));
+    expect(caps.get('msn_leaf')).toBe(0);
+  });
+
+  it('ignores a leaf whose parent is not in the running-missions list', () => {
+    const leaf = mission({ id: 'msn_leaf', parentMissionId: 'msn_missing_container' });
+    const caps = computeContainerCaps([leaf], new Map());
+    expect(caps.has('msn_leaf')).toBe(false);
+  });
+
+  it('gives every sibling under the same container the same remaining-slots ceiling', () => {
+    const container = mission({ id: 'msn_container', concurrencyCap: 4 });
+    const leafA = mission({ id: 'msn_leaf_a', parentMissionId: 'msn_container' });
+    const leafB = mission({ id: 'msn_leaf_b', parentMissionId: 'msn_container' });
+    const caps = computeContainerCaps([container, leafA, leafB], new Map([['msn_container', 1]]));
+    expect(caps.get('msn_leaf_a')).toBe(3);
+    expect(caps.get('msn_leaf_b')).toBe(3);
   });
 });
 
