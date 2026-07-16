@@ -91,13 +91,14 @@ async function getDashboardStats(userId: string) {
 export default async function DashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; backend?: string; q?: string; standing?: string }>;
+  searchParams: Promise<{ status?: string; backend?: string; q?: string; kind?: string; repo?: string }>;
 }) {
   const {
     status: statusFilter,
     backend: backendFilter,
     q: searchQuery,
-    standing: showStanding,
+    kind: kindFilter,
+    repo: repoFilter,
   } = await searchParams;
   const user = await getOptionalUser();
   const userId = user?.id ?? 'user_default';
@@ -106,8 +107,14 @@ export default async function DashboardPage({
 
   let allMissions = await listMissions();
 
-  if (showStanding !== '1') {
+  if (kindFilter === 'campaigns') {
     allMissions = allMissions.filter(isCampaignMission);
+  } else if (kindFilter === 'issues') {
+    allMissions = allMissions.filter(isIssueMission);
+  }
+
+  if (repoFilter) {
+    allMissions = allMissions.filter((m) => m.workspaceRepo === repoFilter);
   }
 
   // Apply filters
@@ -135,7 +142,13 @@ export default async function DashboardPage({
     sparklinesForMissions(ids),
   ]);
 
-  const hasFilters = !!(statusFilter || backendFilter || searchQuery);
+  const hasFilters = !!(
+    statusFilter ||
+    backendFilter ||
+    searchQuery ||
+    (kindFilter && kindFilter !== 'all') ||
+    repoFilter
+  );
 
   return (
     <main className="container max-w-[1400px] py-10">
@@ -190,7 +203,7 @@ export default async function DashboardPage({
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Missions</h1>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            Active and recent fleet operations.
+            Every campaign and issue Forge is working on, across every repo.
           </p>
         </div>
         <Button asChild>
