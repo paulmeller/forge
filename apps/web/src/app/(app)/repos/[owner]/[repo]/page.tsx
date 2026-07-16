@@ -10,6 +10,7 @@ import { withAuth } from '@/lib/with-auth';
 import { findWorkspaceMission } from '@/lib/workspace-mission';
 import { mergeIssuesWithGroups } from '@/lib/workspace-issues';
 
+import { NewIssueDialog } from './new-issue-dialog';
 import { WorkspaceList } from './workspace-list';
 
 export const dynamic = 'force-dynamic';
@@ -84,11 +85,14 @@ export default async function RepoWorkspacePage({
             {rows.length} open issue{rows.length === 1 ? '' : 's'}
           </p>
         </div>
-        {mission ? (
-          <Button asChild variant="ghost" size="sm">
-            <Link href={`/missions/${mission.id}`}>View mission</Link>
-          </Button>
-        ) : null}
+        <div className="flex shrink-0 items-center gap-2">
+          <NewIssueDialog owner={owner} repo={repoName} />
+          {mission ? (
+            <Button asChild variant="ghost" size="sm">
+              <Link href={`/missions/${mission.id}`}>View mission</Link>
+            </Button>
+          ) : null}
+        </div>
       </div>
       <WorkspaceList
         repo={repo}
