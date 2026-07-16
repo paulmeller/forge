@@ -113,20 +113,6 @@ export function NewMissionForm({
       <input type="hidden" name="plannerStrategy" value={plannerStrategy} />
 
       <div>
-        <Label htmlFor="goal">Goal</Label>
-        <Textarea
-          id="goal"
-          name="goal"
-          rows={5}
-          className="mt-1 text-base"
-          placeholder="Update the `fast-glob` dependency to ^3.3.2 everywhere it appears in package.json. Run the tests. If the tests fail, revert."
-          required
-          maxLength={10_000}
-        />
-        <FieldError errors={state.fieldErrors} name="goal" />
-      </div>
-
-      <div>
         <Label id="mission-type-label">Mission type</Label>
         <div
           role="radiogroup"
@@ -163,6 +149,20 @@ export function NewMissionForm({
             );
           })}
         </div>
+      </div>
+
+      <div>
+        <Label htmlFor="goal">Goal</Label>
+        <Textarea
+          id="goal"
+          name="goal"
+          rows={5}
+          className="mt-1 text-base"
+          placeholder="Update the `fast-glob` dependency to ^3.3.2 everywhere it appears in package.json. Run the tests. If the tests fail, revert."
+          required
+          maxLength={10_000}
+        />
+        <FieldError errors={state.fieldErrors} name="goal" />
       </div>
 
       {isTriage ? (
