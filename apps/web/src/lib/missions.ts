@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq, isNotNull, isNull, or } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { backend, missions, plannerStrategy, type Mission, type NewMission } from '@forge/db';
@@ -108,12 +108,28 @@ export async function createMission(input: CreateMissionInput): Promise<Mission>
   return createMissionForUser(user.id, input);
 }
 
-/** List missions for a specific user. */
+/**
+ * List missions for a specific user — every campaign and issue leaf, but
+ * never a repo's container (workspaceRepo set, issueRef null, no
+ * parentMissionId — a pure budget/concurrency envelope, never a unit of
+ * work). Expressed as "NOT a container": either it isn't repo-scoped at
+ * all (campaign), or it's specifically issue-scoped (issueRef set), or it
+ * has a parent itself (defensive — containers are always roots).
+ */
 export async function listMissionsForUser(userId: string): Promise<Mission[]> {
   return db
     .select()
     .from(missions)
-    .where(eq(missions.userId, userId))
+    .where(
+      and(
+        eq(missions.userId, userId),
+        or(
+          isNull(missions.workspaceRepo),
+          isNotNull(missions.issueRef),
+          isNotNull(missions.parentMissionId),
+        ),
+      ),
+    )
     .orderBy(desc(missions.createdAt));
 }
 
