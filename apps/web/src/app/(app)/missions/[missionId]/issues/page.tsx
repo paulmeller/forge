@@ -58,6 +58,16 @@ export default async function MissionIssuesPage({
             {mission.issueQuery}
           </p>
         )}
+        {mission.targetRepos?.length === 1 ? (
+          <p className="mt-2">
+            <Link
+              href={`/repos/${mission.targetRepos[0]}`}
+              className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+            >
+              View in repo workspace →
+            </Link>
+          </p>
+        ) : null}
       </div>
 
       {groups.length === 0 ? (
