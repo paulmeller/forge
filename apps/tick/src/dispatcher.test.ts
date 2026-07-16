@@ -28,6 +28,7 @@ const mocks = vi.hoisted(() => {
     lastInflight: 0,
     maxSlotsOverride: undefined as number | undefined,
     selectAllStatuses: false,
+    lastLimitArg: undefined as number | undefined,
     env: { GITHUB_APP_TOKEN: undefined as string | undefined },
   };
 
@@ -39,6 +40,7 @@ const mocks = vi.hoisted(() => {
     state.lastInflight = 0;
     state.maxSlotsOverride = undefined;
     state.selectAllStatuses = false;
+    state.lastLimitArg = undefined;
     state.env.GITHUB_APP_TOKEN = undefined;
   };
 
@@ -73,6 +75,7 @@ const mocks = vi.hoisted(() => {
 
           return {
             limit: vi.fn(async (limit: number) => {
+              state.lastLimitArg = limit;
               const rows = state.selectAllStatuses
                 ? state.tasks
                 : state.tasks.filter((task) => task.status === 'queued');
@@ -290,6 +293,11 @@ describe('claimNextBatch', () => {
 
     const claimed = await claim({ concurrencyCap: 3 }, 1);
 
+    // The real code's slots computation (min(ownSlots, maxSlots) = min(3,1) = 1)
+    // is what's passed to .limit(slots * 3) — this is driven by production
+    // code, not by the mock's own maxSlotsOverride bookkeeping, so it would
+    // fail if claimNextBatch silently ignored maxSlots.
+    expect(mocks.state.lastLimitArg).toBe(3);
     expect(claimed.map((row) => row.id)).toEqual(['t1']);
   });
 
