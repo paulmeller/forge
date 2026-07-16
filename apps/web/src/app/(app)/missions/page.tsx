@@ -18,7 +18,7 @@ import { MissionProgressPill } from '@/components/progress-pill';
 import { MissionStatusBadge } from '@/components/mission-status-badge';
 import { Sparkline } from '@/components/sparkline';
 import { db } from '@/lib/db';
-import { isCampaignMission, isStandingMission, missionShapeLabel } from '@/lib/mission-shape';
+import { isCampaignMission, isIssueMission, missionShapeLabel } from '@/lib/mission-shape';
 import { listMissions } from '@/lib/missions';
 import { rollupMissions, sparklinesForMissions } from '@/lib/rollups';
 import { getOptionalUser } from '@/lib/with-auth';
@@ -235,7 +235,7 @@ export default async function DashboardPage({
                       >
                         {mission.name}
                       </Link>
-                      {isStandingMission(mission) ? (
+                      {isIssueMission(mission) ? (
                         <Link
                           href={`/repos/${mission.workspaceRepo}`}
                           className="mt-0.5 block truncate text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"

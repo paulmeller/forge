@@ -1,41 +1,85 @@
 import { describe, expect, it } from 'vitest';
 
-import { isCampaignMission, isStandingMission, missionShapeLabel, type ShapeInput } from './mission-shape';
+import {
+  isCampaignMission,
+  isContainerMission,
+  isIssueMission,
+  missionShapeLabel,
+  type ShapeInput,
+} from './mission-shape';
 
 function shape(over: Partial<{
   workspaceRepo: string | null;
   targetRepos: string[] | null;
   plannerStrategy: 'rule-based' | 'llm' | 'graph' | 'triage';
   issueQuery: string | null;
-}> = {}): ShapeInput {
+  issueRef: string | null;
+  parentMissionId: string | null;
+}> = {}): ShapeInput & { parentMissionId: string | null } {
   return {
     workspaceRepo: null,
     targetRepos: [],
     plannerStrategy: 'rule-based',
     issueQuery: null,
+    issueRef: null,
+    parentMissionId: null,
     ...over,
-  } as ShapeInput;
+  } as ShapeInput & { parentMissionId: string | null };
 }
 
-describe('isCampaignMission / isStandingMission', () => {
+describe('isCampaignMission', () => {
   it('a mission with no workspaceRepo is a campaign', () => {
     expect(isCampaignMission(shape())).toBe(true);
-    expect(isStandingMission(shape())).toBe(false);
   });
 
-  it('a mission with workspaceRepo set is standing', () => {
+  it('a mission with workspaceRepo set is not a campaign', () => {
     expect(isCampaignMission(shape({ workspaceRepo: 'acme/api' }))).toBe(false);
-    expect(isStandingMission(shape({ workspaceRepo: 'acme/api' }))).toBe(true);
+  });
+});
+
+describe('isContainerMission', () => {
+  it('a mission with workspaceRepo set and no issueRef/parentMissionId is a container', () => {
+    expect(
+      isContainerMission(shape({ workspaceRepo: 'acme/api', issueRef: null, parentMissionId: null })),
+    ).toBe(true);
+  });
+
+  it('a mission with issueRef set is not a container, even with workspaceRepo set', () => {
+    expect(
+      isContainerMission(
+        shape({ workspaceRepo: 'acme/api', issueRef: 'acme/api#1', parentMissionId: 'msn_x' }),
+      ),
+    ).toBe(false);
+  });
+
+  it('a campaign (no workspaceRepo) is not a container', () => {
+    expect(isContainerMission(shape())).toBe(false);
+  });
+});
+
+describe('isIssueMission', () => {
+  it('a mission with issueRef set is an issue mission', () => {
+    expect(isIssueMission(shape({ issueRef: 'acme/api#42' }))).toBe(true);
+  });
+
+  it('a mission with no issueRef is not an issue mission', () => {
+    expect(isIssueMission(shape())).toBe(false);
+    expect(isIssueMission(shape({ workspaceRepo: 'acme/api' }))).toBe(false);
   });
 });
 
 describe('missionShapeLabel', () => {
-  it('labels a standing mission by its repo, regardless of other fields', () => {
+  it('labels an issue mission by its issueRef, regardless of other fields', () => {
     expect(
       missionShapeLabel(
-        shape({ workspaceRepo: 'acme/api', plannerStrategy: 'triage', targetRepos: ['acme/api'] }),
+        shape({
+          workspaceRepo: 'acme/api',
+          issueRef: 'acme/api#42',
+          plannerStrategy: 'triage',
+          targetRepos: ['acme/api'],
+        }),
       ),
-    ).toBe('Standing · acme/api');
+    ).toBe('Issue · acme/api#42');
   });
 
   it('labels a triage campaign by its issue query', () => {

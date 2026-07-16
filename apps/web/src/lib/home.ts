@@ -3,7 +3,7 @@ import { and, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import { missions, tasks, type Task, type TaskStatus } from '@forge/db';
 
 import { db } from './db';
-import { isStandingMission } from './mission-shape';
+import { isIssueMission } from './mission-shape';
 import { listUserRepos } from './mission-defaults-db';
 
 export type HomeTaskRow = {
@@ -37,7 +37,7 @@ async function queryTasksByStatus(
       task: tasks,
       missionId: missions.id,
       missionName: missions.name,
-      workspaceRepo: missions.workspaceRepo,
+      issueRef: missions.issueRef,
     })
     .from(tasks)
     .innerJoin(missions, eq(tasks.missionId, missions.id))
@@ -49,7 +49,7 @@ async function queryTasksByStatus(
     task: r.task,
     missionId: r.missionId,
     missionName: r.missionName,
-    isStanding: isStandingMission({ workspaceRepo: r.workspaceRepo }),
+    isStanding: isIssueMission({ issueRef: r.issueRef }),
   }));
 }
 
