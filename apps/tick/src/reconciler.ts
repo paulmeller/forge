@@ -295,14 +295,16 @@ export async function runReconciler(log: Logger): Promise<ReconcileResult> {
     log.info({ taskId: task.id, from: task.status }, 'reconciler:gate_stalled');
   }
 
-  // (2) Complete Missions whose tasks are all in terminal states. Standing
-  // (workspace) missions are fed incrementally by the repo workspace feature
-  // and must never auto-complete just because their tasks are momentarily
-  // all terminal, so they're excluded from the candidate set entirely.
+  // (2) Complete Missions whose tasks are all in terminal states. A repo's
+  // container Mission (workspaceRepo set, issueRef null, parentMissionId
+  // null) is fed by neither a planner nor "Work on it" directly — it owns
+  // zero tasks by construction, so the existing "zero tasks, leave alone"
+  // guard below already protects it without needing its own predicate.
+  // Issue leaf missions and campaigns are both eligible here.
   const candidates = await db
     .select()
     .from(missions)
-    .where(and(eq(missions.status, 'running'), isNull(missions.workspaceRepo)));
+    .where(eq(missions.status, 'running'));
 
   for (const mission of candidates) {
     const nonTerminal = await db

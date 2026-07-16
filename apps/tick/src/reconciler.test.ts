@@ -134,19 +134,29 @@ describe('runReconciler — standing mission exemption', () => {
     return row;
   }
 
-  it('never completes a standing (workspaceRepo) mission even when all its tasks are terminal, while a regular mission with all-terminal tasks is completed in the same pass', async () => {
-    const standingId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
-    const regularId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+  it('never completes a container (zero tasks by construction), while an issue leaf and a campaign with all-terminal tasks both complete in the same pass', async () => {
+    const containerId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const issueLeafId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const campaignId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
 
-    await insertMission(standingId, { workspaceRepo: 'acme/api' });
-    await insertTerminalTask(`tsk_${randomUUID().replaceAll('-', '').slice(0, 12)}`, standingId);
+    // Container: workspaceRepo set, no issueRef, no parent, zero tasks.
+    await insertMission(containerId, { workspaceRepo: 'acme/api', issueRef: null, parentMissionId: null });
 
-    await insertMission(regularId, { workspaceRepo: null });
-    await insertTerminalTask(`tsk_${randomUUID().replaceAll('-', '').slice(0, 12)}`, regularId);
+    // Issue leaf: workspaceRepo set, issueRef set, parent = the container.
+    await insertMission(issueLeafId, {
+      workspaceRepo: 'acme/api',
+      issueRef: 'acme/api#1',
+      parentMissionId: containerId,
+    });
+    await insertTerminalTask(`tsk_${randomUUID().replaceAll('-', '').slice(0, 12)}`, issueLeafId);
+
+    await insertMission(campaignId, { workspaceRepo: null, issueRef: null, parentMissionId: null });
+    await insertTerminalTask(`tsk_${randomUUID().replaceAll('-', '').slice(0, 12)}`, campaignId);
 
     await runReconciler(noopLog);
 
-    expect((await getMission(standingId))!.status).toBe('running');
-    expect((await getMission(regularId))!.status).toBe('completed');
+    expect((await getMission(containerId))!.status).toBe('running');
+    expect((await getMission(issueLeafId))!.status).toBe('completed');
+    expect((await getMission(campaignId))!.status).toBe('completed');
   });
 });
