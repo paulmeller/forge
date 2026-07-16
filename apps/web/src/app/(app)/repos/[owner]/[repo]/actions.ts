@@ -10,7 +10,7 @@ import { buildCreateIssuePayload } from '@/lib/github-issue-create';
 import { resolveMissionDefaults } from '@/lib/mission-defaults-db';
 import { buildTriageTaskRows, type TriageIssue } from '@/lib/triage-planner';
 import { withAuth } from '@/lib/with-auth';
-import { getOrCreateWorkspaceMission } from '@/lib/workspace-mission';
+import { getOrCreateIssueMission } from '@/lib/workspace-mission';
 
 /**
  * Enqueue a gated reproduce→fix Task pair for one issue, in the repo's
@@ -23,10 +23,12 @@ export async function workOnIssue(
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const user = await withAuth();
 
+  const issueRef = `${repo}#${issue.number}`;
+
   let mission;
   try {
     const defaults = await resolveMissionDefaults(user.id);
-    mission = await getOrCreateWorkspaceMission(user.id, repo, defaults);
+    mission = await getOrCreateIssueMission(user.id, repo, issueRef, defaults);
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : 'Could not prepare mission' };
   }
@@ -48,7 +50,7 @@ export async function workOnIssue(
       id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
       missionId: mission.id,
       eventType: 'workspace.issue.enqueued',
-      payload: { issueRef: `${repo}#${issue.number}`, taskIds: rows.map((r) => r.id) },
+      payload: { issueRef, taskIds: rows.map((r) => r.id) },
       createdAt: now,
     });
   });
