@@ -18,6 +18,7 @@ import { MissionProgressPill } from '@/components/progress-pill';
 import { MissionStatusBadge } from '@/components/mission-status-badge';
 import { Sparkline } from '@/components/sparkline';
 import { db } from '@/lib/db';
+import { isCampaignMission, isStandingMission, missionShapeLabel } from '@/lib/mission-shape';
 import { listMissions } from '@/lib/missions';
 import { rollupMissions, sparklinesForMissions } from '@/lib/rollups';
 import { getOptionalUser } from '@/lib/with-auth';
@@ -90,15 +91,24 @@ async function getDashboardStats(userId: string) {
 export default async function DashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; backend?: string; q?: string }>;
+  searchParams: Promise<{ status?: string; backend?: string; q?: string; standing?: string }>;
 }) {
-  const { status: statusFilter, backend: backendFilter, q: searchQuery } = await searchParams;
+  const {
+    status: statusFilter,
+    backend: backendFilter,
+    q: searchQuery,
+    standing: showStanding,
+  } = await searchParams;
   const user = await getOptionalUser();
   const userId = user?.id ?? 'user_default';
 
   const stats = await getDashboardStats(userId);
 
   let allMissions = await listMissions();
+
+  if (showStanding !== '1') {
+    allMissions = allMissions.filter(isCampaignMission);
+  }
 
   // Apply filters
   if (statusFilter) {
@@ -225,6 +235,18 @@ export default async function DashboardPage({
                       >
                         {mission.name}
                       </Link>
+                      {isStandingMission(mission) ? (
+                        <Link
+                          href={`/repos/${mission.workspaceRepo}`}
+                          className="mt-0.5 block truncate text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                        >
+                          {missionShapeLabel(mission)}
+                        </Link>
+                      ) : (
+                        <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                          {missionShapeLabel(mission)}
+                        </p>
+                      )}
                     </TableCell>
                     <TableCell>
                       <MissionStatusBadge status={mission.status} />

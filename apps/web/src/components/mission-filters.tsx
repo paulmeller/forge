@@ -92,6 +92,18 @@ export function MissionFilters() {
         className="h-7 w-44 text-xs"
       />
 
+      <span className="mx-1 h-4 w-px bg-border" />
+
+      <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+        <input
+          type="checkbox"
+          className="accent-checkbox h-3.5 w-3.5"
+          checked={params.get('standing') === '1'}
+          onChange={(e) => updateParam('standing', e.target.checked ? '1' : '')}
+        />
+        Show standing missions
+      </label>
+
       {(activeStatuses.length > 0 || activeBackend || search) && (
         <button
           type="button"
