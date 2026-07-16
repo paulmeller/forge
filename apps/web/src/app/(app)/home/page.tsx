@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { TaskStatusBadge } from '@/components/task-status-badge';
 import { db } from '@/lib/db';
 import {
+  getDashboardStats,
   getNeedsYou,
   getNowRunning,
   getRecentOutcomes,
@@ -20,7 +21,7 @@ import { withAuth } from '@/lib/with-auth';
 export const dynamic = 'force-dynamic';
 
 function TaskRow({ row }: { row: HomeTaskRow }) {
-  const { task, missionName, isStanding } = row;
+  const { task, missionName, isIssueMission } = row;
   const label = task.issueRef ?? missionName;
   return (
     <Link
@@ -32,9 +33,9 @@ function TaskRow({ row }: { row: HomeTaskRow }) {
         <p className="truncate font-mono text-xs text-muted-foreground">{task.repo}</p>
       </div>
       <div className="flex shrink-0 items-center gap-2">
-        {isStanding ? (
+        {isIssueMission ? (
           <Badge variant="outline" className="text-[10px]">
-            Standing
+            Issue
           </Badge>
         ) : null}
         <TaskStatusBadge status={task.status} haltReason={task.haltReason} />
@@ -78,7 +79,8 @@ export default async function HomePage() {
     .limit(1);
   if (!installation) redirect('/setup');
 
-  const [nowRunning, needsYou, recentOutcomes, repoActivity] = await Promise.all([
+  const [stats, nowRunning, needsYou, recentOutcomes, repoActivity] = await Promise.all([
+    getDashboardStats(user.id),
     getNowRunning(user.id),
     getNeedsYou(user.id),
     getRecentOutcomes(user.id),
@@ -92,6 +94,33 @@ export default async function HomePage() {
         <p className="mt-1 text-sm text-muted-foreground">
           Everything running across your repos and missions.
         </p>
+      </div>
+
+      <div className="mb-8 grid grid-cols-2 gap-4 md:grid-cols-4">
+        <Card>
+          <CardContent className="py-4">
+            <p className="text-2xl font-semibold">{stats.mergedThisWeek}</p>
+            <p className="text-xs text-muted-foreground">PRs merged this week</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="py-4">
+            <p className="text-2xl font-semibold">{stats.activeAgents}</p>
+            <p className="text-xs text-muted-foreground">Active agents</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="py-4">
+            <p className="text-2xl font-semibold">${stats.spentUsd.toFixed(2)}</p>
+            <p className="text-xs text-muted-foreground">Total spend</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="py-4">
+            <p className="text-2xl font-semibold">{stats.connectedRepos}</p>
+            <p className="text-xs text-muted-foreground">Connected repos</p>
+          </CardContent>
+        </Card>
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">

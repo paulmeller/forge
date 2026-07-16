@@ -1,6 +1,6 @@
 import { and, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 
-import { missions, tasks, type Task, type TaskStatus } from '@forge/db';
+import { githubInstallationRepos, githubInstallations, missions, tasks, type Task, type TaskStatus } from '@forge/db';
 
 import { db } from './db';
 import { isIssueMission } from './mission-shape';
@@ -10,7 +10,7 @@ export type HomeTaskRow = {
   task: Task;
   missionId: string;
   missionName: string;
-  isStanding: boolean;
+  isIssueMission: boolean;
 };
 
 const NOW_RUNNING_STATUSES = [
@@ -49,7 +49,7 @@ async function queryTasksByStatus(
     task: r.task,
     missionId: r.missionId,
     missionName: r.missionName,
-    isStanding: isIssueMission({ issueRef: r.issueRef }),
+    isIssueMission: isIssueMission({ issueRef: r.issueRef }),
   }));
 }
 
@@ -66,6 +66,73 @@ export function getNeedsYou(userId: string, limit = 10): Promise<HomeTaskRow[]> 
 /** Most recent terminal successes — merged PRs, resolved reproduce verdicts. */
 export function getRecentOutcomes(userId: string, limit = 10): Promise<HomeTaskRow[]> {
   return queryTasksByStatus(userId, RECENT_OUTCOME_STATUSES, limit, true);
+}
+
+export type DashboardStats = {
+  mergedThisWeek: number;
+  activeAgents: number;
+  spentUsd: number;
+  connectedRepos: number;
+};
+
+/**
+ * Cross-cutting operator stats shown as the metric-card row on /home. Also
+ * consumed by /missions (just `connectedRepos`, for its "connect your
+ * repos" empty-state banner) — one query, two consumers, rather than
+ * duplicating the DB reads.
+ */
+export async function getDashboardStats(userId: string): Promise<DashboardStats> {
+  const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+
+  const [mergedRows, activeRows, spendRows] = await Promise.all([
+    db
+      .select({ count: sql<number>`count(*)` })
+      .from(tasks)
+      .innerJoin(missions, eq(tasks.missionId, missions.id))
+      .where(
+        and(
+          eq(missions.userId, userId),
+          eq(tasks.status, 'merged'),
+          sql`${tasks.completedAt} >= ${weekAgo}`,
+        ),
+      ),
+    db
+      .select({ count: sql<number>`count(*)` })
+      .from(tasks)
+      .innerJoin(missions, eq(tasks.missionId, missions.id))
+      .where(
+        and(
+          eq(missions.userId, userId),
+          inArray(tasks.status, ['dispatching', 'running', 'turn_ended']),
+        ),
+      ),
+    db
+      .select({ total: sql<number>`coalesce(sum(${missions.spentUsd}), 0)` })
+      .from(missions)
+      .where(eq(missions.userId, userId)),
+  ]);
+
+  // Repo count query is separate — table may not exist in dev
+  let repoRows: { count: number }[] = [{ count: 0 }];
+  try {
+    repoRows = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(githubInstallationRepos)
+      .innerJoin(
+        githubInstallations,
+        eq(githubInstallationRepos.installationId, githubInstallations.id),
+      )
+      .where(eq(githubInstallations.userId, userId));
+  } catch {
+    // Table doesn't exist yet — that's fine
+  }
+
+  return {
+    mergedThisWeek: Number(mergedRows[0]?.count ?? 0),
+    activeAgents: Number(activeRows[0]?.count ?? 0),
+    spentUsd: Number(spendRows[0]?.total ?? 0),
+    connectedRepos: Number(repoRows[0]?.count ?? 0),
+  };
 }
 
 export type RepoActivity = { repo: string; activeCount: number; totalCount: number };

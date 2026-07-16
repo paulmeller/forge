@@ -1,10 +1,6 @@
 import Link from 'next/link';
-import { and, eq, inArray, sql } from '@forge/db/orm';
-
-import { githubInstallationRepos, githubInstallations, missions, tasks } from '@forge/db';
 
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import {
   Table,
   TableBody,
@@ -17,7 +13,7 @@ import { MissionFilters } from '@/components/mission-filters';
 import { MissionProgressPill } from '@/components/progress-pill';
 import { MissionStatusBadge } from '@/components/mission-status-badge';
 import { Sparkline } from '@/components/sparkline';
-import { db } from '@/lib/db';
+import { getDashboardStats } from '@/lib/home';
 import { isCampaignMission, isIssueMission, missionShapeLabel } from '@/lib/mission-shape';
 import { listMissions } from '@/lib/missions';
 import { rollupMissions, sparklinesForMissions } from '@/lib/rollups';
@@ -32,60 +28,6 @@ function formatDate(date: Date): string {
     hour: 'numeric',
     minute: 'numeric',
   }).format(date);
-}
-
-async function getDashboardStats(userId: string) {
-  const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-
-  const [mergedRows, activeRows, spendRows] = await Promise.all([
-    db
-      .select({ count: sql<number>`count(*)` })
-      .from(tasks)
-      .innerJoin(missions, eq(tasks.missionId, missions.id))
-      .where(
-        and(
-          eq(missions.userId, userId),
-          eq(tasks.status, 'merged'),
-          sql`${tasks.completedAt} >= ${weekAgo}`,
-        ),
-      ),
-    db
-      .select({ count: sql<number>`count(*)` })
-      .from(tasks)
-      .innerJoin(missions, eq(tasks.missionId, missions.id))
-      .where(
-        and(
-          eq(missions.userId, userId),
-          inArray(tasks.status, ['dispatching', 'running', 'turn_ended']),
-        ),
-      ),
-    db
-      .select({ total: sql<number>`coalesce(sum(${missions.spentUsd}), 0)` })
-      .from(missions)
-      .where(eq(missions.userId, userId)),
-  ]);
-
-  // Repo count query is separate — table may not exist in dev
-  let repoRows: { count: number }[] = [{ count: 0 }];
-  try {
-    repoRows = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(githubInstallationRepos)
-      .innerJoin(
-        githubInstallations,
-        eq(githubInstallationRepos.installationId, githubInstallations.id),
-      )
-      .where(eq(githubInstallations.userId, userId));
-  } catch {
-    // Table doesn't exist yet — that's fine
-  }
-
-  return {
-    mergedThisWeek: Number(mergedRows[0]?.count ?? 0),
-    activeAgents: Number(activeRows[0]?.count ?? 0),
-    spentUsd: Number(spendRows[0]?.total ?? 0),
-    connectedRepos: Number(repoRows[0]?.count ?? 0),
-  };
 }
 
 export default async function DashboardPage({
@@ -169,34 +111,6 @@ export default async function DashboardPage({
           </div>
         </div>
       )}
-
-      {/* Stats row */}
-      <div className="mb-8 grid grid-cols-2 gap-4 md:grid-cols-4">
-        <Card>
-          <CardContent className="py-4">
-            <p className="text-2xl font-semibold">{stats.mergedThisWeek}</p>
-            <p className="text-xs text-muted-foreground">PRs merged this week</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="py-4">
-            <p className="text-2xl font-semibold">{stats.activeAgents}</p>
-            <p className="text-xs text-muted-foreground">Active agents</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="py-4">
-            <p className="text-2xl font-semibold">${stats.spentUsd.toFixed(2)}</p>
-            <p className="text-xs text-muted-foreground">Total spend</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="py-4">
-            <p className="text-2xl font-semibold">{stats.connectedRepos}</p>
-            <p className="text-xs text-muted-foreground">Connected repos</p>
-          </CardContent>
-        </Card>
-      </div>
 
       {/* Missions header */}
       <div className="mb-6 flex items-center justify-between">
