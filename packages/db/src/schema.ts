@@ -99,12 +99,26 @@ export const missions = sqliteTable('missions', {
    */
   issueQuery: text('issue_query'),
   /**
-   * Set only for a repo's "standing" workspace Mission (one per user+repo,
-   * created lazily by the Repo Workspace's "Work on it" action). Null for
-   * ordinary composer-authored missions. The reconciler must never
-   * auto-complete a mission with this set — see reconciler.ts.
+   * Set for any repo-scoped Mission (both the repo's container and its
+   * issue leaves — see `issueRef`/`parentMissionId` below for which is
+   * which). Null for ordinary composer-authored campaign missions.
    */
   workspaceRepo: text('workspace_repo'),
+  /**
+   * Set only on an issue leaf Mission (format "owner/repo#123", matching
+   * `tasks.issueRef`) — the specific issue this Mission's tasks belong to.
+   * Null on the repo's container Mission and on campaigns.
+   */
+  issueRef: text('issue_ref'),
+  /**
+   * Self-referential: set on an issue leaf Mission, pointing at its repo's
+   * container. Null on containers and on campaigns (both are always
+   * roots). A container has `workspaceRepo` set, `issueRef` null, and
+   * `parentMissionId` null, owns zero tasks, and must never appear as a
+   * row anywhere — see mission-shape.ts (Phase 2) and listMissions()
+   * (Task 4 of this plan).
+   */
+  parentMissionId: text('parent_mission_id'),
   concurrencyCap: integer('concurrency_cap').notNull().default(5),
   budgetUsd: integer('budget_usd'),
   budgetTokens: integer('budget_tokens'),
