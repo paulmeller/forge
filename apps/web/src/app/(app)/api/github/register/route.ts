@@ -40,7 +40,7 @@ export async function GET(request: Request) {
     public: true,
     default_permissions: {
       contents: 'write',
-      issues: 'read',
+      issues: 'write',
       pull_requests: 'write',
       checks: 'read',
       metadata: 'read',
