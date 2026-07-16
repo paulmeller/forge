@@ -53,11 +53,11 @@ const defaultDeps: WorkspaceMissionDeps = {
 };
 
 /**
- * Get the repo's standing triage Mission for this user, creating it if none
- * exists. Standing missions start `running` immediately — there is no
- * draft/plan phase; per-issue "Work on it" opt-in replaces plan review. The
- * reconciler must never auto-complete a mission with `workspaceRepo` set
- * (see apps/tick/src/reconciler.ts).
+ * Get the repo's container Mission for this user, creating it if none
+ * exists. A container never owns tasks and is never listed anywhere — it
+ * exists only to hold the repo-wide `concurrencyCap`/budget that its issue
+ * leaf missions (see `getOrCreateIssueMission`) share. The reconciler must
+ * never auto-complete a container — see reconciler.ts.
  */
 export async function getOrCreateWorkspaceMission(
   userId: string,
@@ -101,6 +101,118 @@ export async function getOrCreateWorkspaceMission(
     aiReviewEnabled: false,
     selfVerifyEnabled: false,
     workspaceRepo: repo,
+    createdAt: now,
+    updatedAt: now,
+    startedAt: now,
+  };
+
+  return deps.insertMission(values);
+}
+
+export async function dbFindExistingIssueMission(
+  userId: string,
+  repo: string,
+  issueRef: string,
+): Promise<Mission | null> {
+  const [row] = await db
+    .select()
+    .from(missions)
+    .where(
+      and(
+        eq(missions.userId, userId),
+        eq(missions.workspaceRepo, repo),
+        eq(missions.issueRef, issueRef),
+      ),
+    )
+    .orderBy(desc(missions.createdAt))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function dbReopenMission(id: string): Promise<Mission> {
+  const now = new Date();
+  const [updated] = await db
+    .update(missions)
+    .set({ status: 'running', completedAt: null, updatedAt: now })
+    .where(eq(missions.id, id))
+    .returning();
+  if (!updated) throw new Error(`reopenMission: mission ${id} not found`);
+  return updated;
+}
+
+export type IssueMissionDeps = {
+  findExistingIssue: (userId: string, repo: string, issueRef: string) => Promise<Mission | null>;
+  reopenMission: (id: string) => Promise<Mission>;
+  getOrCreateContainer: (userId: string, repo: string, defaults: MissionDefaults) => Promise<Mission>;
+  insertMission: (values: NewMission) => Promise<Mission>;
+};
+
+const defaultIssueMissionDeps: IssueMissionDeps = {
+  findExistingIssue: dbFindExistingIssueMission,
+  reopenMission: dbReopenMission,
+  getOrCreateContainer: getOrCreateWorkspaceMission,
+  insertMission: dbInsertMission,
+};
+
+/**
+ * Get, reopen, or create the Mission for one specific issue in a repo.
+ * Creates the repo's container Mission first if this is the first issue
+ * ever worked there. "Work again" on an issue whose mission already
+ * reached a terminal state reopens that same mission rather than minting
+ * a new one — an issue's full work history lives in one place.
+ */
+export async function getOrCreateIssueMission(
+  userId: string,
+  repo: string,
+  issueRef: string,
+  defaults: MissionDefaults,
+  deps: IssueMissionDeps = defaultIssueMissionDeps,
+): Promise<Mission> {
+  const existing = await deps.findExistingIssue(userId, repo, issueRef);
+  if (existing) {
+    if (existing.status === 'completed' || existing.status === 'cancelled') {
+      return deps.reopenMission(existing.id);
+    }
+    return existing;
+  }
+
+  const container = await deps.getOrCreateContainer(userId, repo, defaults);
+
+  if (!defaults.agentId) {
+    throw new Error(
+      'No agent configured. Connect GitHub in Setup, or set FORGE_DEFAULT_AGENT_ID.',
+    );
+  }
+
+  const now = new Date();
+  const values: NewMission = {
+    id: `msn_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
+    userId,
+    name: `Issue — ${issueRef}`,
+    goal: `Fix ${issueRef} in ${repo}.`,
+    status: 'running',
+    backend: 'managed-agents',
+    agentId: defaults.agentId,
+    plannerStrategy: 'rule-based',
+    targetRepos: [repo],
+    issueQuery: null,
+    concurrencyCap: 5,
+    budgetUsd: null,
+    budgetTokens: null,
+    budgetThresholdPct: 80,
+    budgetHardStopPct: 100,
+    taskMaxTurns: null,
+    taskMaxTokens: null,
+    noProgressTokens: null,
+    webhookSecret: randomBytes(32).toString('hex'),
+    githubInstallationId: defaults.githubInstallationId,
+    githubVaultId: defaults.githubVaultId,
+    skillId: null,
+    aiReviewEnabled: false,
+    selfVerifyEnabled: false,
+    workspaceRepo: repo,
+    issueRef,
+    parentMissionId: container.id,
     createdAt: now,
     updatedAt: now,
     startedAt: now,

@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Mission, NewMission } from '@forge/db';
 
 import type { MissionDefaults } from './mission-defaults';
-import { getOrCreateWorkspaceMission } from './workspace-mission';
+import { getOrCreateIssueMission, getOrCreateWorkspaceMission } from './workspace-mission';
 
 const defaults: MissionDefaults = {
   agentId: 'agent_abc',
@@ -42,6 +42,8 @@ function fakeMission(over: Partial<Mission> = {}): Mission {
     noProgressTokens: null,
     selfVerifyEnabled: false,
     workspaceRepo: 'acme/api',
+    issueRef: null,
+    parentMissionId: null,
     createdAt: new Date('2026-01-01T00:00:00.000Z'),
     updatedAt: new Date('2026-01-01T00:00:00.000Z'),
     startedAt: null,
@@ -99,6 +101,128 @@ describe('getOrCreateWorkspaceMission', () => {
     await expect(
       getOrCreateWorkspaceMission('usr_1', 'acme/api', noAgentDefaults, {
         findExisting,
+        insertMission,
+      }),
+    ).rejects.toThrow(/no agent configured/i);
+
+    expect(insertMission).not.toHaveBeenCalled();
+  });
+});
+
+describe('getOrCreateIssueMission', () => {
+  it('returns the existing active issue mission without touching the container or inserting', async () => {
+    const existing = fakeMission({
+      id: 'msn_issue_existing',
+      issueRef: 'acme/api#42',
+      parentMissionId: 'msn_container',
+    });
+    const findExistingIssue = vi.fn().mockResolvedValue(existing);
+    const reopenMission = vi.fn();
+    const getOrCreateContainer = vi.fn();
+    const insertMission = vi.fn();
+
+    const result = await getOrCreateIssueMission('usr_1', 'acme/api', 'acme/api#42', defaults, {
+      findExistingIssue,
+      reopenMission,
+      getOrCreateContainer,
+      insertMission,
+    });
+
+    expect(result).toBe(existing);
+    expect(findExistingIssue).toHaveBeenCalledWith('usr_1', 'acme/api', 'acme/api#42');
+    expect(getOrCreateContainer).not.toHaveBeenCalled();
+    expect(insertMission).not.toHaveBeenCalled();
+    expect(reopenMission).not.toHaveBeenCalled();
+  });
+
+  it('reopens a completed issue mission instead of creating a new one', async () => {
+    const existing = fakeMission({
+      id: 'msn_issue_done',
+      status: 'completed',
+      issueRef: 'acme/api#42',
+    });
+    const reopened = fakeMission({ id: 'msn_issue_done', status: 'running', issueRef: 'acme/api#42' });
+    const findExistingIssue = vi.fn().mockResolvedValue(existing);
+    const reopenMission = vi.fn().mockResolvedValue(reopened);
+    const getOrCreateContainer = vi.fn();
+    const insertMission = vi.fn();
+
+    const result = await getOrCreateIssueMission('usr_1', 'acme/api', 'acme/api#42', defaults, {
+      findExistingIssue,
+      reopenMission,
+      getOrCreateContainer,
+      insertMission,
+    });
+
+    expect(result).toBe(reopened);
+    expect(reopenMission).toHaveBeenCalledWith('msn_issue_done');
+    expect(getOrCreateContainer).not.toHaveBeenCalled();
+    expect(insertMission).not.toHaveBeenCalled();
+  });
+
+  it('reopens a cancelled issue mission the same way as completed', async () => {
+    const existing = fakeMission({
+      id: 'msn_issue_cancelled',
+      status: 'cancelled',
+      issueRef: 'acme/api#7',
+    });
+    const reopened = fakeMission({ id: 'msn_issue_cancelled', status: 'running', issueRef: 'acme/api#7' });
+    const findExistingIssue = vi.fn().mockResolvedValue(existing);
+    const reopenMission = vi.fn().mockResolvedValue(reopened);
+
+    const result = await getOrCreateIssueMission('usr_1', 'acme/api', 'acme/api#7', defaults, {
+      findExistingIssue,
+      reopenMission,
+      getOrCreateContainer: vi.fn(),
+      insertMission: vi.fn(),
+    });
+
+    expect(result).toBe(reopened);
+    expect(reopenMission).toHaveBeenCalledWith('msn_issue_cancelled');
+  });
+
+  it('creates the container then inserts a new leaf mission when none exists', async () => {
+    const container = fakeMission({ id: 'msn_container', issueRef: null, parentMissionId: null });
+    const inserted = fakeMission({
+      id: 'msn_issue_new',
+      issueRef: 'acme/api#99',
+      parentMissionId: 'msn_container',
+    });
+    const findExistingIssue = vi.fn().mockResolvedValue(null);
+    const getOrCreateContainer = vi.fn().mockResolvedValue(container);
+    const insertMission = vi.fn().mockResolvedValue(inserted);
+
+    const result = await getOrCreateIssueMission('usr_1', 'acme/api', 'acme/api#99', defaults, {
+      findExistingIssue,
+      reopenMission: vi.fn(),
+      getOrCreateContainer,
+      insertMission,
+    });
+
+    expect(result).toBe(inserted);
+    expect(getOrCreateContainer).toHaveBeenCalledWith('usr_1', 'acme/api', defaults);
+    expect(insertMission).toHaveBeenCalledTimes(1);
+    const values = insertMission.mock.calls[0]![0] as NewMission;
+    expect(values.parentMissionId).toBe('msn_container');
+    expect(values.issueRef).toBe('acme/api#99');
+    expect(values.workspaceRepo).toBe('acme/api');
+    expect(values.status).toBe('running');
+    expect(values.plannerStrategy).toBe('rule-based');
+    expect(values.agentId).toBe('agent_abc');
+  });
+
+  it('throws instead of inserting a leaf mission when no agent is configured', async () => {
+    const container = fakeMission({ id: 'msn_container' });
+    const noAgentDefaults: MissionDefaults = { ...defaults, agentId: null, source: 'none' };
+    const findExistingIssue = vi.fn().mockResolvedValue(null);
+    const getOrCreateContainer = vi.fn().mockResolvedValue(container);
+    const insertMission = vi.fn();
+
+    await expect(
+      getOrCreateIssueMission('usr_1', 'acme/api', 'acme/api#1', noAgentDefaults, {
+        findExistingIssue,
+        reopenMission: vi.fn(),
+        getOrCreateContainer,
         insertMission,
       }),
     ).rejects.toThrow(/no agent configured/i);
