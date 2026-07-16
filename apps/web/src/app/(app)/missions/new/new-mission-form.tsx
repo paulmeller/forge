@@ -27,7 +27,7 @@ const MISSION_TYPES = [
   {
     value: 'single',
     label: 'Single repo',
-    description: 'Goal → Tasks against one repo. Opens a PR, gated on CI.',
+    description: 'Pick a repo — work its issues directly in the Repo Workspace, no goal needed.',
     icon: GitBranch,
   },
   {
@@ -69,7 +69,9 @@ export function NewMissionForm({
   const [decompStrategy, setDecompStrategy] = useState('rule-based');
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [repoError, setRepoError] = useState<string | null>(null);
+  const [singleRepoValue, setSingleRepoValue] = useState(initialRepo ?? '');
   const isTriage = missionType === 'triage';
+  const isSingleRepo = missionType === 'single';
   const plannerStrategy = isTriage ? 'triage' : decompStrategy;
 
   const missingAgent = !defaults.agentId;
@@ -151,96 +153,127 @@ export function NewMissionForm({
         </div>
       </div>
 
-      <div>
-        <Label htmlFor="goal">Goal</Label>
-        <Textarea
-          id="goal"
-          name="goal"
-          rows={5}
-          className="mt-1 text-base"
-          placeholder="Update the `fast-glob` dependency to ^3.3.2 everywhere it appears in package.json. Run the tests. If the tests fail, revert."
-          required
-          maxLength={10_000}
-        />
-        <FieldError errors={state.fieldErrors} name="goal" />
-      </div>
+      {isSingleRepo ? (
+        <>
+          <div>
+            <RepoPicker
+              mode="single"
+              availableRepos={availableRepos}
+              error={repoError ?? undefined}
+              initialRepo={initialRepo}
+              onSelectedChange={setSingleRepoValue}
+            />
+            <p className="mt-1 text-xs text-muted-foreground">
+              No goal to write — you&apos;ll pick which issues to work on directly in the repo.
+            </p>
+          </div>
 
-      {isTriage ? (
-        <div>
-          <Label htmlFor="issueQuery">Issue search query</Label>
-          <Input
-            id="issueQuery"
-            name="issueQuery"
-            placeholder="repo:vercel/ai is:issue is:open label:bug"
-            maxLength={500}
-            className="font-mono text-sm"
-          />
-          <p className="mt-1 text-xs text-muted-foreground">
-            A GitHub issue search. Each matching issue becomes a gated{' '}
-            <span className="font-mono">reproduce → fix</span> Task pair.
-          </p>
-          <FieldError errors={state.fieldErrors} name="issueQuery" />
-        </div>
+          <div className="flex justify-end">
+            {singleRepoValue ? (
+              <Button asChild variant="accent">
+                <Link href={`/repos/${singleRepoValue}`}>Go to repo issues →</Link>
+              </Button>
+            ) : (
+              <Button variant="accent" disabled>
+                Go to repo issues →
+              </Button>
+            )}
+          </div>
+        </>
       ) : (
-        <RepoPicker
-          mode={missionType === 'fleet' ? 'multi' : 'single'}
-          availableRepos={availableRepos}
-          error={repoError ?? state.fieldErrors?.targetRepos}
-          initialRepo={initialRepo}
-        />
+        <>
+          <div>
+            <Label htmlFor="goal">Goal</Label>
+            <Textarea
+              id="goal"
+              name="goal"
+              rows={5}
+              className="mt-1 text-base"
+              placeholder="Update the `fast-glob` dependency to ^3.3.2 everywhere it appears in package.json. Run the tests. If the tests fail, revert."
+              required
+              maxLength={10_000}
+            />
+            <FieldError errors={state.fieldErrors} name="goal" />
+          </div>
+
+          {isTriage ? (
+            <div>
+              <Label htmlFor="issueQuery">Issue search query</Label>
+              <Input
+                id="issueQuery"
+                name="issueQuery"
+                placeholder="repo:vercel/ai is:issue is:open label:bug"
+                maxLength={500}
+                className="font-mono text-sm"
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                A GitHub issue search. Each matching issue becomes a gated{' '}
+                <span className="font-mono">reproduce → fix</span> Task pair.
+              </p>
+              <FieldError errors={state.fieldErrors} name="issueQuery" />
+            </div>
+          ) : (
+            <RepoPicker
+              mode="multi"
+              availableRepos={availableRepos}
+              error={repoError ?? state.fieldErrors?.targetRepos}
+              initialRepo={initialRepo}
+            />
+          )}
+
+          {missingAgent ? (
+            <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
+              No agent configured — set an Agent ID in Advanced settings, or connect one in{' '}
+              <Link href="/setup" className="underline underline-offset-2">
+                Setup
+              </Link>
+              , before creating.
+            </div>
+          ) : missingInstallation ? (
+            <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
+              Missions can be planned now, but connect GitHub in{' '}
+              <Link href="/setup" className="underline underline-offset-2">
+                Setup
+              </Link>{' '}
+              before dispatching.
+            </div>
+          ) : null}
+
+          {state.error ? (
+            <div className="rounded-md border border-destructive bg-destructive/5 px-4 py-3 text-sm text-destructive">
+              {state.error}
+            </div>
+          ) : null}
+
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-xs text-muted-foreground">
+              {agentNote} · plan reviewed before dispatch ·{' '}
+              <button
+                type="button"
+                aria-expanded={showAdvanced}
+                aria-controls="advanced-panel"
+                onClick={() => setShowAdvanced((v) => !v)}
+                className="underline underline-offset-2 hover:text-foreground"
+              >
+                Advanced settings
+              </button>
+            </p>
+            <Button type="submit" variant="accent" disabled={pending}>
+              {pending ? 'Creating…' : 'Create Mission'}
+            </Button>
+          </div>
+
+          <AdvancedSettings
+            open={showAdvanced}
+            skills={availableSkills}
+            defaults={defaults}
+            missionType={missionType}
+            decompStrategy={decompStrategy}
+            onDecompChange={setDecompStrategy}
+            fieldErrors={state.fieldErrors}
+          />
+        </>
       )}
-
-      {missingAgent ? (
-        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
-          No agent configured — set an Agent ID in Advanced settings, or connect one in{' '}
-          <Link href="/setup" className="underline underline-offset-2">
-            Setup
-          </Link>
-          , before creating.
-        </div>
-      ) : missingInstallation ? (
-        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
-          Missions can be planned now, but connect GitHub in{' '}
-          <Link href="/setup" className="underline underline-offset-2">
-            Setup
-          </Link>{' '}
-          before dispatching.
-        </div>
-      ) : null}
-
-      {state.error ? (
-        <div className="rounded-md border border-destructive bg-destructive/5 px-4 py-3 text-sm text-destructive">
-          {state.error}
-        </div>
-      ) : null}
-
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-xs text-muted-foreground">
-          {agentNote} · plan reviewed before dispatch ·{' '}
-          <button
-            type="button"
-            aria-expanded={showAdvanced}
-            aria-controls="advanced-panel"
-            onClick={() => setShowAdvanced((v) => !v)}
-            className="underline underline-offset-2 hover:text-foreground"
-          >
-            Advanced settings
-          </button>
-        </p>
-        <Button type="submit" variant="accent" disabled={pending}>
-          {pending ? 'Creating…' : 'Create Mission'}
-        </Button>
-      </div>
-
-      <AdvancedSettings
-        open={showAdvanced}
-        skills={availableSkills}
-        defaults={defaults}
-        missionType={missionType}
-        decompStrategy={decompStrategy}
-        onDecompChange={setDecompStrategy}
-        fieldErrors={state.fieldErrors}
-      />
     </form>
   );
 }

@@ -24,11 +24,14 @@ export function RepoPicker({
   availableRepos,
   error,
   initialRepo,
+  onSelectedChange,
 }: {
   mode: 'single' | 'multi';
   availableRepos: string[];
   error?: string;
   initialRepo?: string;
+  /** Fires with the current repo value on every change — 'single' mode only. */
+  onSelectedChange?: (repo: string) => void;
 }) {
   const [selected, setSelected] = useState<string[]>(initialRepo ? [initialRepo] : []);
   const [freeText, setFreeText] = useState(initialRepo ?? '');
@@ -53,7 +56,10 @@ export function RepoPicker({
           {mode === 'single' ? (
             <Select
               value={selected[0] ?? ''}
-              onValueChange={(v) => setSelected([v])}
+              onValueChange={(v) => {
+                setSelected([v]);
+                onSelectedChange?.(v);
+              }}
             >
               <SelectTrigger
                 id="targetRepos"
@@ -109,7 +115,10 @@ export function RepoPicker({
               placeholder="acme/api"
               className="font-mono text-sm"
               value={freeText}
-              onChange={(e) => setFreeText(e.target.value)}
+              onChange={(e) => {
+                setFreeText(e.target.value);
+                onSelectedChange?.(e.target.value);
+              }}
               aria-describedby={error ? 'targetRepos-error' : undefined}
             />
           ) : (
