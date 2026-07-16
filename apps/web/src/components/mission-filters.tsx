@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 
 const STATUSES = ['draft', 'planning', 'running', 'paused', 'completed', 'cancelled'] as const;
 const BACKENDS = ['managed-agents', 'gateway'] as const;
+const KINDS = ['all', 'campaigns', 'issues'] as const;
 
 export function MissionFilters() {
   const router = useRouter();
@@ -15,6 +16,7 @@ export function MissionFilters() {
   const activeStatuses = params.get('status')?.split(',').filter(Boolean) ?? [];
   const activeBackend = params.get('backend') ?? '';
   const search = params.get('q') ?? '';
+  const activeKind = params.get('kind') || 'all';
 
   const updateParam = useCallback(
     (key: string, value: string) => {
@@ -94,17 +96,27 @@ export function MissionFilters() {
 
       <span className="mx-1 h-4 w-px bg-border" />
 
-      <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-        <input
-          type="checkbox"
-          className="accent-checkbox h-3.5 w-3.5"
-          checked={params.get('standing') === '1'}
-          onChange={(e) => updateParam('standing', e.target.checked ? '1' : '')}
-        />
-        Show standing missions
-      </label>
+      {/* Kind pills */}
+      {KINDS.map((k) => (
+        <button
+          key={k}
+          type="button"
+          onClick={() => updateParam('kind', k === 'all' ? '' : k)}
+          className={`rounded-full border px-2.5 py-1 text-[11px] capitalize transition ${
+            activeKind === k
+              ? 'border-foreground bg-foreground text-background'
+              : 'border-border bg-card text-muted-foreground hover:border-foreground/30'
+          }`}
+        >
+          {k}
+        </button>
+      ))}
 
-      {(activeStatuses.length > 0 || activeBackend || search) && (
+      {(activeStatuses.length > 0 ||
+        activeBackend ||
+        search ||
+        activeKind !== 'all' ||
+        params.get('repo')) && (
         <button
           type="button"
           onClick={() => router.replace('/missions', { scroll: false })}
