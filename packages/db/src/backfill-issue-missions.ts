@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 
 import { and, eq, isNotNull, isNull } from 'drizzle-orm';
 
@@ -91,7 +91,7 @@ async function main(): Promise<void> {
           taskMaxTurns: container.taskMaxTurns,
           taskMaxTokens: container.taskMaxTokens,
           noProgressTokens: container.noProgressTokens,
-          webhookSecret: randomUUID().replaceAll('-', ''),
+          webhookSecret: randomBytes(32).toString('hex'),
           githubInstallationId: container.githubInstallationId,
           githubVaultId: container.githubVaultId,
           skillId: container.skillId,
