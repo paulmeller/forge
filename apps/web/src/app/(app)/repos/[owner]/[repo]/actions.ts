@@ -130,6 +130,18 @@ async function cancelManagedAgentsSession(sessionId: string): Promise<void> {
   } as never);
 }
 
+async function sendSteeringMessage(sessionId: string, text: string): Promise<void> {
+  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+  await client.beta.sessions.events.send(sessionId, {
+    events: [
+      {
+        type: 'user.message',
+        content: [{ type: 'text', text }],
+      },
+    ],
+  } as never);
+}
+
 // Terminal Task statuses (mirrors apps/tick/src/reconciler.ts's
 // MISSION_TERMINAL_TASK_STATUSES, minus 'awaiting_review' which is
 // mission-terminal but not Task-terminal — no cross-app import needed for
@@ -190,6 +202,54 @@ export async function abortTask(
       payload: { sessionId: task.sessionId },
       createdAt: now,
     });
+  });
+
+  return { ok: true };
+}
+
+/**
+ * Send a mid-run instruction into a Task's live session. The message is
+ * appended to the session's event stream (same `user.message` shape the
+ * dispatcher uses for the opening turn) and recorded in the audit ledger.
+ */
+export async function steerTask(
+  taskId: string,
+  message: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const user = await withAuth();
+
+  const text = message.trim();
+  if (!text) return { ok: false, error: 'Message is empty' };
+
+  const [row] = await db
+    .select({ task: tasks, ownerId: missions.userId })
+    .from(tasks)
+    .innerJoin(missions, eq(tasks.missionId, missions.id))
+    .where(eq(tasks.id, taskId))
+    .limit(1);
+  if (!row || row.ownerId !== user.id) return { ok: false, error: 'Task not found' };
+  const task = row.task;
+  if (!task.sessionId) return { ok: false, error: 'Task has no active session to steer' };
+  if (TERMINAL_TASK_STATUSES.includes(task.status)) {
+    return { ok: false, error: 'Task has already finished, nothing to steer' };
+  }
+
+  try {
+    await sendSteeringMessage(task.sessionId, text);
+  } catch (err) {
+    return {
+      ok: false,
+      error: `Could not reach session: ${err instanceof Error ? err.message : 'unknown error'}`,
+    };
+  }
+
+  await db.insert(ledgerEvents).values({
+    id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
+    missionId: task.missionId,
+    taskId: task.id,
+    eventType: 'task.steered',
+    payload: { sessionId: task.sessionId, message: text },
+    createdAt: new Date(),
   });
 
   return { ok: true };
