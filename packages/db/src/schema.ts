@@ -67,6 +67,7 @@ export const haltReason = [
   'task_token_cap',
   'no_progress',
   'budget_hard_stop',
+  'manual_abort',
 ] as const;
 export type HaltReason = (typeof haltReason)[number];
 
@@ -119,6 +120,13 @@ export const missions = sqliteTable('missions', {
    * (Task 4 of this plan).
    */
   parentMissionId: text('parent_mission_id'),
+  /**
+   * Issue refs ("owner/repo#123") a human has marked "Next" on this
+   * repo's container — queued-for-work without dispatching. Cleared for
+   * an issueRef the moment `workOnIssue` is called for it. Null/empty for
+   * everything except containers actually in use.
+   */
+  nextIssueRefs: text('next_issue_refs', { mode: 'json' }).$type<string[]>(),
   concurrencyCap: integer('concurrency_cap').notNull().default(5),
   budgetUsd: integer('budget_usd'),
   budgetTokens: integer('budget_tokens'),

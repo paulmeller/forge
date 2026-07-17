@@ -1,0 +1,1 @@
+ALTER TABLE `missions` ADD `next_issue_refs` text;
