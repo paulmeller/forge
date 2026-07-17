@@ -2,6 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { ChevronsUpDown, LogOut, Moon, Sun } from 'lucide-react';
+import { useTheme } from 'next-themes';
 
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import {
@@ -27,6 +28,7 @@ function initials(name: string): string {
 export function NavUser({ name, email }: { name: string; email: string }) {
   const { isMobile } = useSidebar();
   const router = useRouter();
+  const { resolvedTheme, setTheme } = useTheme();
 
   async function handleSignOut() {
     await authClient.signOut();
@@ -35,10 +37,7 @@ export function NavUser({ name, email }: { name: string; email: string }) {
   }
 
   function toggleTheme() {
-    const root = document.documentElement;
-    const dark = root.classList.contains('dark');
-    root.classList.toggle('dark', !dark);
-    localStorage.setItem('forge-theme', dark ? 'light' : 'dark');
+    setTheme(resolvedTheme === 'dark' ? 'light' : 'dark');
   }
 
   return (
