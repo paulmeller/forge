@@ -182,7 +182,7 @@ export function IssueRunPanel({
             />
           </div>
 
-          {canSteer && task ? <SteerInput taskId={task.id} /> : null}
+          {canSteer && task ? <SteerInput key={task.id} taskId={task.id} /> : null}
 
           <Link
             href={`/missions/${missionId}/tasks/${task.id}`}
