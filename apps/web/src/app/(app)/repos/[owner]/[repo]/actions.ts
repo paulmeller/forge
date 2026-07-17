@@ -3,7 +3,7 @@
 import { randomUUID } from 'node:crypto';
 
 import Anthropic from '@anthropic-ai/sdk';
-import { ledgerEvents, tasks } from '@forge/db';
+import { ledgerEvents, tasks, type TaskStatus } from '@forge/db';
 import { eq } from 'drizzle-orm';
 
 import { db } from '@/lib/db';
@@ -111,6 +111,12 @@ async function cancelManagedAgentsSession(sessionId: string): Promise<void> {
   } as never);
 }
 
+// Terminal Task statuses (mirrors apps/tick/src/reconciler.ts's
+// MISSION_TERMINAL_TASK_STATUSES, minus 'awaiting_review' which is
+// mission-terminal but not Task-terminal — no cross-app import needed for
+// this small a check).
+const TERMINAL_TASK_STATUSES: TaskStatus[] = ['merged', 'resolved', 'abandoned', 'failed'];
+
 /**
  * Abort a running Task's session. Only meaningful for a Task with an active
  * session (running/dispatching/etc.) — marks it failed with haltReason
@@ -125,6 +131,9 @@ export async function abortTask(
   const [task] = await db.select().from(tasks).where(eq(tasks.id, taskId)).limit(1);
   if (!task) return { ok: false, error: 'Task not found' };
   if (!task.sessionId) return { ok: false, error: 'Task has no active session to abort' };
+  if (TERMINAL_TASK_STATUSES.includes(task.status)) {
+    return { ok: false, error: 'Task has already finished, nothing to abort' };
+  }
 
   try {
     await cancelManagedAgentsSession(task.sessionId);
@@ -136,24 +145,26 @@ export async function abortTask(
   }
 
   const now = new Date();
-  await db
-    .update(tasks)
-    .set({
-      status: 'failed',
-      haltReason: 'manual_abort',
-      lastError: 'Aborted by operator',
-      updatedAt: now,
-      completedAt: now,
-    })
-    .where(eq(tasks.id, taskId));
+  await db.transaction(async (tx) => {
+    await tx
+      .update(tasks)
+      .set({
+        status: 'failed',
+        haltReason: 'manual_abort',
+        lastError: 'Aborted by operator',
+        updatedAt: now,
+        completedAt: now,
+      })
+      .where(eq(tasks.id, taskId));
 
-  await db.insert(ledgerEvents).values({
-    id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
-    missionId: task.missionId,
-    taskId: task.id,
-    eventType: 'task.aborted',
-    payload: { sessionId: task.sessionId },
-    createdAt: now,
+    await tx.insert(ledgerEvents).values({
+      id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
+      missionId: task.missionId,
+      taskId: task.id,
+      eventType: 'task.aborted',
+      payload: { sessionId: task.sessionId },
+      createdAt: now,
+    });
   });
 
   return { ok: true };
