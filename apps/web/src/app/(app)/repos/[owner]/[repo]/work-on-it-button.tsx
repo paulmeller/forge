@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
+import { statusLabel } from '@/lib/status-labels';
 import type { TriageHeadline } from '@/lib/triage-view';
 
 import { workOnIssue } from './actions';
@@ -15,12 +16,6 @@ const TERMINAL: ReadonlySet<TriageHeadline> = new Set([
   'fix_skipped',
   'failed',
 ]);
-
-const IN_FLIGHT_LABEL: Record<string, string> = {
-  reproducing: 'Reproducing…',
-  fixing: 'Fixing…',
-  fix_review: 'Awaiting review',
-};
 
 export function WorkOnItButton({
   repo,
@@ -42,9 +37,13 @@ export function WorkOnItButton({
   const inFlight = headline !== null && !TERMINAL.has(headline);
   if (inFlight) {
     return (
-      <Button disabled variant="secondary" size="sm">
-        {IN_FLIGHT_LABEL[headline] ?? 'In progress'}
-      </Button>
+      <p className="flex items-center gap-2 text-xs text-muted-foreground">
+        {(headline === 'reproducing' || headline === 'fixing') && (
+          <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-live" aria-hidden />
+        )}
+        {statusLabel(headline)}
+        {headline === 'fix_review' ? ' — check the PR above' : null}
+      </p>
     );
   }
 

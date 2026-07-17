@@ -115,10 +115,10 @@ export default async function RepoWorkspacePage({
         <Button asChild variant="ghost" size="sm" className="-ml-2 mb-3">
           <Link href="/repos">&larr; Repos</Link>
         </Button>
-        <div className="mb-4 flex items-start justify-between gap-4">
-          <div>
+        <div className="title-glow mb-4 flex items-start justify-between gap-4">
+          <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <h1 className="font-title text-3xl uppercase tracking-tight">{repo}</h1>
+              <h1 className="truncate font-mono text-2xl font-semibold tracking-tight">{repo}</h1>
               {hasActiveWork ? <LiveRefresh intervalMs={5000} /> : null}
             </div>
             <div className="mt-1 flex items-center gap-3">

@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PrChip } from '@/components/pr-chip';
 import { TaskProgressPill, type TaskRollup } from '@/components/progress-pill';
+import { SectionLabel } from '@/components/section-label';
 import { SessionLogView } from '@/components/session-log-view';
 import { SteerInput } from '@/components/steer-input';
 import { TaskStatusBadge } from '@/components/task-status-badge';
@@ -150,18 +151,22 @@ export function IssueRunPanel({
 
       {task ? (
         <>
-          <div className="min-h-0 min-w-0 flex-[2] overflow-y-auto">
-            <AttemptFileBrowser task={task} ledger={ledger} />
-          </div>
-
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-            <SessionLogView
-              taskId={task.id}
-              isLive={isLive}
-              initialEvents={ledger}
-              maxLines={300}
-              className="h-full"
-            />
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border">
+            <div className="shrink-0 border-b bg-muted/40 px-3 py-1.5">
+              <SectionLabel>Run output</SectionLabel>
+            </div>
+            <div className="min-h-0 min-w-0 flex-[2] overflow-y-auto p-3">
+              <AttemptFileBrowser task={task} ledger={ledger} />
+            </div>
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col border-t">
+              <SessionLogView
+                taskId={task.id}
+                isLive={isLive}
+                initialEvents={ledger}
+                maxLines={300}
+                className="h-full rounded-none border-0"
+              />
+            </div>
           </div>
 
           {canSteer && task ? <SteerInput key={task.id} taskId={task.id} /> : null}
