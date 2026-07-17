@@ -5,6 +5,7 @@ import {
   isContainerMission,
   isIssueMission,
   missionShapeLabel,
+  parseIssueRef,
   type ShapeInput,
 } from './mission-shape';
 
@@ -65,6 +66,24 @@ describe('isIssueMission', () => {
   it('a mission with no issueRef is not an issue mission', () => {
     expect(isIssueMission(shape())).toBe(false);
     expect(isIssueMission(shape({ workspaceRepo: 'acme/api' }))).toBe(false);
+  });
+});
+
+describe('parseIssueRef', () => {
+  it('splits a simple owner/repo#N ref', () => {
+    expect(parseIssueRef('acme/api#42')).toEqual({ repo: 'acme/api', number: 42 });
+  });
+
+  it('handles repo names containing extra slashes or dots', () => {
+    expect(parseIssueRef('acme/my.repo-name#7')).toEqual({ repo: 'acme/my.repo-name', number: 7 });
+  });
+
+  it('returns null for a ref with no issue number', () => {
+    expect(parseIssueRef('acme/api')).toBeNull();
+  });
+
+  it('returns null for an empty string', () => {
+    expect(parseIssueRef('')).toBeNull();
   });
 });
 

@@ -9,7 +9,7 @@ const STATUSES = ['draft', 'planning', 'running', 'paused', 'completed', 'cancel
 const BACKENDS = ['managed-agents', 'gateway'] as const;
 const KINDS = ['all', 'campaigns', 'issues'] as const;
 
-export function MissionFilters() {
+export function MissionFilters({ basePath = '/missions' }: { basePath?: string } = {}) {
   const router = useRouter();
   const params = useSearchParams();
 
@@ -24,9 +24,9 @@ export function MissionFilters() {
       if (value) next.set(key, value);
       else next.delete(key);
       const qs = next.toString();
-      router.replace(`/missions${qs ? `?${qs}` : ''}`, { scroll: false });
+      router.replace(`${basePath}${qs ? `?${qs}` : ''}`, { scroll: false });
     },
-    [params, router],
+    [params, router, basePath],
   );
 
   const toggleStatus = useCallback(
@@ -119,7 +119,7 @@ export function MissionFilters() {
         params.get('repo')) && (
         <button
           type="button"
-          onClick={() => router.replace('/missions', { scroll: false })}
+          onClick={() => router.replace(basePath, { scroll: false })}
           className="text-[11px] text-muted-foreground underline decoration-dotted hover:text-foreground"
         >
           Clear

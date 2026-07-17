@@ -4,72 +4,23 @@ import { eq } from '@forge/db/orm';
 
 import { githubInstallations } from '@forge/db';
 
-import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { TaskStatusBadge } from '@/components/task-status-badge';
+import { Button } from '@/components/ui/button';
+import { MissionFilters } from '@/components/mission-filters';
+import { MissionsTable } from '@/components/missions-table';
 import { db } from '@/lib/db';
-import {
-  getDashboardStats,
-  getNeedsYou,
-  getNowRunning,
-  getRecentOutcomes,
-  getRepoActivity,
-  type HomeTaskRow,
-} from '@/lib/home';
+import { getDashboardStats } from '@/lib/home';
+import { filterMissionList, hasActiveMissionListFilters } from '@/lib/mission-list-filters';
+import { listMissions } from '@/lib/missions';
+import { rollupMissions, sparklinesForMissions } from '@/lib/rollups';
 import { withAuth } from '@/lib/with-auth';
 
 export const dynamic = 'force-dynamic';
 
-function TaskRow({ row }: { row: HomeTaskRow }) {
-  const { task, missionName, isIssueMission } = row;
-  const label = task.issueRef ?? missionName;
-  return (
-    <Link
-      href={`/missions/${task.missionId}/tasks/${task.id}`}
-      className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm hover:bg-accent"
-    >
-      <div className="min-w-0">
-        <p className="truncate font-medium">{label}</p>
-        <p className="truncate font-mono text-xs text-muted-foreground">{task.repo}</p>
-      </div>
-      <div className="flex shrink-0 items-center gap-2">
-        {isIssueMission ? (
-          <Badge variant="outline" className="text-[10px]">
-            Issue
-          </Badge>
-        ) : null}
-        <TaskStatusBadge status={task.status} haltReason={task.haltReason} />
-      </div>
-    </Link>
-  );
-}
-
-function Section({
-  title,
-  rows,
-  empty,
+export default async function HomePage({
+  searchParams,
 }: {
-  title: string;
-  rows: HomeTaskRow[];
-  empty: string;
+  searchParams: Promise<{ status?: string; backend?: string; q?: string; kind?: string; repo?: string }>;
 }) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">{title}</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-2">
-        {rows.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{empty}</p>
-        ) : (
-          rows.map((row) => <TaskRow key={row.task.id} row={row} />)
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-export default async function HomePage() {
   const user = await withAuth();
 
   const [installation] = await db
@@ -79,13 +30,32 @@ export default async function HomePage() {
     .limit(1);
   if (!installation) redirect('/setup');
 
-  const [stats, nowRunning, needsYou, recentOutcomes, repoActivity] = await Promise.all([
-    getDashboardStats(user.id),
-    getNowRunning(user.id),
-    getNeedsYou(user.id),
-    getRecentOutcomes(user.id),
-    getRepoActivity(user.id),
+  const {
+    status: statusFilter,
+    backend: backendFilter,
+    q: searchQuery,
+    kind: kindFilter,
+    repo: repoFilter,
+  } = await searchParams;
+
+  const stats = await getDashboardStats(user.id);
+
+  const filters = {
+    kind: kindFilter,
+    repo: repoFilter,
+    status: statusFilter,
+    backend: backendFilter,
+    q: searchQuery,
+  };
+  const allMissions = filterMissionList(await listMissions(), filters);
+
+  const ids = allMissions.map((m) => m.id);
+  const [rollups, sparklines] = await Promise.all([
+    rollupMissions(ids),
+    sparklinesForMissions(ids),
   ]);
+
+  const hasFilters = hasActiveMissionListFilters(filters);
 
   return (
     <main className="container max-w-[1400px] py-10">
@@ -96,75 +66,63 @@ export default async function HomePage() {
         </p>
       </div>
 
+      {stats.connectedRepos === 0 && (
+        <div className="mb-8 rounded-lg border border-dashed border-yellow-600/40 bg-yellow-950/20 px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium">Connect your repos to get started</p>
+              <p className="text-xs text-muted-foreground">
+                Install the GitHub App and select repos. Then comment{' '}
+                <code className="rounded bg-muted px-1 py-0.5">@forge</code> on any issue.
+              </p>
+            </div>
+            <Button asChild size="sm">
+              <Link href="/setup">Connect Repos</Link>
+            </Button>
+          </div>
+        </div>
+      )}
+
       <div className="mb-8 grid grid-cols-2 gap-4 md:grid-cols-4">
-        <Card>
-          <CardContent className="py-4">
-            <p className="text-2xl font-semibold">{stats.mergedThisWeek}</p>
-            <p className="text-xs text-muted-foreground">PRs merged this week</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="py-4">
-            <p className="text-2xl font-semibold">{stats.activeAgents}</p>
-            <p className="text-xs text-muted-foreground">Active agents</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="py-4">
-            <p className="text-2xl font-semibold">${stats.spentUsd.toFixed(2)}</p>
-            <p className="text-xs text-muted-foreground">Total spend</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="py-4">
-            <p className="text-2xl font-semibold">{stats.connectedRepos}</p>
-            <p className="text-xs text-muted-foreground">Connected repos</p>
-          </CardContent>
-        </Card>
+        <div className="rounded-lg border px-4 py-3">
+          <p className="text-2xl font-semibold">{stats.mergedThisWeek}</p>
+          <p className="text-xs text-muted-foreground">PRs merged this week</p>
+        </div>
+        <div className="rounded-lg border px-4 py-3">
+          <p className="text-2xl font-semibold">{stats.activeAgents}</p>
+          <p className="text-xs text-muted-foreground">Active agents</p>
+        </div>
+        <div className="rounded-lg border px-4 py-3">
+          <p className="text-2xl font-semibold">${stats.spentUsd.toFixed(2)}</p>
+          <p className="text-xs text-muted-foreground">Total spend</p>
+        </div>
+        <div className="rounded-lg border px-4 py-3">
+          <p className="text-2xl font-semibold">{stats.connectedRepos}</p>
+          <p className="text-xs text-muted-foreground">Connected repos</p>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <Section title="Now running" rows={nowRunning} empty="Nothing running right now." />
-        <Section title="Needs you" rows={needsYou} empty="Nothing waiting on you." />
-        <Section
-          title="Recent outcomes"
-          rows={recentOutcomes}
-          empty="No merged PRs or resolved issues yet."
-        />
+      <div className="rounded-lg border">
+        <div className="flex items-center justify-between border-b px-3 py-2">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Missions
+          </p>
+          <Button asChild size="sm">
+            <Link href="/missions/new">New Mission</Link>
+          </Button>
+        </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Your repos</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {repoActivity.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                No repos connected yet.{' '}
-                <Link href="/setup" className="underline underline-offset-2">
-                  Connect repos in Setup
-                </Link>
-                .
-              </p>
-            ) : (
-              repoActivity.map(({ repo, activeCount, totalCount }) => {
-                const [owner, name] = repo.split('/');
-                return (
-                  <Link
-                    key={repo}
-                    href={`/repos/${owner}/${name}`}
-                    className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 font-mono text-sm hover:bg-accent"
-                  >
-                    <span className="truncate">{repo}</span>
-                    <span className="shrink-0 text-xs text-muted-foreground">
-                      {activeCount > 0 ? `${activeCount} active · ` : ''}
-                      {totalCount} total
-                    </span>
-                  </Link>
-                );
-              })
-            )}
-          </CardContent>
-        </Card>
+        <div className="border-b p-3">
+          <MissionFilters basePath="/home" />
+        </div>
+
+        <MissionsTable
+          missions={allMissions}
+          rollups={rollups}
+          sparklines={sparklines}
+          hasFilters={hasFilters}
+          bare
+        />
       </div>
     </main>
   );

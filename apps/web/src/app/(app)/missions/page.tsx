@@ -1,34 +1,15 @@
 import Link from 'next/link';
 
 import { Button } from '@/components/ui/button';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import { MissionFilters } from '@/components/mission-filters';
-import { MissionProgressPill } from '@/components/progress-pill';
-import { MissionStatusBadge } from '@/components/mission-status-badge';
-import { Sparkline } from '@/components/sparkline';
+import { MissionsTable } from '@/components/missions-table';
 import { getDashboardStats } from '@/lib/home';
-import { isCampaignMission, isIssueMission, missionShapeLabel } from '@/lib/mission-shape';
+import { filterMissionList, hasActiveMissionListFilters } from '@/lib/mission-list-filters';
 import { listMissions } from '@/lib/missions';
 import { rollupMissions, sparklinesForMissions } from '@/lib/rollups';
 import { getOptionalUser } from '@/lib/with-auth';
 
 export const dynamic = 'force-dynamic';
-
-function formatDate(date: Date): string {
-  return new Intl.DateTimeFormat(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: 'numeric',
-  }).format(date);
-}
 
 export default async function DashboardPage({
   searchParams,
@@ -47,36 +28,14 @@ export default async function DashboardPage({
 
   const stats = await getDashboardStats(userId);
 
-  let allMissions = await listMissions();
-
-  if (kindFilter === 'campaigns') {
-    allMissions = allMissions.filter(isCampaignMission);
-  } else if (kindFilter === 'issues') {
-    allMissions = allMissions.filter(isIssueMission);
-  }
-
-  if (repoFilter) {
-    allMissions = allMissions.filter((m) => m.workspaceRepo === repoFilter);
-  }
-
-  // Apply filters
-  if (statusFilter) {
-    const statuses = new Set(statusFilter.split(',').filter(Boolean));
-    allMissions = allMissions.filter((m) => statuses.has(m.status));
-  }
-  if (backendFilter) {
-    allMissions = allMissions.filter((m) => m.backend === backendFilter);
-  }
-  if (searchQuery) {
-    const q = searchQuery.toLowerCase();
-    allMissions = allMissions.filter((m) => {
-      const repos = (m.targetRepos ?? []) as string[];
-      return (
-        m.name.toLowerCase().includes(q) ||
-        repos.some((r) => r.toLowerCase().includes(q))
-      );
-    });
-  }
+  const filters = {
+    kind: kindFilter,
+    repo: repoFilter,
+    status: statusFilter,
+    backend: backendFilter,
+    q: searchQuery,
+  };
+  const allMissions = filterMissionList(await listMissions(), filters);
 
   const ids = allMissions.map((m) => m.id);
   const [rollups, sparklines] = await Promise.all([
@@ -84,13 +43,7 @@ export default async function DashboardPage({
     sparklinesForMissions(ids),
   ]);
 
-  const hasFilters = !!(
-    statusFilter ||
-    backendFilter ||
-    searchQuery ||
-    (kindFilter && kindFilter !== 'all') ||
-    repoFilter
-  );
+  const hasFilters = hasActiveMissionListFilters(filters);
 
   return (
     <main className="container max-w-[1400px] py-10">
@@ -129,79 +82,12 @@ export default async function DashboardPage({
         <MissionFilters />
       </div>
 
-      {allMissions.length === 0 ? (
-        <div className="rounded-lg border border-dashed p-12 text-center">
-          <p className="text-sm text-muted-foreground">
-            {hasFilters
-              ? 'No missions match the current filters.'
-              : 'No missions yet. Comment @forge on a GitHub issue or create one manually.'}
-          </p>
-        </div>
-      ) : (
-        <div className="rounded-lg border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Progress</TableHead>
-                <TableHead>Activity (24h)</TableHead>
-                <TableHead>Backend</TableHead>
-                <TableHead className="text-right">Created</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {allMissions.map((mission) => {
-                const rollup = rollups.get(mission.id);
-                return (
-                  <TableRow key={mission.id}>
-                    <TableCell className="max-w-[300px]">
-                      <Link
-                        href={`/missions/${mission.id}`}
-                        className="block truncate font-medium hover:underline"
-                      >
-                        {mission.name}
-                      </Link>
-                      {isIssueMission(mission) ? (
-                        <Link
-                          href={`/repos/${mission.workspaceRepo}`}
-                          className="mt-0.5 block truncate text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
-                        >
-                          {missionShapeLabel(mission)}
-                        </Link>
-                      ) : (
-                        <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                          {missionShapeLabel(mission)}
-                        </p>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <MissionStatusBadge status={mission.status} />
-                    </TableCell>
-                    <TableCell>
-                      {rollup && rollup.total > 0 ? (
-                        <MissionProgressPill rollup={rollup} />
-                      ) : (
-                        <span className="text-xs text-muted-foreground">no tasks</span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <Sparkline
-                        values={sparklines.get(mission.id) ?? []}
-                        className="text-foreground/70"
-                      />
-                    </TableCell>
-                    <TableCell className="font-mono text-xs">{mission.backend}</TableCell>
-                    <TableCell className="text-right text-xs text-muted-foreground">
-                      {formatDate(mission.createdAt)}
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </div>
-      )}
+      <MissionsTable
+        missions={allMissions}
+        rollups={rollups}
+        sparklines={sparklines}
+        hasFilters={hasFilters}
+      />
     </main>
   );
 }

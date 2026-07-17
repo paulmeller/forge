@@ -94,7 +94,7 @@ export function AttemptFileBrowser({ task, ledger }: { task: Task; ledger: Ledge
             >
               <TableCell className="font-mono text-xs">{f.name}</TableCell>
               <TableCell className="text-xs text-muted-foreground">
-                {new Intl.DateTimeFormat(undefined, {
+                {new Intl.DateTimeFormat('en-US', {
                   month: 'short',
                   day: 'numeric',
                   hour: 'numeric',

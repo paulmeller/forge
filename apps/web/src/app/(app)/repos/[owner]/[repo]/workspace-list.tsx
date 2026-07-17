@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import type { TaskRollup } from '@/components/progress-pill';
 import type { WorkspaceIssueRow } from '@/lib/workspace-issues';
 
 import { toggleNextMarker } from './actions';
@@ -12,13 +13,16 @@ import { IssueRunPanel } from './issue-run-panel';
 import { WorkOnItButton } from './work-on-it-button';
 
 const TERMINAL_HEADLINES = new Set(['fixed', 'not_reproduced', 'fix_skipped', 'failed']);
+const RUNNING_HEADLINES = new Set(['reproducing', 'fixing']);
 
 export function WorkspaceList({
   repo,
   rows,
   missionId,
   ledgersByTaskId,
+  taskRollupsByTaskId,
   nextIssueRefs,
+  initialIssueNumber = null,
 }: {
   repo: string;
   rows: WorkspaceIssueRow[];
@@ -27,13 +31,26 @@ export function WorkspaceList({
     string,
     Array<{ id: string; eventType: string; payload: unknown; createdAt: Date }>
   >;
+  taskRollupsByTaskId: Record<string, TaskRollup>;
   nextIssueRefs: string[];
+  /** Pre-select a specific issue (e.g. deep-linked from the missions table) instead of defaulting to the first row. */
+  initialIssueNumber?: number | null;
 }) {
   const router = useRouter();
   const [query, setQuery] = useState('');
-  const [selectedNumber, setSelectedNumber] = useState<number | null>(rows[0]?.issue.number ?? null);
+  const [selectedNumber, setSelectedNumber] = useState<number | null>(
+    initialIssueNumber ?? rows[0]?.issue.number ?? null,
+  );
   const [selectedLabels, setSelectedLabels] = useState<Set<string>>(new Set());
-  const [showInactive, setShowInactive] = useState(false);
+  const initialRow =
+    initialIssueNumber != null ? rows.find((r) => r.issue.number === initialIssueNumber) : null;
+  const [showInactive, setShowInactive] = useState(
+    !!(
+      initialRow?.group &&
+      TERMINAL_HEADLINES.has(initialRow.group.headline) &&
+      !nextIssueRefs.includes(`${initialRow.issue.repo}#${initialRow.issue.number}`)
+    ),
+  );
   const [pending, startTransition] = useTransition();
 
   const allLabels = useMemo(() => {
@@ -105,7 +122,15 @@ export function WorkspaceList({
           <div className="flex items-center gap-2">
             <span className="font-mono text-xs text-muted-foreground">#{row.issue.number}</span>
             {row.group ? (
-              <span className="text-xs text-muted-foreground">{row.group.headline}</span>
+              <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                {RUNNING_HEADLINES.has(row.group.headline) ? (
+                  <span
+                    className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500"
+                    aria-hidden
+                  />
+                ) : null}
+                {row.group.headline}
+              </span>
             ) : null}
           </div>
           <p className="truncate">{row.issue.title}</p>
@@ -132,9 +157,9 @@ export function WorkspaceList({
   }
 
   return (
-    <div className="grid grid-cols-[320px_1fr] gap-4">
-      <div className="rounded-lg border">
-        <div className="border-b p-2">
+    <div className="grid h-full grid-cols-[320px_1fr] gap-4">
+      <div className="flex h-full min-h-0 flex-col rounded-lg border">
+        <div className="shrink-0 border-b p-2">
           <Input
             placeholder="Search issues…"
             value={query}
@@ -157,7 +182,7 @@ export function WorkspaceList({
             </div>
           ) : null}
         </div>
-        <div className="max-h-[70vh] overflow-y-auto">
+        <div className="min-h-0 flex-1 overflow-y-auto">
           {nextRows.length > 0 ? (
             <>
               <p className="px-3 pt-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -191,10 +216,10 @@ export function WorkspaceList({
         </div>
       </div>
 
-      <div>
+      <div className="flex h-full min-h-0 flex-col">
         {selected ? (
-          <div className="space-y-3">
-            <div>
+          <>
+            <div className="mb-3 shrink-0">
               <h2 className="text-lg font-medium">
                 #{selected.issue.number} {selected.issue.title}
               </h2>
@@ -207,23 +232,28 @@ export function WorkspaceList({
                 View on GitHub
               </a>
             </div>
-            {selected.group && missionId ? (
-              <IssueRunPanel
-                group={selected.group}
-                missionId={missionId}
-                ledgersByTaskId={ledgersByTaskId}
+            <div className="min-h-0 min-w-0 flex-1">
+              {selected.group && missionId ? (
+                <IssueRunPanel
+                  group={selected.group}
+                  missionId={missionId}
+                  ledgersByTaskId={ledgersByTaskId}
+                  taskRollupsByTaskId={taskRollupsByTaskId}
+                />
+              ) : (
+                <p className="whitespace-pre-wrap text-sm text-muted-foreground">
+                  {selected.issue.body || 'No description.'}
+                </p>
+              )}
+            </div>
+            <div className="mt-3 shrink-0">
+              <WorkOnItButton
+                repo={repo}
+                issue={selected.issue}
+                headline={selected.group?.headline ?? null}
               />
-            ) : (
-              <p className="whitespace-pre-wrap text-sm text-muted-foreground">
-                {selected.issue.body || 'No description.'}
-              </p>
-            )}
-            <WorkOnItButton
-              repo={repo}
-              issue={selected.issue}
-              headline={selected.group?.headline ?? null}
-            />
-          </div>
+            </div>
+          </>
         ) : (
           <p className="text-sm text-muted-foreground">No issue matches your search.</p>
         )}

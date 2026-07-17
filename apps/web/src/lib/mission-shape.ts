@@ -28,6 +28,13 @@ export function isIssueMission(mission: Pick<Mission, 'issueRef'>): boolean {
   return !!mission.issueRef;
 }
 
+/** Splits an `owner/repo#123` issueRef into its repo and issue number. */
+export function parseIssueRef(issueRef: string): { repo: string; number: number } | null {
+  const match = /^(.+)#(\d+)$/.exec(issueRef);
+  if (!match?.[1] || !match[2]) return null;
+  return { repo: match[1], number: Number(match[2]) };
+}
+
 /** One-line description of what a mission targets, for list rows and badges. */
 export function missionShapeLabel(mission: ShapeInput): string {
   if (mission.issueRef) return `Issue · ${mission.issueRef}`;
