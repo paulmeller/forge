@@ -1,8 +1,73 @@
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 
-import { githubInstallationRepos, githubInstallations, missions, tasks } from '@forge/db';
+import { githubInstallationRepos, githubInstallations, missions, tasks, type Task, type TaskStatus } from '@forge/db';
 
 import { db } from './db';
+import { isIssueMission } from './mission-shape';
+
+export type HomeTaskRow = {
+  task: Task;
+  missionId: string;
+  missionName: string;
+  isIssueMission: boolean;
+};
+
+const NOW_RUNNING_STATUSES = [
+  'queued',
+  'dispatching',
+  'running',
+  'opening_pr',
+  'awaiting_ci',
+  'awaiting_verify',
+  'awaiting_ai_review',
+  'merging',
+] as const;
+
+const NEEDS_YOU_STATUSES = ['awaiting_review', 'failed'] as const;
+
+const RECENT_OUTCOME_STATUSES = ['merged', 'resolved', 'abandoned'] as const;
+
+async function queryTasksByStatus(
+  userId: string,
+  statuses: readonly TaskStatus[],
+  limit: number,
+  orderByCompletedAt: boolean,
+): Promise<HomeTaskRow[]> {
+  const rows = await db
+    .select({
+      task: tasks,
+      missionId: missions.id,
+      missionName: missions.name,
+      issueRef: missions.issueRef,
+    })
+    .from(tasks)
+    .innerJoin(missions, eq(tasks.missionId, missions.id))
+    .where(and(eq(missions.userId, userId), inArray(tasks.status, statuses)))
+    .orderBy(orderByCompletedAt ? desc(tasks.completedAt) : desc(tasks.updatedAt))
+    .limit(limit);
+
+  return rows.map((r) => ({
+    task: r.task,
+    missionId: r.missionId,
+    missionName: r.missionName,
+    isIssueMission: isIssueMission({ issueRef: r.issueRef }),
+  }));
+}
+
+/** In-flight Tasks across both modes — the Working section. */
+export function getNowRunning(userId: string, limit = 20): Promise<HomeTaskRow[]> {
+  return queryTasksByStatus(userId, NOW_RUNNING_STATUSES, limit, false);
+}
+
+/** Tasks that need a human — awaiting review, or failed/halted. */
+export function getNeedsYou(userId: string, limit = 20): Promise<HomeTaskRow[]> {
+  return queryTasksByStatus(userId, NEEDS_YOU_STATUSES, limit, false);
+}
+
+/** Most recent terminal results — merged, resolved, or abandoned. */
+export function getRecentOutcomes(userId: string, limit = 10): Promise<HomeTaskRow[]> {
+  return queryTasksByStatus(userId, RECENT_OUTCOME_STATUSES, limit, true);
+}
 
 export type DashboardStats = {
   mergedThisWeek: number;
