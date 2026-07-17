@@ -145,10 +145,16 @@ const TERMINAL_TASK_STATUSES: TaskStatus[] = ['merged', 'resolved', 'abandoned',
 export async function abortTask(
   taskId: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  await withAuth();
+  const user = await withAuth();
 
-  const [task] = await db.select().from(tasks).where(eq(tasks.id, taskId)).limit(1);
-  if (!task) return { ok: false, error: 'Task not found' };
+  const [row] = await db
+    .select({ task: tasks, ownerId: missions.userId })
+    .from(tasks)
+    .innerJoin(missions, eq(tasks.missionId, missions.id))
+    .where(eq(tasks.id, taskId))
+    .limit(1);
+  if (!row || row.ownerId !== user.id) return { ok: false, error: 'Task not found' };
+  const task = row.task;
   if (!task.sessionId) return { ok: false, error: 'Task has no active session to abort' };
   if (TERMINAL_TASK_STATUSES.includes(task.status)) {
     return { ok: false, error: 'Task has already finished, nothing to abort' };
