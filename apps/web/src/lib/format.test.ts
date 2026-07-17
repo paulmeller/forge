@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { formatDateTime, formatRelative, formatTokens, formatUsd } from './format';
+import { formatConsoleTime, formatDateTime, formatRelative, formatTokens, formatUsd } from './format';
 
 describe('formatDateTime', () => {
   // NB: these tests are timezone-safe; no-Z ISO inputs parse in local time and format in local time, cancelling out.
@@ -75,5 +75,15 @@ describe('formatTokens', () => {
 
   it('formats millions with two decimals and an M suffix', () => {
     expect(formatTokens(1_318_999)).toBe('1.32M');
+  });
+});
+
+describe('formatConsoleTime', () => {
+  it('formats as deterministic UTC HH:MM:SSZ regardless of local timezone', () => {
+    expect(formatConsoleTime(new Date('2026-07-17T21:07:19.000Z'))).toBe('21:07:19Z');
+  });
+
+  it('zero-pads single-digit components', () => {
+    expect(formatConsoleTime(new Date('2026-01-01T03:04:05.000Z'))).toBe('03:04:05Z');
   });
 });

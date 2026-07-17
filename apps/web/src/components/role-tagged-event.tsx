@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 
+import { formatConsoleTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import {
   extractPrUrl,
@@ -34,13 +35,6 @@ const ROLE_STYLES: Record<EventRole, { label: string; chip: string; bar: string 
     bar: 'bg-muted-foreground/40',
   },
 };
-
-function formatTime(date: Date): string {
-  // UTC HH:MM:SS — deterministic across server and client. Locale-aware
-  // formatting causes hydration mismatches when server (Node) and browser
-  // pick different locales (e.g. en-US "AM" vs en-AU "am").
-  return date.toISOString().slice(11, 19) + 'Z';
-}
 
 function readPreview(event: LedgerEvent): string | null {
   const p = event.payload as Record<string, unknown> | null;
@@ -111,7 +105,7 @@ export function RoleTaggedEvent({ event }: { event: LedgerEvent }) {
           <span className="truncate text-xs text-muted-foreground">{preview}</span>
         ) : null}
         <span className="ml-auto shrink-0 font-mono text-[10px] text-muted-foreground">
-          {formatTime(event.createdAt)}
+          {formatConsoleTime(event.createdAt)}
         </span>
       </button>
       {open ? (

@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { formatLogLine, isToolEvent, normalizeRawSessionEvent } from './session-log-format';
+import {
+  formatLogLine,
+  isErrorLogEvent,
+  isToolEvent,
+  normalizeRawSessionEvent,
+} from './session-log-format';
 
 describe('formatLogLine', () => {
   it('formats agent.message from its text content block', () => {
@@ -113,6 +118,41 @@ describe('isToolEvent', () => {
   it('is false for other event types', () => {
     expect(isToolEvent({ eventType: 'agent.message', payload: {} })).toBe(false);
     expect(isToolEvent({ eventType: 'dispatcher.dispatched', payload: {} })).toBe(false);
+  });
+});
+
+describe('isErrorLogEvent', () => {
+  it('is true for session.error', () => {
+    expect(isErrorLogEvent({ eventType: 'session.error', payload: {} })).toBe(true);
+  });
+
+  it('is true for a failed tool_result via is_error', () => {
+    expect(
+      isErrorLogEvent({ eventType: 'agent.tool_result', payload: { is_error: true, content: {} } }),
+    ).toBe(true);
+  });
+
+  it('is true for a failed tool_result via a non-zero exit code', () => {
+    expect(
+      isErrorLogEvent({
+        eventType: 'agent.tool_result',
+        payload: { is_error: false, content: { exitCode: 1 } },
+      }),
+    ).toBe(true);
+  });
+
+  it('is false for a successful tool_result', () => {
+    expect(
+      isErrorLogEvent({
+        eventType: 'agent.tool_result',
+        payload: { is_error: false, content: { exitCode: 0 } },
+      }),
+    ).toBe(false);
+  });
+
+  it('is false for unrelated event types', () => {
+    expect(isErrorLogEvent({ eventType: 'agent.message', payload: {} })).toBe(false);
+    expect(isErrorLogEvent({ eventType: 'session.status_running', payload: {} })).toBe(false);
   });
 });
 

@@ -43,3 +43,11 @@ export function formatTokens(n: number): string {
   if (n < 1_000_000) return `${(n / 1000).toFixed(1)}k`;
   return `${(n / 1_000_000).toFixed(2)}M`;
 }
+
+/** "21:07:19Z" — deterministic UTC time for dense console/log-tail displays,
+ *  where locale-aware formatting would risk a server/client hydration
+ *  mismatch (the same reasoning as formatDateTime's fixed 'en-US' locale,
+ *  but console voice is UTC HH:MM:SS, not a localized clock). */
+export function formatConsoleTime(date: Date): string {
+  return date.toISOString().slice(11, 19) + 'Z';
+}

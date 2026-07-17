@@ -80,6 +80,15 @@ export function formatLogLine(event: LogEventLike): string {
   }
 }
 
+export function isErrorLogEvent(event: LogEventLike): boolean {
+  if (event.eventType === 'session.error') return true;
+  if (event.eventType !== 'agent.tool_result') return false;
+  const p = asRecord(event.payload);
+  if (p.is_error === true) return true;
+  const content = asRecord(p.content);
+  return typeof content.exitCode === 'number' && content.exitCode !== 0;
+}
+
 export function isToolEvent(event: LogEventLike): boolean {
   return event.eventType === 'agent.tool_use' || event.eventType === 'agent.tool_result';
 }
