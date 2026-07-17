@@ -5,6 +5,7 @@ import { useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import type { LedgerEvent, Task } from '@forge/db';
 
+import { Empty, EmptyHeader, EmptyTitle } from './ui/empty';
 import { RoleTaggedEvent } from './role-tagged-event';
 
 type TaskMeta = Pick<Task, 'id' | 'repo' | 'status'>;
@@ -49,9 +50,11 @@ export function Timeline({
 
   if (events.length === 0) {
     return (
-      <div className="rounded-lg border border-dashed p-12 text-center">
-        <p className="text-sm text-muted-foreground">No events yet.</p>
-      </div>
+      <Empty className="border">
+        <EmptyHeader>
+          <EmptyTitle>No events yet.</EmptyTitle>
+        </EmptyHeader>
+      </Empty>
     );
   }
 

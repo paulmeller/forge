@@ -4,6 +4,7 @@ import { useEffect, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 
 import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
 import type { TriageHeadline } from '@/lib/triage-view';
 
 import { workOnIssue } from './actions';
@@ -64,7 +65,8 @@ export function WorkOnItButton({
   return (
     <div>
       <Button size="sm" onClick={handleClick} disabled={pending}>
-        {pending ? 'Queuing…' : label}
+        {pending ? <Spinner data-icon="inline-start" /> : null}
+        {label}
       </Button>
       {error ? <p className="mt-1 text-xs text-destructive">{error}</p> : null}
     </div>

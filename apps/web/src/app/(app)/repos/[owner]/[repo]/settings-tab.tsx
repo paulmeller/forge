@@ -3,8 +3,10 @@
 import { useState, useTransition } from 'react';
 
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { Spinner } from '@/components/ui/spinner';
 
 import { updateRepoSettings } from './settings-actions';
 
@@ -46,60 +48,65 @@ export function SettingsTab({
   }
 
   return (
-    <div className="max-w-md space-y-4 rounded-lg border p-6">
-      <div>
-        <Label htmlFor="concurrencyCap">Concurrency cap</Label>
-        <Input
-          id="concurrencyCap"
-          type="number"
-          min={1}
-          max={100}
-          value={cap}
-          onChange={(e) => setCap(e.target.value)}
-        />
-        <p className="mt-1 text-xs text-muted-foreground">
-          Max issues this repo works at once, across all its issue missions.
-        </p>
-      </div>
-      <div>
-        <Label htmlFor="budgetUsd">Budget (USD, optional)</Label>
-        <Input
-          id="budgetUsd"
-          type="number"
-          min={1}
-          placeholder="No cap"
-          value={budget}
-          onChange={(e) => setBudget(e.target.value)}
-        />
-      </div>
-      <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          className="accent-checkbox h-4 w-4"
-          checked={aiReview}
-          onChange={(e) => setAiReview(e.target.checked)}
-        />
-        AI review gate
-      </label>
-      <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          className="accent-checkbox h-4 w-4"
-          checked={selfVerify}
-          onChange={(e) => setSelfVerify(e.target.checked)}
-        />
-        Self-verify gate
-      </label>
-      <div className="flex items-center gap-3">
-        <Button onClick={handleSave} disabled={pending} size="sm">
-          {pending ? 'Saving…' : 'Save'}
-        </Button>
-        {message ? (
-          <p className={`text-xs ${message.kind === 'error' ? 'text-destructive' : 'text-muted-foreground'}`}>
-            {message.text}
-          </p>
-        ) : null}
-      </div>
+    <div className="max-w-md rounded-lg border p-6">
+      <FieldGroup>
+        <Field>
+          <FieldLabel htmlFor="concurrencyCap">Concurrency cap</FieldLabel>
+          <Input
+            id="concurrencyCap"
+            type="number"
+            min={1}
+            max={100}
+            value={cap}
+            onChange={(e) => setCap(e.target.value)}
+          />
+          <FieldDescription>
+            Max issues this repo works at once, across all its issue missions.
+          </FieldDescription>
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="budgetUsd">Budget (USD, optional)</FieldLabel>
+          <Input
+            id="budgetUsd"
+            type="number"
+            min={1}
+            placeholder="No cap"
+            value={budget}
+            onChange={(e) => setBudget(e.target.value)}
+          />
+        </Field>
+        <Field orientation="horizontal">
+          <Checkbox
+            id="aiReviewEnabled"
+            checked={aiReview}
+            onCheckedChange={(checked) => setAiReview(checked === true)}
+          />
+          <FieldLabel htmlFor="aiReviewEnabled" className="font-normal">
+            AI review gate
+          </FieldLabel>
+        </Field>
+        <Field orientation="horizontal">
+          <Checkbox
+            id="selfVerifyEnabled"
+            checked={selfVerify}
+            onCheckedChange={(checked) => setSelfVerify(checked === true)}
+          />
+          <FieldLabel htmlFor="selfVerifyEnabled" className="font-normal">
+            Self-verify gate
+          </FieldLabel>
+        </Field>
+        <Field orientation="horizontal">
+          <Button onClick={handleSave} disabled={pending} size="sm">
+            {pending ? <Spinner data-icon="inline-start" /> : null}
+            Save
+          </Button>
+          {message ? (
+            <FieldDescription className={message.kind === 'error' ? 'text-destructive' : undefined}>
+              {message.text}
+            </FieldDescription>
+          ) : null}
+        </Field>
+      </FieldGroup>
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { MissionStatusBadge } from '@/components/mission-status-badge';
 import { PageHeader, PageShell } from '@/components/page-shell';
 import { getMission } from '@/lib/missions';
@@ -59,13 +60,15 @@ export default async function RetrospectivePage({
       />
 
       {!retro ? (
-        <div className="rounded-lg border border-dashed p-12 text-center">
-          <p className="text-sm text-muted-foreground">
-            {mission.status === 'completed' || mission.status === 'cancelled'
-              ? 'No retrospective yet. Click "Run Retrospective" to analyse this Mission.'
-              : 'Retrospectives are available after a Mission completes or is cancelled.'}
-          </p>
-        </div>
+        <Empty className="border">
+          <EmptyHeader>
+            <EmptyTitle>
+              {mission.status === 'completed' || mission.status === 'cancelled'
+                ? 'No retrospective yet. Click "Run Retrospective" to analyse this Mission.'
+                : 'Retrospectives are available after a Mission completes or is cancelled.'}
+            </EmptyTitle>
+          </EmptyHeader>
+        </Empty>
       ) : (
         <div className="space-y-6">
           {retro.analysis && (

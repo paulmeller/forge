@@ -12,6 +12,7 @@ import {
 import { MissionProgressPill, type MissionRollup } from '@/components/progress-pill';
 import { MissionStatusBadge } from '@/components/mission-status-badge';
 import { Sparkline } from '@/components/sparkline';
+import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { formatDateTime } from '@/lib/format';
 import { missionShapeLabel } from '@/lib/mission-shape';
 
@@ -31,13 +32,15 @@ export function MissionsTable({
 }) {
   if (missions.length === 0) {
     return (
-      <div className={bare ? 'p-12 text-center' : 'rounded-lg border border-dashed p-12 text-center'}>
-        <p className="text-sm text-muted-foreground">
-          {hasFilters
-            ? 'No missions match the current filters.'
-            : 'No missions yet. Comment @forge on a GitHub issue or create one manually.'}
-        </p>
-      </div>
+      <Empty className={bare ? undefined : 'border'}>
+        <EmptyHeader>
+          <EmptyTitle>
+            {hasFilters
+              ? 'No missions match the current filters.'
+              : 'No missions yet. Comment @forge on a GitHub issue or create one manually.'}
+          </EmptyTitle>
+        </EmptyHeader>
+      </Empty>
     );
   }
 

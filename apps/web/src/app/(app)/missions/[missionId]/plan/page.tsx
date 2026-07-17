@@ -55,7 +55,6 @@ export default async function PlanPreviewPage({
             missionId={mission.id}
             op="start"
             label="Start Mission"
-            pendingLabel="Starting…"
             disabled={tasks.length === 0}
             disabledReason={tasks.length === 0 ? 'Add at least one Task' : undefined}
           />

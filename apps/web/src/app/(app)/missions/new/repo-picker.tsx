@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -88,11 +89,9 @@ export function RepoPicker({
                   key={repo}
                   className="flex cursor-pointer items-center gap-2 border-b px-3 py-2 font-mono text-sm last:border-b-0 hover:bg-accent"
                 >
-                  <input
-                    type="checkbox"
-                    className="accent-checkbox h-4 w-4"
+                  <Checkbox
                     checked={selected.includes(repo)}
-                    onChange={() => toggle(repo)}
+                    onCheckedChange={() => toggle(repo)}
                   />
                   {repo}
                 </label>

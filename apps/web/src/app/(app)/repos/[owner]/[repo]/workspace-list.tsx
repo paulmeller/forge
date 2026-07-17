@@ -4,6 +4,7 @@ import { useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 
 import { Badge } from '@/components/ui/badge';
+import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { Input } from '@/components/ui/input';
 import type { TaskRollup } from '@/components/progress-pill';
 import type { WorkspaceIssueRow } from '@/lib/workspace-issues';
@@ -150,9 +151,11 @@ export function WorkspaceList({
 
   if (rows.length === 0) {
     return (
-      <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
-        No open issues in {repo}.
-      </div>
+      <Empty className="border">
+        <EmptyHeader>
+          <EmptyTitle>No open issues in {repo}.</EmptyTitle>
+        </EmptyHeader>
+      </Empty>
     );
   }
 

@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Empty, EmptyContent, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { BudgetGauge } from '@/components/budget-gauge';
 import { ConsoleShell } from '@/components/console-shell';
 import { MissionStatusBadge } from '@/components/mission-status-badge';
@@ -87,7 +88,6 @@ export default async function MissionDetailPage({
                       missionId={mission.id}
                       op="plan"
                       label="Plan Mission"
-                      pendingLabel="Planning…"
                       disabled={missingSource}
                       disabledReason={
                         missingSource
@@ -109,7 +109,6 @@ export default async function MissionDetailPage({
                   missionId={mission.id}
                   op="start"
                   label="Start Mission"
-                  pendingLabel="Starting…"
                   disabled={tasks.length === 0}
                   disabledReason={tasks.length === 0 ? 'No Tasks to dispatch' : undefined}
                 />
@@ -120,7 +119,6 @@ export default async function MissionDetailPage({
                 missionId={mission.id}
                 op="pause"
                 label="Pause"
-                pendingLabel="Pausing…"
                 variant="outline"
               />
             ) : null}
@@ -129,7 +127,6 @@ export default async function MissionDetailPage({
                 missionId={mission.id}
                 op="resume"
                 label="Resume"
-                pendingLabel="Resuming…"
               />
             ) : null}
           </div>
@@ -146,22 +143,24 @@ export default async function MissionDetailPage({
                 Tasks {tasks.length > 0 && <span className="font-normal">({tasks.length})</span>}
               </h2>
               {tasks.length === 0 ? (
-                <div className="rounded-lg border border-dashed p-6">
+                <Empty className="border">
+                  <EmptyHeader>
+                    <EmptyTitle>
+                      {targetRepos.length > 0 && mission.status === 'draft'
+                        ? 'Planner will emit one Task per repo:'
+                        : 'No Tasks yet.'}
+                    </EmptyTitle>
+                  </EmptyHeader>
                   {targetRepos.length > 0 && mission.status === 'draft' ? (
-                    <>
-                      <p className="mb-2 text-xs text-muted-foreground">
-                        Planner will emit one Task per repo:
-                      </p>
+                    <EmptyContent>
                       <ul className="space-y-1 font-mono text-[11px]">
                         {targetRepos.map((repo) => (
                           <li key={repo}>{repo}</li>
                         ))}
                       </ul>
-                    </>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">No Tasks yet.</p>
-                  )}
-                </div>
+                    </EmptyContent>
+                  ) : null}
+                </Empty>
               ) : (
                 <ol className="space-y-2">
                   {tasks.map((t) => (

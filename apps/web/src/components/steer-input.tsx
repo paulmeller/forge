@@ -2,8 +2,14 @@
 
 import { useState, useTransition } from 'react';
 
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Field, FieldError } from '@/components/ui/field';
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+} from '@/components/ui/input-group';
+import { Spinner } from '@/components/ui/spinner';
 import { steerTask } from '@/app/(app)/repos/[owner]/[repo]/actions';
 
 export function SteerInput({ taskId }: { taskId: string }) {
@@ -27,24 +33,36 @@ export function SteerInput({ taskId }: { taskId: string }) {
   return (
     <div className="shrink-0">
       <form
-        className="flex items-center gap-2"
         onSubmit={(e) => {
           e.preventDefault();
           handleSend();
         }}
       >
-        <Input
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          placeholder="Send an instruction to the running agent…"
-          disabled={pending}
-          className="h-8 text-xs"
-        />
-        <Button type="submit" size="sm" variant="outline" disabled={pending || !message.trim()}>
-          {pending ? 'Sending…' : 'Send'}
-        </Button>
+        <Field data-invalid={!!error}>
+          <InputGroup>
+            <InputGroupInput
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              placeholder="Send an instruction to the running agent…"
+              disabled={pending}
+              aria-invalid={!!error}
+              className="h-8 text-xs"
+            />
+            <InputGroupAddon align="inline-end">
+              <InputGroupButton
+                type="submit"
+                size="sm"
+                variant="outline"
+                disabled={pending || !message.trim()}
+              >
+                {pending ? <Spinner data-icon="inline-start" /> : null}
+                Send
+              </InputGroupButton>
+            </InputGroupAddon>
+          </InputGroup>
+          {error ? <FieldError>{error}</FieldError> : null}
+        </Field>
       </form>
-      {error ? <p className="mt-1 text-xs text-destructive">{error}</p> : null}
     </div>
   );
 }

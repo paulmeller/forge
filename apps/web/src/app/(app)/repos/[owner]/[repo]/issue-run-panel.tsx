@@ -10,6 +10,7 @@ import { TaskProgressPill, type TaskRollup } from '@/components/progress-pill';
 import { SessionLogView } from '@/components/session-log-view';
 import { SteerInput } from '@/components/steer-input';
 import { TaskStatusBadge } from '@/components/task-status-badge';
+import { Spinner } from '@/components/ui/spinner';
 import { formatDateTime } from '@/lib/format';
 import type { IssueGroup } from '@/lib/triage-view';
 import type { Task } from '@forge/db';
@@ -138,7 +139,8 @@ export function IssueRunPanel({
                 onClick={handleAbort}
                 disabled={pending}
               >
-                {pending ? 'Aborting…' : 'Abort'}
+                {pending ? <Spinner data-icon="inline-start" /> : null}
+                Abort
               </Button>
             ) : null}
           </div>

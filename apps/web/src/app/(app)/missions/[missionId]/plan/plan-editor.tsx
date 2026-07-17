@@ -4,8 +4,10 @@ import { useActionState, useCallback, useMemo, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
 import type { Task } from '@forge/db';
 
@@ -89,11 +91,11 @@ export function PlanEditor({
       )}
 
       {initialTasks.length === 0 ? (
-        <div className="rounded-lg border border-dashed p-6 text-center">
-          <p className="text-sm text-muted-foreground">
-            No Tasks. Add at least one before starting.
-          </p>
-        </div>
+        <Empty className="border">
+          <EmptyHeader>
+            <EmptyTitle>No Tasks. Add at least one before starting.</EmptyTitle>
+          </EmptyHeader>
+        </Empty>
       ) : (
         <ol className="space-y-2">
           {initialTasks.map((task) => (
@@ -267,7 +269,8 @@ function TaskRow({
                     })}
                   />
                   <Button type="submit" size="sm" disabled={varsPending}>
-                    {varsPending ? 'Saving...' : 'Save variables'}
+                    {varsPending ? <Spinner data-icon="inline-start" /> : null}
+                    Save variables
                   </Button>
                   {(varsState as { error?: string }).error ? (
                     <span className="ml-2 text-xs text-destructive">

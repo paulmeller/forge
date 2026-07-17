@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
 import type { MissionDefaults } from '@/lib/mission-defaults';
 import { cn } from '@/lib/utils';
@@ -259,7 +260,8 @@ export function NewMissionForm({
               </button>
             </p>
             <Button type="submit" disabled={pending}>
-              {pending ? 'Creating…' : 'Create Mission'}
+              {pending ? <Spinner data-icon="inline-start" /> : null}
+              Create Mission
             </Button>
           </div>
 

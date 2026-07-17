@@ -1,5 +1,6 @@
 'use client';
 
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -161,12 +162,7 @@ export function AdvancedSettings({
       <div className="space-y-4">
         <GroupLabel>Gates</GroupLabel>
         <div className="flex items-center gap-3">
-          <input
-            type="checkbox"
-            id="aiReviewEnabled"
-            name="aiReviewEnabled"
-            className="accent-checkbox h-4 w-4 rounded border-input"
-          />
+          <Checkbox id="aiReviewEnabled" name="aiReviewEnabled" />
           <div>
             <Label htmlFor="aiReviewEnabled">AI code review before merge</Label>
             <p className="text-xs text-muted-foreground">
@@ -175,12 +171,7 @@ export function AdvancedSettings({
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <input
-            type="checkbox"
-            id="selfVerifyEnabled"
-            name="selfVerifyEnabled"
-            className="accent-checkbox h-4 w-4 rounded border-input"
-          />
+          <Checkbox id="selfVerifyEnabled" name="selfVerifyEnabled" />
           <div>
             <Label htmlFor="selfVerifyEnabled">Self-verification gate</Label>
             <p className="text-xs text-muted-foreground">

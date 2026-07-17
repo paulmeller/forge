@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Spinner } from '@/components/ui/spinner';
 import { authClient } from '@/lib/auth-client';
 
 export default function SignupPage() {
@@ -97,7 +98,8 @@ export default function SignupPage() {
               <p className="text-xs text-destructive">{error}</p>
             )}
             <Button type="submit" className="w-full" disabled={pending}>
-              {pending ? 'Creating account...' : 'Create account'}
+              {pending ? <Spinner data-icon="inline-start" /> : null}
+              Create account
             </Button>
           </form>
           <p className="mt-4 text-center text-xs text-muted-foreground">

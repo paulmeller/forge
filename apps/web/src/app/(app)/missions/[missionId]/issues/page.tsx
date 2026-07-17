@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import { Button } from '@/components/ui/button';
+import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { IssueTriageCard } from '@/components/issue-triage-card';
 import { LiveRefresh } from '@/components/live-refresh';
 import { MissionStatusBadge } from '@/components/mission-status-badge';
@@ -74,11 +75,15 @@ export default async function MissionIssuesPage({
       )}
 
       {groups.length === 0 ? (
-        <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
-          {mission.plannerStrategy === 'triage'
-            ? 'No issues yet. Plan and start the Mission to enumerate issues from the query.'
-            : 'This Mission is not a triage Mission — it has no per-issue reproduce/fix pipeline.'}
-        </div>
+        <Empty className="border">
+          <EmptyHeader>
+            <EmptyTitle>
+              {mission.plannerStrategy === 'triage'
+                ? 'No issues yet. Plan and start the Mission to enumerate issues from the query.'
+                : 'This Mission is not a triage Mission — it has no per-issue reproduce/fix pipeline.'}
+            </EmptyTitle>
+          </EmptyHeader>
+        </Empty>
       ) : (
         <div className="space-y-3">
           {groups.map((g) => (

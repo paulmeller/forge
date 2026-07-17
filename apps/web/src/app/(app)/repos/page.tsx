@@ -1,6 +1,7 @@
 import Link from 'next/link';
 
 import { Button } from '@/components/ui/button';
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { PageHeader, PageShell } from '@/components/page-shell';
 import { listUserRepos } from '@/lib/mission-defaults-db';
 import { withAuth } from '@/lib/with-auth';
@@ -19,13 +20,14 @@ export default async function ReposPage() {
       />
 
       {repos.length === 0 ? (
-        <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
-          No repos connected yet.{' '}
-          <Link href="/setup" className="underline underline-offset-2">
-            Connect repos in Setup
-          </Link>
-          .
-        </div>
+        <Empty className="border">
+          <EmptyHeader>
+            <EmptyTitle>No repos connected yet.</EmptyTitle>
+            <EmptyDescription>
+              <Link href="/setup">Connect repos in Setup</Link>.
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
       ) : (
         <div className="space-y-2">
           {repos.map((repo) => {

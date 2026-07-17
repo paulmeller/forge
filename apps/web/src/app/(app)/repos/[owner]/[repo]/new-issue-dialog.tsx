@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
 import { parseLabelsInput } from '@/lib/github-issue-create';
 
@@ -130,7 +131,8 @@ export function NewIssueDialog({ owner, repo }: { owner: string; repo: string })
               Cancel
             </Button>
             <Button type="submit" disabled={pending}>
-              {pending ? 'Creating…' : 'Create issue'}
+              {pending ? <Spinner data-icon="inline-start" /> : null}
+              Create issue
             </Button>
           </DialogFooter>
         </form>

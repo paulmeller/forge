@@ -1,15 +1,18 @@
 import Link from 'next/link';
 
 import { Badge } from '@/components/ui/badge';
+import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { TaskStatusBadge } from '@/components/task-status-badge';
 import type { RepoActivityRow } from '@/lib/repo-activity';
 
 export function ActivityTab({ rows }: { rows: RepoActivityRow[] }) {
   if (rows.length === 0) {
     return (
-      <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
-        No Tasks have touched this repo yet.
-      </div>
+      <Empty className="border">
+        <EmptyHeader>
+          <EmptyTitle>No Tasks have touched this repo yet.</EmptyTitle>
+        </EmptyHeader>
+      </Empty>
     );
   }
 

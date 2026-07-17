@@ -1,6 +1,7 @@
 import Link from 'next/link';
 
 import { Button } from '@/components/ui/button';
+import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { ConsoleShell } from '@/components/console-shell';
 import { LiveRefresh } from '@/components/live-refresh';
 import { PageShell } from '@/components/page-shell';
@@ -48,10 +49,14 @@ export default async function RepoWorkspacePage({
         <Button asChild variant="ghost" size="sm" className="-ml-2 mb-4">
           <Link href="/repos">&larr; Repos</Link>
         </Button>
-        <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
-          Issue search needs a <code className="font-mono">GITHUB_APP_TOKEN</code> configured on
-          the server. Ask an operator to set it, then reload this page.
-        </div>
+        <Empty className="border">
+          <EmptyHeader>
+            <EmptyTitle>
+              Issue search needs a <code className="font-mono">GITHUB_APP_TOKEN</code> configured
+              on the server. Ask an operator to set it, then reload this page.
+            </EmptyTitle>
+          </EmptyHeader>
+        </Empty>
       </PageShell>
     );
   }
@@ -157,9 +162,11 @@ export default async function RepoWorkspacePage({
                 selfVerifyEnabled={mission.selfVerifyEnabled}
               />
             ) : (
-              <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
-                No settings yet — work an issue in this repo first.
-              </div>
+              <Empty className="border">
+                <EmptyHeader>
+                  <EmptyTitle>No settings yet — work an issue in this repo first.</EmptyTitle>
+                </EmptyHeader>
+              </Empty>
             )}
           </div>
         ) : (
