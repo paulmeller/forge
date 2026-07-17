@@ -91,7 +91,7 @@ export function SettingsTab({
         Self-verify gate
       </label>
       <div className="flex items-center gap-3">
-        <Button onClick={handleSave} disabled={pending} variant="accent" size="sm">
+        <Button onClick={handleSave} disabled={pending} size="sm">
           {pending ? 'Saving…' : 'Save'}
         </Button>
         {message ? (

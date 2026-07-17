@@ -63,7 +63,7 @@ export function RepoToolbar({
             GitHub ↗
           </Link>
         </Button>
-        <Button asChild variant="accent" size="sm">
+        <Button asChild size="sm">
           <Link href={`/missions/new?repo=${encodeURIComponent(repo)}`}>Run a goal on this repo →</Link>
         </Button>
       </div>

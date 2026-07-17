@@ -170,11 +170,11 @@ export function NewMissionForm({
 
           <div className="flex justify-end">
             {singleRepoValue ? (
-              <Button asChild variant="accent">
+              <Button asChild>
                 <Link href={`/repos/${singleRepoValue}`}>Go to repo issues →</Link>
               </Button>
             ) : (
-              <Button variant="accent" disabled>
+              <Button disabled>
                 Go to repo issues →
               </Button>
             )}
@@ -258,7 +258,7 @@ export function NewMissionForm({
                 Advanced settings
               </button>
             </p>
-            <Button type="submit" variant="accent" disabled={pending}>
+            <Button type="submit" disabled={pending}>
               {pending ? 'Creating…' : 'Create Mission'}
             </Button>
           </div>
