@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { SessionLogView } from '@/components/session-log-view';
+import { SteerInput } from '@/components/steer-input';
 import { getMission } from '@/lib/missions';
 import { getTask } from '@/lib/tasks';
 import { listLedgerForTask } from '@/lib/ledger';
@@ -144,6 +145,10 @@ export default async function TaskDetailPage({
             initialEvents={[...ledger].reverse()}
             className="h-[400px]"
           />
+          {task.sessionId &&
+          ['dispatching', 'running', 'turn_ended', 'opening_pr'].includes(task.status) ? (
+            <SteerInput taskId={task.id} />
+          ) : null}
         </CardContent>
       </Card>
 

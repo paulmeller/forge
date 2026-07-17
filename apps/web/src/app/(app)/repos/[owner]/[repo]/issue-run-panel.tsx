@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { TaskProgressPill, type TaskRollup } from '@/components/progress-pill';
 import { SessionLogView } from '@/components/session-log-view';
+import { SteerInput } from '@/components/steer-input';
 import { TaskStatusBadge } from '@/components/task-status-badge';
 import type { IssueGroup } from '@/lib/triage-view';
 import type { Task } from '@forge/db';
@@ -58,6 +59,7 @@ export function IssueRunPanel({
   const verdict = attempt.reproduce?.verdict ?? null;
   const started = formatStarted(task);
   const canAbort = !!task && ABORTABLE_STATUSES.has(task.status);
+  const canSteer = !!task && !!task.sessionId && ABORTABLE_STATUSES.has(task.status);
 
   const prChips = group.attempts
     .map((a) => a.fix)
@@ -179,6 +181,8 @@ export function IssueRunPanel({
               className="h-full"
             />
           </div>
+
+          {canSteer && task ? <SteerInput taskId={task.id} /> : null}
 
           <Link
             href={`/missions/${missionId}/tasks/${task.id}`}
