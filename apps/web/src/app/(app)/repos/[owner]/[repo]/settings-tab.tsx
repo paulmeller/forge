@@ -7,6 +7,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
+import { Card, CardContent } from '@/components/ui/card';
 
 import { updateRepoSettings } from './settings-actions';
 
@@ -48,7 +49,8 @@ export function SettingsTab({
   }
 
   return (
-    <div className="max-w-md rounded-lg border p-6">
+    <Card className="max-w-md">
+      <CardContent className="p-6">
       <FieldGroup>
         <Field>
           <FieldLabel htmlFor="concurrencyCap">Concurrency cap</FieldLabel>
@@ -107,6 +109,7 @@ export function SettingsTab({
           ) : null}
         </Field>
       </FieldGroup>
-    </div>
+      </CardContent>
+    </Card>
   );
 }

@@ -133,7 +133,7 @@ export function NewMissionForm({
                 aria-checked={selected}
                 onClick={() => setMissionType(option.value)}
                 className={cn(
-                  'relative rounded-lg border p-3 text-left transition-colors',
+                  'relative rounded-lg border bg-card p-3 text-left transition-colors',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
                   selected
                     ? 'border-transparent ring-2 ring-primary'

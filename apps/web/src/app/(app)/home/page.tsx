@@ -6,6 +6,7 @@ import { githubInstallations } from '@forge/db';
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
 import { LiveRefresh } from '@/components/live-refresh';
 import { PageHeader, PageShell } from '@/components/page-shell';
 import { QueueSection } from '@/components/queue-section';
@@ -71,22 +72,22 @@ export default async function HomePage() {
       )}
 
       <div className="mb-8 grid grid-cols-2 gap-4 md:grid-cols-4">
-        <div className="rounded-lg border px-4 py-3">
+        <Card className="px-4 py-3">
           <p className="text-2xl font-semibold">{stats.mergedThisWeek}</p>
           <p className="text-xs text-muted-foreground">PRs merged this week</p>
-        </div>
-        <div className="rounded-lg border px-4 py-3">
+        </Card>
+        <Card className="px-4 py-3">
           <p className="text-2xl font-semibold">{stats.activeAgents}</p>
           <p className="text-xs text-muted-foreground">Active agents</p>
-        </div>
-        <div className="rounded-lg border px-4 py-3">
+        </Card>
+        <Card className="px-4 py-3">
           <p className="text-2xl font-semibold">${stats.spentUsd.toFixed(2)}</p>
           <p className="text-xs text-muted-foreground">Total spend</p>
-        </div>
-        <div className="rounded-lg border px-4 py-3">
+        </Card>
+        <Card className="px-4 py-3">
           <p className="text-2xl font-semibold">{stats.connectedRepos}</p>
           <p className="text-xs text-muted-foreground">Connected repos</p>
-        </div>
+        </Card>
       </div>
 
       <div className="flex flex-col gap-6">

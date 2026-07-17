@@ -36,7 +36,7 @@ export default async function ReposPage() {
               <Link
                 key={repo}
                 href={`/repos/${owner}/${name}`}
-                className="block rounded-lg border p-4 font-mono text-sm transition-colors hover:bg-accent"
+                className="block rounded-lg border bg-card p-4 font-mono text-sm transition-colors hover:bg-accent"
               >
                 {repo}
               </Link>

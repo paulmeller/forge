@@ -121,7 +121,7 @@ function TriagePlanView({ tasks }: { tasks: Task[] }) {
       </p>
       <ol className="flex flex-col gap-2">
         {groups.map((g) => (
-          <li key={g.issueRef} className="rounded-lg border p-3">
+          <li key={g.issueRef} className="rounded-lg border bg-card p-3">
             <div className="flex items-center gap-2">
               {g.issueNumber != null && (
                 <span className="font-mono text-xs text-muted-foreground">#{g.issueNumber}</span>

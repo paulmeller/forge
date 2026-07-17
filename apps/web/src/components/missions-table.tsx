@@ -13,6 +13,7 @@ import { MissionProgressPill, type MissionRollup } from '@/components/progress-p
 import { MissionStatusBadge } from '@/components/mission-status-badge';
 import { Sparkline } from '@/components/sparkline';
 import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
+import { Card } from '@/components/ui/card';
 import { formatDateTime } from '@/lib/format';
 import { missionShapeLabel } from '@/lib/mission-shape';
 
@@ -32,7 +33,7 @@ export function MissionsTable({
 }) {
   if (missions.length === 0) {
     return (
-      <Empty className={bare ? undefined : 'border'}>
+      <Empty className={bare ? undefined : 'border bg-card'}>
         <EmptyHeader>
           <EmptyTitle>
             {hasFilters
@@ -44,60 +45,59 @@ export function MissionsTable({
     );
   }
 
-  return (
-    <div className={bare ? '' : 'rounded-lg border'}>
-      <Table className="min-w-[1000px]">
-        <TableHeader>
-          <TableRow>
-            <TableHead>Name</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead>Progress</TableHead>
-            <TableHead>Activity (24h)</TableHead>
-            <TableHead>Backend</TableHead>
-            <TableHead className="text-right">Created</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {missions.map((mission) => {
-            const rollup = rollups.get(mission.id);
-            return (
-              <TableRow key={mission.id} className="relative cursor-pointer">
-                <TableCell className="max-w-[300px]">
-                  <Link
-                    href={`/missions/${mission.id}`}
-                    className="absolute inset-0"
-                    aria-label={mission.name}
-                  />
-                  <span className="block truncate font-medium">{mission.name}</span>
-                  <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                    {missionShapeLabel(mission)}
-                  </p>
-                </TableCell>
-                <TableCell>
-                  <MissionStatusBadge status={mission.status} />
-                </TableCell>
-                <TableCell>
-                  {rollup && rollup.total > 0 ? (
-                    <MissionProgressPill rollup={rollup} />
-                  ) : (
-                    <span className="text-xs text-muted-foreground">no tasks</span>
-                  )}
-                </TableCell>
-                <TableCell>
-                  <Sparkline
-                    values={sparklines.get(mission.id) ?? []}
-                    className="text-foreground/70"
-                  />
-                </TableCell>
-                <TableCell className="font-mono text-xs">{mission.backend}</TableCell>
-                <TableCell className="text-right text-xs text-muted-foreground">
-                  {formatDateTime(mission.createdAt)}
-                </TableCell>
-              </TableRow>
-            );
-          })}
-        </TableBody>
-      </Table>
-    </div>
+  const table = (
+    <Table className="min-w-[1000px]">
+      <TableHeader>
+        <TableRow>
+          <TableHead>Name</TableHead>
+          <TableHead>Status</TableHead>
+          <TableHead>Progress</TableHead>
+          <TableHead>Activity (24h)</TableHead>
+          <TableHead>Backend</TableHead>
+          <TableHead className="text-right">Created</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {missions.map((mission) => {
+          const rollup = rollups.get(mission.id);
+          return (
+            <TableRow key={mission.id} className="relative cursor-pointer">
+              <TableCell className="max-w-[300px]">
+                <Link
+                  href={`/missions/${mission.id}`}
+                  className="absolute inset-0"
+                  aria-label={mission.name}
+                />
+                <span className="block truncate font-medium">{mission.name}</span>
+                <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                  {missionShapeLabel(mission)}
+                </p>
+              </TableCell>
+              <TableCell>
+                <MissionStatusBadge status={mission.status} />
+              </TableCell>
+              <TableCell>
+                {rollup && rollup.total > 0 ? (
+                  <MissionProgressPill rollup={rollup} />
+                ) : (
+                  <span className="text-xs text-muted-foreground">no tasks</span>
+                )}
+              </TableCell>
+              <TableCell>
+                <Sparkline
+                  values={sparklines.get(mission.id) ?? []}
+                  className="text-foreground/70"
+                />
+              </TableCell>
+              <TableCell className="font-mono text-xs">{mission.backend}</TableCell>
+              <TableCell className="text-right text-xs text-muted-foreground">
+                {formatDateTime(mission.createdAt)}
+              </TableCell>
+            </TableRow>
+          );
+        })}
+      </TableBody>
+    </Table>
   );
+  return bare ? <div>{table}</div> : <Card>{table}</Card>;
 }

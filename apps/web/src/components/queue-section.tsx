@@ -1,6 +1,7 @@
 import Link from 'next/link';
 
 import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { PrChip } from '@/components/pr-chip';
 import { TaskProgressPill, type TaskRollup } from '@/components/progress-pill';
 import { TaskStatusBadge } from '@/components/task-status-badge';
@@ -40,11 +41,13 @@ export function QueueSection({
   live?: boolean;
 }) {
   return (
-    <div className="rounded-lg border">
-      <p className="border-b px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-        {title}
-      </p>
-      <div className="p-2">
+    <Card>
+      <CardHeader className="border-b px-3 py-2">
+        <CardTitle className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          {title}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="p-2">
         {rows.length === 0 ? (
           <p className="px-1 py-1 text-sm text-muted-foreground">{empty}</p>
         ) : (
@@ -90,7 +93,7 @@ export function QueueSection({
             );
           })
         )}
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }

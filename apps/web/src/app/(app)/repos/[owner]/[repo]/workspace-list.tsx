@@ -163,7 +163,7 @@ export function WorkspaceList({
 
   return (
     <div className="grid h-full grid-cols-[320px_1fr] gap-4">
-      <div className="flex h-full min-h-0 flex-col rounded-lg border">
+      <div className="flex h-full min-h-0 flex-col rounded-lg border bg-card">
         <div className="shrink-0 border-b p-2">
           <Input
             placeholder="Search issues…"

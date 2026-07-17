@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 import type { LedgerEvent, Task } from '@forge/db';
 
 import { Empty, EmptyHeader, EmptyTitle } from './ui/empty';
+import { Card } from './ui/card';
 import { RoleTaggedEvent } from './role-tagged-event';
 
 type TaskMeta = Pick<Task, 'id' | 'repo' | 'status'>;
@@ -73,7 +74,7 @@ export function Timeline({
         const meta = taskId ? taskById.get(taskId) : null;
         const isCollapsed = taskId ? collapsedTasks.has(taskId) : false;
         return (
-          <section key={taskId ?? '_mission'} className="rounded-lg border bg-card">
+          <Card key={taskId ?? '_mission'}>
             <header className="flex items-center justify-between border-b px-4 py-2.5">
               <button
                 type="button"
@@ -108,7 +109,7 @@ export function Timeline({
                 ))}
               </ol>
             )}
-          </section>
+          </Card>
         );
       })}
     </div>
