@@ -1,28 +1,5 @@
 import { cn } from '@/lib/utils';
-
-function formatRelative(date: Date | null): string {
-  if (!date) return '—';
-  const ms = Date.now() - date.getTime();
-  const s = Math.floor(ms / 1000);
-  if (s < 60) return `${s}s ago`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.floor(h / 24)}d ago`;
-}
-
-function formatTokens(n: number): string {
-  if (n < 1000) return `${n}`;
-  if (n < 1_000_000) return `${(n / 1000).toFixed(1)}k`;
-  return `${(n / 1_000_000).toFixed(2)}M`;
-}
-
-function formatUsd(n: number): string {
-  if (n === 0) return '$0';
-  if (n < 1) return `$${n.toFixed(2)}`;
-  return `$${n.toFixed(0)}`;
-}
+import { formatRelative, formatTokens, formatUsd } from '@/lib/format';
 
 function formatElapsed(ms: number): string {
   const s = Math.floor(ms / 1000);
@@ -95,7 +72,7 @@ export function MissionProgressPill({ rollup }: { rollup: MissionRollup }) {
       {rollup.abandoned > 0 && <Chip tone="muted">{rollup.abandoned} abandoned</Chip>}
       <Chip tone="muted">{formatUsd(rollup.spentUsd)}</Chip>
       <Chip tone="muted" timeSensitive>
-        {formatRelative(rollup.lastEventAt)}
+        {rollup.lastEventAt ? formatRelative(rollup.lastEventAt) : '—'}
       </Chip>
     </div>
   );

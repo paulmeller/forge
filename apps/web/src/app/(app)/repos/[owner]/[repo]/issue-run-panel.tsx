@@ -4,10 +4,12 @@ import { useState, useTransition } from 'react';
 import Link from 'next/link';
 
 import { Button } from '@/components/ui/button';
+import { PrChip } from '@/components/pr-chip';
 import { TaskProgressPill, type TaskRollup } from '@/components/progress-pill';
 import { SessionLogView } from '@/components/session-log-view';
 import { SteerInput } from '@/components/steer-input';
 import { TaskStatusBadge } from '@/components/task-status-badge';
+import { formatDateTime } from '@/lib/format';
 import type { IssueGroup } from '@/lib/triage-view';
 import type { Task } from '@forge/db';
 
@@ -22,14 +24,7 @@ const ABORTABLE_STATUSES = new Set(['dispatching', 'running', 'turn_ended', 'ope
 function formatStarted(task: Task | null): string | null {
   const at = task?.dispatchedAt ?? task?.createdAt ?? null;
   if (!at) return null;
-  return new Intl.DateTimeFormat('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: 'numeric',
-    second: 'numeric',
-  }).format(at);
+  return formatDateTime(at, { seconds: true });
 }
 
 export function IssueRunPanel({
@@ -80,15 +75,7 @@ export function IssueRunPanel({
         {prChips.length > 0 ? (
           <div className="flex flex-wrap gap-2">
             {prChips.map((f) => (
-              <a
-                key={f.id}
-                href={f.prUrl!}
-                target="_blank"
-                rel="noreferrer"
-                className="rounded border border-blue-500/40 px-2 py-0.5 text-xs text-blue-600 hover:bg-blue-500/10 dark:text-blue-400"
-              >
-                PR #{f.prNumber} · {f.status}
-              </a>
+              <PrChip key={f.id} prUrl={f.prUrl!} prNumber={f.prNumber} status={f.status} />
             ))}
           </div>
         ) : null}

@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { SessionLogView } from '@/components/session-log-view';
 import { SteerInput } from '@/components/steer-input';
+import { formatDateTime } from '@/lib/format';
 import { getMission } from '@/lib/missions';
 import { getTask } from '@/lib/tasks';
 import { listLedgerForTask } from '@/lib/ledger';
@@ -35,16 +36,6 @@ function Row({ label, value, mono }: { label: string; value: React.ReactNode; mo
       <dd className={mono ? 'font-mono text-sm' : 'text-sm'}>{value}</dd>
     </div>
   );
-}
-
-function formatDate(date: Date): string {
-  return new Intl.DateTimeFormat(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: 'numeric',
-    second: 'numeric',
-  }).format(date);
 }
 
 export default async function TaskDetailPage({
@@ -109,16 +100,16 @@ export default async function TaskDetailPage({
           </CardHeader>
           <CardContent>
             <dl>
-              <Row label="Created" value={formatDate(task.createdAt)} />
+              <Row label="Created" value={formatDateTime(task.createdAt, { seconds: true })} />
               <Row
                 label="Dispatched"
-                value={task.dispatchedAt ? formatDate(task.dispatchedAt) : '—'}
+                value={task.dispatchedAt ? formatDateTime(task.dispatchedAt, { seconds: true }) : '—'}
               />
               <Row
                 label="Completed"
-                value={task.completedAt ? formatDate(task.completedAt) : '—'}
+                value={task.completedAt ? formatDateTime(task.completedAt, { seconds: true }) : '—'}
               />
-              <Row label="Updated" value={formatDate(task.updatedAt)} />
+              <Row label="Updated" value={formatDateTime(task.updatedAt, { seconds: true })} />
             </dl>
           </CardContent>
         </Card>
@@ -169,7 +160,7 @@ export default async function TaskDetailPage({
                 <li key={event.id} className="rounded-md border p-3">
                   <div className="flex items-baseline justify-between gap-4">
                     <div className="font-mono text-xs font-semibold">{event.eventType}</div>
-                    <div className="text-xs text-muted-foreground">{formatDate(event.createdAt)}</div>
+                    <div className="text-xs text-muted-foreground">{formatDateTime(event.createdAt, { seconds: true })}</div>
                   </div>
                   {event.sourceEventId ? (
                     <p className="mt-1 font-mono text-[10px] text-muted-foreground">

@@ -12,16 +12,8 @@ import {
 import { MissionProgressPill, type MissionRollup } from '@/components/progress-pill';
 import { MissionStatusBadge } from '@/components/mission-status-badge';
 import { Sparkline } from '@/components/sparkline';
+import { formatDateTime } from '@/lib/format';
 import { missionShapeLabel } from '@/lib/mission-shape';
-
-function formatDate(date: Date): string {
-  return new Intl.DateTimeFormat(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: 'numeric',
-  }).format(date);
-}
 
 export function MissionsTable({
   missions,
@@ -96,7 +88,7 @@ export function MissionsTable({
                 </TableCell>
                 <TableCell className="font-mono text-xs">{mission.backend}</TableCell>
                 <TableCell className="text-right text-xs text-muted-foreground">
-                  {formatDate(mission.createdAt)}
+                  {formatDateTime(mission.createdAt)}
                 </TableCell>
               </TableRow>
             );

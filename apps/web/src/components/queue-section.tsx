@@ -1,9 +1,11 @@
 import Link from 'next/link';
 
 import { Badge } from '@/components/ui/badge';
+import { PrChip } from '@/components/pr-chip';
 import { TaskProgressPill, type TaskRollup } from '@/components/progress-pill';
 import { TaskStatusBadge } from '@/components/task-status-badge';
 import type { HomeTaskRow } from '@/lib/home';
+import { formatRelative, formatUsd } from '@/lib/format';
 import { parseIssueRef } from '@/lib/mission-shape';
 import { tokensToUsd } from '@/lib/rollups';
 
@@ -14,22 +16,12 @@ function hrefFor(row: HomeTaskRow): string {
     : `/missions/${row.task.missionId}/tasks/${row.task.id}`;
 }
 
-function formatRelative(date: Date): string {
-  const s = Math.floor((Date.now() - date.getTime()) / 1000);
-  if (s < 60) return `${s}s ago`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.floor(h / 24)}d ago`;
-}
-
 function CostChip({ costTokens }: { costTokens: number }) {
   const usd = tokensToUsd(costTokens);
   if (usd <= 0) return null;
   return (
     <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] tabular-nums text-muted-foreground">
-      {usd < 1 ? `$${usd.toFixed(2)}` : `$${usd.toFixed(0)}`}
+      {formatUsd(usd)}
     </span>
   );
 }
@@ -79,11 +71,7 @@ export function QueueSection({
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   {rollup ? <TaskProgressPill rollup={rollup} /> : null}
-                  {task.prUrl ? (
-                    <span className="rounded border border-blue-500/40 px-1.5 py-0.5 text-[11px] text-blue-600 dark:text-blue-400">
-                      PR #{task.prNumber}
-                    </span>
-                  ) : null}
+                  {task.prUrl ? <PrChip prUrl={task.prUrl} prNumber={task.prNumber} /> : null}
                   <CostChip costTokens={task.costTokens} />
                   {isIssueMission ? (
                     <Badge variant="outline" className="text-[10px]">

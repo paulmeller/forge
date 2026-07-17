@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { formatDateTime } from '@/lib/format';
 import { formatLogLine, isToolEvent } from '@/lib/session-log-format';
 import type { Task } from '@forge/db';
 
@@ -94,12 +95,7 @@ export function AttemptFileBrowser({ task, ledger }: { task: Task; ledger: Ledge
             >
               <TableCell className="font-mono text-xs">{f.name}</TableCell>
               <TableCell className="text-xs text-muted-foreground">
-                {new Intl.DateTimeFormat('en-US', {
-                  month: 'short',
-                  day: 'numeric',
-                  hour: 'numeric',
-                  minute: 'numeric',
-                }).format(f.modifiedAt)}
+                {formatDateTime(f.modifiedAt)}
               </TableCell>
               <TableCell className="text-right text-xs text-muted-foreground">
                 {formatSize(f.sizeBytes)}
