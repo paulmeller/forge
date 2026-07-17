@@ -1,4 +1,3 @@
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import { Badge } from '@/components/ui/badge';
@@ -52,10 +51,6 @@ export default async function TaskDetailPage({
 
   return (
     <PageShell className="max-w-4xl">
-      <Button asChild variant="ghost" size="sm" className="-ml-2 mb-4">
-        <Link href={`/missions/${mission.id}`}>← {mission.name}</Link>
-      </Button>
-
       <PageHeader
         title={
           <span className="flex items-center gap-3">

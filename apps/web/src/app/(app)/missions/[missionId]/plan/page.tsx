@@ -1,7 +1,5 @@
-import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 
-import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { MissionStatusBadge } from '@/components/mission-status-badge';
 import { PageHeader, PageShell } from '@/components/page-shell';
@@ -32,9 +30,6 @@ export default async function PlanPreviewPage({
 
   return (
     <PageShell className="max-w-4xl">
-      <Button asChild variant="ghost" size="sm" className="-ml-2 mb-3">
-        <Link href={`/missions/${mission.id}`}>← {mission.name}</Link>
-      </Button>
       <PageHeader
         title={
           <span className="flex items-center gap-3">

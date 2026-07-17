@@ -55,9 +55,6 @@ export default async function MissionDetailPage({
     <ConsoleShell>
       {/* Header */}
       <div className="title-glow mb-6 shrink-0">
-        <Button asChild variant="ghost" size="sm" className="-ml-2 mb-3">
-          <Link href="/missions">← All missions</Link>
-        </Button>
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-3">

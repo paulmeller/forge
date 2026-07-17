@@ -1,6 +1,3 @@
-import Link from 'next/link';
-
-import { Button } from '@/components/ui/button';
 import { PageHeader, PageShell } from '@/components/page-shell';
 import { resolveMissionDefaults, listUserRepos } from '@/lib/mission-defaults-db';
 import { listSkills } from '@/lib/skills';
@@ -25,9 +22,6 @@ export default async function NewMissionPage({
 
   return (
     <PageShell className="max-w-3xl py-10">
-      <Button asChild variant="ghost" size="sm" className="-ml-2 mb-4">
-        <Link href="/missions">&larr; Back to missions</Link>
-      </Button>
       <PageHeader
         title="New Mission"
         subtitle="Describe the work. Forge plans it into Tasks you review before anything dispatches."

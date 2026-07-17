@@ -1,7 +1,5 @@
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
-import { Button } from '@/components/ui/button';
 import { MissionStatusBadge } from '@/components/mission-status-badge';
 import { PageHeader, PageShell } from '@/components/page-shell';
 import { Timeline } from '@/components/timeline';
@@ -28,9 +26,6 @@ export default async function MissionLedgerPage({
 
   return (
     <PageShell className="max-w-5xl">
-      <Button asChild variant="ghost" size="sm" className="-ml-2 mb-3">
-        <Link href={`/missions/${missionId}`}>&larr; {mission.name}</Link>
-      </Button>
       <PageHeader
         title={
           <span className="flex items-center gap-3">

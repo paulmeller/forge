@@ -1,6 +1,3 @@
-import Link from 'next/link';
-
-import { Button } from '@/components/ui/button';
 import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { ConsoleShell } from '@/components/console-shell';
 import { LiveRefresh } from '@/components/live-refresh';
@@ -46,9 +43,6 @@ export default async function RepoWorkspacePage({
   if (!env.GITHUB_APP_TOKEN) {
     return (
       <PageShell className="max-w-3xl">
-        <Button asChild variant="ghost" size="sm" className="-ml-2 mb-4">
-          <Link href="/repos">&larr; Repos</Link>
-        </Button>
         <Empty className="border">
           <EmptyHeader>
             <EmptyTitle>
@@ -67,9 +61,6 @@ export default async function RepoWorkspacePage({
   } catch (err) {
     return (
       <PageShell className="max-w-3xl">
-        <Button asChild variant="ghost" size="sm" className="-ml-2 mb-4">
-          <Link href="/repos">&larr; Repos</Link>
-        </Button>
         <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-6 text-sm text-destructive">
           Couldn&apos;t load issues from GitHub:{' '}
           {err instanceof Error ? err.message : 'unknown error'}
@@ -112,9 +103,6 @@ export default async function RepoWorkspacePage({
   return (
     <ConsoleShell>
       <div className="shrink-0">
-        <Button asChild variant="ghost" size="sm" className="-ml-2 mb-3">
-          <Link href="/repos">&larr; Repos</Link>
-        </Button>
         <div className="title-glow mb-4 flex items-start justify-between gap-4">
           <div className="min-w-0">
             <div className="flex items-center gap-2">

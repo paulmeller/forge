@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
-import { Button } from '@/components/ui/button';
 import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { IssueTriageCard } from '@/components/issue-triage-card';
 import { LiveRefresh } from '@/components/live-refresh';
@@ -35,9 +34,6 @@ export default async function MissionIssuesPage({
 
   return (
     <PageShell className="max-w-[1000px]">
-      <Button asChild variant="ghost" size="sm" className="-ml-2 mb-3">
-        <Link href={`/missions/${missionId}`}>← {mission.name}</Link>
-      </Button>
       <PageHeader
         title={
           <span className="flex min-w-0 items-center gap-3">

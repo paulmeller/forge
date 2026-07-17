@@ -1,7 +1,5 @@
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
-import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { MissionStatusBadge } from '@/components/mission-status-badge';
@@ -31,9 +29,6 @@ export default async function RetrospectivePage({
 
   return (
     <PageShell className="max-w-4xl">
-      <Button asChild variant="ghost" size="sm" className="-ml-2 mb-3">
-        <Link href={`/missions/${missionId}`}>&larr; {mission.name}</Link>
-      </Button>
       <PageHeader
         title={
           <span className="flex items-center gap-3">
