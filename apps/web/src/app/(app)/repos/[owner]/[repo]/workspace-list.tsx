@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
 
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -28,6 +29,7 @@ export function WorkspaceList({
   >;
   nextIssueRefs: string[];
 }) {
+  const router = useRouter();
   const [query, setQuery] = useState('');
   const [selectedNumber, setSelectedNumber] = useState<number | null>(rows[0]?.issue.number ?? null);
   const [selectedLabels, setSelectedLabels] = useState<Set<string>>(new Set());
@@ -80,7 +82,9 @@ export function WorkspaceList({
 
   function handleToggleNext(row: WorkspaceIssueRow, marked: boolean) {
     startTransition(async () => {
-      await toggleNextMarker(repo, issueRefFor(row), marked);
+      const result = await toggleNextMarker(repo, issueRefFor(row), marked);
+      if (!result.ok) return;
+      router.refresh();
     });
   }
 
