@@ -11,6 +11,7 @@ import { findWorkspaceMission } from '@/lib/workspace-mission';
 import { mergeIssuesWithGroups } from '@/lib/workspace-issues';
 
 import { NewIssueDialog } from './new-issue-dialog';
+import { RepoToolbar } from './repo-toolbar';
 import { WorkspaceList } from './workspace-list';
 
 export const dynamic = 'force-dynamic';
@@ -86,13 +87,19 @@ export default async function RepoWorkspacePage({
             {rows.length} open issue{rows.length === 1 ? '' : 's'}
           </p>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 items-start gap-2">
           <NewIssueDialog owner={owner} repo={repoName} />
           {mission ? (
             <Button asChild variant="ghost" size="sm">
               <Link href={`/missions?repo=${encodeURIComponent(repo)}`}>View missions</Link>
             </Button>
           ) : null}
+          <RepoToolbar
+            repo={repo}
+            containerStatus={
+              mission ? (mission.status === 'paused' ? 'paused' : 'running') : null
+            }
+          />
         </div>
       </div>
       <WorkspaceList
