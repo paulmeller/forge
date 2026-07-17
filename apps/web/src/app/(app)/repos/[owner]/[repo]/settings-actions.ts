@@ -1,6 +1,6 @@
 'use server';
 
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 
 import { missions } from '@forge/db';
 
@@ -16,7 +16,7 @@ export async function updateRepoSettings(
     selfVerifyEnabled: boolean;
   },
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  await withAuth();
+  const user = await withAuth();
 
   if (!Number.isInteger(input.concurrencyCap) || input.concurrencyCap < 1 || input.concurrencyCap > 100) {
     return { ok: false, error: 'Concurrency cap must be an integer between 1 and 100' };
@@ -25,7 +25,7 @@ export async function updateRepoSettings(
     return { ok: false, error: 'Budget must be a positive whole number of dollars, or blank' };
   }
 
-  await db
+  const [updated] = await db
     .update(missions)
     .set({
       concurrencyCap: input.concurrencyCap,
@@ -34,7 +34,12 @@ export async function updateRepoSettings(
       selfVerifyEnabled: input.selfVerifyEnabled,
       updatedAt: new Date(),
     })
-    .where(eq(missions.id, containerId));
+    .where(and(eq(missions.id, containerId), eq(missions.userId, user.id)))
+    .returning();
+
+  if (!updated) {
+    return { ok: false, error: 'Repo settings not found' };
+  }
 
   return { ok: true };
 }
