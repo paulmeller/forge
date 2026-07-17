@@ -5,22 +5,16 @@ import { eq } from '@forge/db/orm';
 import { githubInstallations } from '@forge/db';
 
 import { Button } from '@/components/ui/button';
-import { MissionFilters } from '@/components/mission-filters';
-import { MissionsTable } from '@/components/missions-table';
+import { LiveRefresh } from '@/components/live-refresh';
+import { QueueSection } from '@/components/queue-section';
 import { db } from '@/lib/db';
-import { getDashboardStats } from '@/lib/home';
-import { filterMissionList, hasActiveMissionListFilters } from '@/lib/mission-list-filters';
-import { listMissions } from '@/lib/missions';
-import { rollupMissions, sparklinesForMissions } from '@/lib/rollups';
+import { getDashboardStats, getNeedsYou, getNowRunning, getRecentOutcomes } from '@/lib/home';
+import { rollupTasks } from '@/lib/rollups';
 import { withAuth } from '@/lib/with-auth';
 
 export const dynamic = 'force-dynamic';
 
-export default async function HomePage({
-  searchParams,
-}: {
-  searchParams: Promise<{ status?: string; backend?: string; q?: string; kind?: string; repo?: string }>;
-}) {
+export default async function HomePage() {
   const user = await withAuth();
 
   const [installation] = await db
@@ -30,40 +24,29 @@ export default async function HomePage({
     .limit(1);
   if (!installation) redirect('/setup');
 
-  const {
-    status: statusFilter,
-    backend: backendFilter,
-    q: searchQuery,
-    kind: kindFilter,
-    repo: repoFilter,
-  } = await searchParams;
-
-  const stats = await getDashboardStats(user.id);
-
-  const filters = {
-    kind: kindFilter,
-    repo: repoFilter,
-    status: statusFilter,
-    backend: backendFilter,
-    q: searchQuery,
-  };
-  const allMissions = filterMissionList(await listMissions(), filters);
-
-  const ids = allMissions.map((m) => m.id);
-  const [rollups, sparklines] = await Promise.all([
-    rollupMissions(ids),
-    sparklinesForMissions(ids),
+  const [stats, needsYou, nowRunning, recentOutcomes] = await Promise.all([
+    getDashboardStats(user.id),
+    getNeedsYou(user.id),
+    getNowRunning(user.id),
+    getRecentOutcomes(user.id),
   ]);
-
-  const hasFilters = hasActiveMissionListFilters(filters);
+  const runningRollups = await rollupTasks(nowRunning.map((r) => r.task.id));
 
   return (
     <main className="container max-w-[1400px] py-10">
-      <div className="mb-8">
-        <h1 className="font-title text-3xl uppercase tracking-tight">Home</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Everything running across your repos and missions.
-        </p>
+      <div className="mb-8 flex items-start justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <h1 className="font-title text-3xl uppercase tracking-tight">Home</h1>
+            {nowRunning.length > 0 ? <LiveRefresh intervalMs={5000} /> : null}
+          </div>
+          <p className="mt-1 text-sm text-muted-foreground">
+            What needs you, what&apos;s running, what just landed.
+          </p>
+        </div>
+        <Button asChild variant="outline" size="sm">
+          <Link href="/missions">View all missions →</Link>
+        </Button>
       </div>
 
       {stats.connectedRepos === 0 && (
@@ -102,26 +85,23 @@ export default async function HomePage({
         </div>
       </div>
 
-      <div className="rounded-lg border">
-        <div className="flex items-center justify-between border-b px-3 py-2">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Missions
-          </p>
-          <Button asChild size="sm">
-            <Link href="/missions/new">New Mission</Link>
-          </Button>
-        </div>
-
-        <div className="border-b p-3">
-          <MissionFilters basePath="/home" />
-        </div>
-
-        <MissionsTable
-          missions={allMissions}
-          rollups={rollups}
-          sparklines={sparklines}
-          hasFilters={hasFilters}
-          bare
+      <div className="space-y-6">
+        <QueueSection
+          title="Needs you"
+          rows={needsYou}
+          empty="Nothing waiting on you."
+        />
+        <QueueSection
+          title="Working"
+          rows={nowRunning}
+          rollups={runningRollups}
+          empty="Nothing running right now."
+          live
+        />
+        <QueueSection
+          title="Recently done"
+          rows={recentOutcomes}
+          empty="No merged PRs or resolved issues yet."
         />
       </div>
     </main>
