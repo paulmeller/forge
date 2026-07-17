@@ -15,6 +15,7 @@ import { ActivityTab } from './activity-tab';
 import { NewIssueDialog } from './new-issue-dialog';
 import { RepoTabs } from './repo-tabs';
 import { RepoToolbar } from './repo-toolbar';
+import { SettingsTab } from './settings-tab';
 import { WorkspaceList } from './workspace-list';
 
 export const dynamic = 'force-dynamic';
@@ -114,9 +115,19 @@ export default async function RepoWorkspacePage({
       {activeTab === 'activity' ? (
         <ActivityTab rows={await listTasksTouchingRepo(user.id, repo)} />
       ) : activeTab === 'settings' ? (
-        <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
-          Settings tab — see Task 9 of this plan.
-        </div>
+        mission ? (
+          <SettingsTab
+            containerId={mission.id}
+            concurrencyCap={mission.concurrencyCap}
+            budgetUsd={mission.budgetUsd}
+            aiReviewEnabled={mission.aiReviewEnabled}
+            selfVerifyEnabled={mission.selfVerifyEnabled}
+          />
+        ) : (
+          <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
+            No settings yet — work an issue in this repo first.
+          </div>
+        )
       ) : (
         <WorkspaceList
           repo={repo}
