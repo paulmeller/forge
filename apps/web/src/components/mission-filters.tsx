@@ -5,6 +5,7 @@ import { useCallback } from 'react';
 
 import { Input } from '@/components/ui/input';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { statusLabel } from '@/lib/status-labels';
 
 const STATUSES = ['draft', 'planning', 'running', 'paused', 'completed', 'cancelled'] as const;
 const BACKENDS = ['managed-agents', 'gateway'] as const;
@@ -42,7 +43,7 @@ export function MissionFilters({ basePath = '/missions' }: { basePath?: string }
       >
         {STATUSES.map((s) => (
           <ToggleGroupItem key={s} value={s} className="text-[11px]">
-            {s}
+            {statusLabel(s)}
           </ToggleGroupItem>
         ))}
       </ToggleGroup>

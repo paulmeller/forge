@@ -1,4 +1,5 @@
 import { Badge } from '@/components/ui/badge';
+import { statusLabel } from '@/lib/status-labels';
 import type { HaltReason, TaskStatus } from '@forge/db';
 
 const VARIANT: Record<TaskStatus, 'default' | 'secondary' | 'outline' | 'destructive'> = {
@@ -35,7 +36,7 @@ export function TaskStatusBadge({
 }) {
   return (
     <span className="inline-flex items-center gap-1">
-      <Badge variant={VARIANT[status] ?? 'outline'}>{status}</Badge>
+      <Badge variant={VARIANT[status] ?? 'outline'}>{statusLabel(status)}</Badge>
       {haltReason ? (
         <span className="text-xs text-muted-foreground" title={`halted: ${HALT_LABEL[haltReason]}`}>
           {HALT_LABEL[haltReason]}

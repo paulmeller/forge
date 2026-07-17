@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { Input } from '@/components/ui/input';
 import type { TaskRollup } from '@/components/progress-pill';
+import { statusLabel } from '@/lib/status-labels';
 import { cn } from '@/lib/utils';
 import type { WorkspaceIssueRow } from '@/lib/workspace-issues';
 
@@ -132,7 +133,7 @@ export function WorkspaceList({
                     aria-hidden
                   />
                 ) : null}
-                {row.group.headline}
+                {statusLabel(row.group.headline)}
               </span>
             ) : null}
           </div>
