@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { env } from '@/lib/env';
 import { listLedgerForTask } from '@/lib/ledger';
+import { listTasksTouchingRepo } from '@/lib/repo-activity';
 import { listTasksForWorkspace } from '@/lib/tasks';
 import { githubSearchIssues } from '@/lib/triage-planner';
 import { groupTasksByIssue } from '@/lib/triage-view';
@@ -10,7 +11,9 @@ import { withAuth } from '@/lib/with-auth';
 import { findWorkspaceMission } from '@/lib/workspace-mission';
 import { mergeIssuesWithGroups } from '@/lib/workspace-issues';
 
+import { ActivityTab } from './activity-tab';
 import { NewIssueDialog } from './new-issue-dialog';
+import { RepoTabs } from './repo-tabs';
 import { RepoToolbar } from './repo-toolbar';
 import { WorkspaceList } from './workspace-list';
 
@@ -18,10 +21,14 @@ export const dynamic = 'force-dynamic';
 
 export default async function RepoWorkspacePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ owner: string; repo: string }>;
+  searchParams: Promise<{ tab?: string }>;
 }) {
   const { owner, repo: repoName } = await params;
+  const { tab } = await searchParams;
+  const activeTab = tab === 'activity' ? 'activity' : tab === 'settings' ? 'settings' : 'issues';
   const repo = `${owner}/${repoName}`;
   const user = await withAuth();
 
@@ -102,12 +109,22 @@ export default async function RepoWorkspacePage({
           />
         </div>
       </div>
-      <WorkspaceList
-        repo={repo}
-        rows={rows}
-        missionId={mission?.id ?? null}
-        ledgersByTaskId={ledgersByTaskId}
-      />
+      <RepoTabs active={activeTab} repo={repo} />
+
+      {activeTab === 'activity' ? (
+        <ActivityTab rows={await listTasksTouchingRepo(user.id, repo)} />
+      ) : activeTab === 'settings' ? (
+        <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
+          Settings tab — see Task 9 of this plan.
+        </div>
+      ) : (
+        <WorkspaceList
+          repo={repo}
+          rows={rows}
+          missionId={mission?.id ?? null}
+          ledgersByTaskId={ledgersByTaskId}
+        />
+      )}
     </main>
   );
 }
