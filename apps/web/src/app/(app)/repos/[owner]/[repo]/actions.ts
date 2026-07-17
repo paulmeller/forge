@@ -10,9 +10,10 @@ import { db } from '@/lib/db';
 import { env } from '@/lib/env';
 import { buildCreateIssuePayload } from '@/lib/github-issue-create';
 import { resolveMissionDefaults } from '@/lib/mission-defaults-db';
+import { pauseMission, resumeMission } from '@/lib/mission-transitions';
 import { buildTriageTaskRows, type TriageIssue } from '@/lib/triage-planner';
 import { withAuth } from '@/lib/with-auth';
-import { getOrCreateIssueMission } from '@/lib/workspace-mission';
+import { findWorkspaceMission, getOrCreateIssueMission } from '@/lib/workspace-mission';
 
 /**
  * Enqueue a gated reproduce→fix Task pair for one issue, in the repo's
@@ -168,4 +169,48 @@ export async function abortTask(
   });
 
   return { ok: true };
+}
+
+/** Pause the repo's container mission — the dispatcher will stop claiming any of its issue leaves' tasks (Task 3 of this plan). */
+export async function deactivateRepo(repo: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const user = await withAuth();
+  const container = await findWorkspaceMission(user.id, repo);
+  if (!container) return { ok: false, error: 'No activity yet for this repo' };
+  try {
+    await pauseMission(container.id);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'Could not deactivate' };
+  }
+}
+
+/** Resume the repo's container mission. */
+export async function activateRepo(repo: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const user = await withAuth();
+  const container = await findWorkspaceMission(user.id, repo);
+  if (!container) return { ok: false, error: 'No activity yet for this repo' };
+  try {
+    await resumeMission(container.id);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'Could not activate' };
+  }
+}
+
+/** Trigger a tick right now instead of waiting for the next scheduled one. */
+export async function triggerManualTick(): Promise<{ ok: true } | { ok: false; error: string }> {
+  await withAuth();
+  try {
+    const res = await fetch(`${env.TICK_INTERNAL_URL}/tick`, { method: 'POST' });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      return { ok: false, error: `tick returned ${res.status}: ${detail.slice(0, 200)}` };
+    }
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      error: `Could not reach tick: ${err instanceof Error ? err.message : 'unknown error'}`,
+    };
+  }
 }
