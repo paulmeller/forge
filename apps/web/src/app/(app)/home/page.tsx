@@ -39,7 +39,11 @@ export default async function HomePage() {
         title={
           <span className="flex items-center gap-2">
             Home
-            {nowRunning.length > 0 ? <LiveRefresh intervalMs={5000} /> : null}
+            {nowRunning.length > 0 ? (
+              <span className="normal-case">
+                <LiveRefresh intervalMs={5000} />
+              </span>
+            ) : null}
           </span>
         }
         subtitle={`What needs you, what's running, what just landed.`}
