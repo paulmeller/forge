@@ -72,10 +72,9 @@ export default async function RepoWorkspacePage({
   const ledgersByTaskIdMap = new Map<string, Awaited<ReturnType<typeof listLedgerForTask>>>();
   await Promise.all(
     rows.flatMap((row) => {
-      const ids = [
-        row.group?.attempts.at(-1)?.reproduce?.id,
-        row.group?.attempts.at(-1)?.fix?.id,
-      ].filter((id): id is string => !!id);
+      const ids = (row.group?.attempts ?? []).flatMap((a) =>
+        [a.reproduce?.id, a.fix?.id].filter((id): id is string => !!id),
+      );
       return ids.map(async (id) => {
         ledgersByTaskIdMap.set(id, [...(await listLedgerForTask(id, 200))].reverse());
       });

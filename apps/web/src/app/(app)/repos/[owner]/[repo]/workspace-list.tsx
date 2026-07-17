@@ -211,16 +211,7 @@ export function WorkspaceList({
               <IssueRunPanel
                 group={selected.group}
                 missionId={missionId}
-                reproduceLedger={
-                  selected.group.attempts.at(-1)?.reproduce
-                    ? (ledgersByTaskId[selected.group.attempts.at(-1)!.reproduce!.id] ?? [])
-                    : []
-                }
-                fixLedger={
-                  selected.group.attempts.at(-1)?.fix
-                    ? (ledgersByTaskId[selected.group.attempts.at(-1)!.fix!.id] ?? [])
-                    : []
-                }
+                ledgersByTaskId={ledgersByTaskId}
               />
             ) : (
               <p className="whitespace-pre-wrap text-sm text-muted-foreground">
