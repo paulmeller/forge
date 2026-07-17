@@ -11,14 +11,17 @@ import { cn } from '@/lib/utils';
 export function NavTabs({
   items,
   activeKey,
+  ariaLabel,
   className,
 }: {
   items: ReadonlyArray<{ key: string; label: string; href: string }>;
   activeKey: string;
+  ariaLabel?: string;
   className?: string;
 }) {
   return (
     <nav
+      aria-label={ariaLabel}
       className={cn(
         'inline-flex h-9 items-center justify-center rounded-lg bg-muted p-1 text-muted-foreground',
         className,

@@ -153,7 +153,7 @@ export function WorkspaceList({
 
   if (rows.length === 0) {
     return (
-      <Empty className="border">
+      <Empty className="border bg-card">
         <EmptyHeader>
           <EmptyTitle>No open issues in {repo}.</EmptyTitle>
         </EmptyHeader>

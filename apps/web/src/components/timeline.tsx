@@ -5,8 +5,8 @@ import { useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import type { LedgerEvent, Task } from '@forge/db';
 
-import { Empty, EmptyHeader, EmptyTitle } from './ui/empty';
 import { Card } from './ui/card';
+import { Empty, EmptyHeader, EmptyTitle } from './ui/empty';
 import { RoleTaggedEvent } from './role-tagged-event';
 
 type TaskMeta = Pick<Task, 'id' | 'repo' | 'status'>;

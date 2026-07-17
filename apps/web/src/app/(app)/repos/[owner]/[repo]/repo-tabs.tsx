@@ -16,6 +16,7 @@ export function RepoTabs({
   return (
     <NavTabs
       className="mb-4"
+      ariaLabel="Repository sections"
       activeKey={active}
       items={TABS.map((tab) => ({
         key: tab.key,
