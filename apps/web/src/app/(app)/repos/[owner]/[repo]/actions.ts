@@ -2,7 +2,9 @@
 
 import { randomUUID } from 'node:crypto';
 
+import Anthropic from '@anthropic-ai/sdk';
 import { ledgerEvents, tasks } from '@forge/db';
+import { eq } from 'drizzle-orm';
 
 import { db } from '@/lib/db';
 import { env } from '@/lib/env';
@@ -98,6 +100,61 @@ export async function createIssue(
       error: `GitHub rejected the issue (${res.status}): ${detail.slice(0, 200)}`,
     };
   }
+
+  return { ok: true };
+}
+
+async function cancelManagedAgentsSession(sessionId: string): Promise<void> {
+  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+  await client.beta.sessions.events.send(sessionId, {
+    events: [{ type: 'user.interrupt' }],
+  } as never);
+}
+
+/**
+ * Abort a running Task's session. Only meaningful for a Task with an active
+ * session (running/dispatching/etc.) — marks it failed with haltReason
+ * 'manual_abort', mirroring the shape budgets.ts's hardStop already uses for
+ * the same kind of forced stop.
+ */
+export async function abortTask(
+  taskId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  await withAuth();
+
+  const [task] = await db.select().from(tasks).where(eq(tasks.id, taskId)).limit(1);
+  if (!task) return { ok: false, error: 'Task not found' };
+  if (!task.sessionId) return { ok: false, error: 'Task has no active session to abort' };
+
+  try {
+    await cancelManagedAgentsSession(task.sessionId);
+  } catch (err) {
+    return {
+      ok: false,
+      error: `Could not cancel session: ${err instanceof Error ? err.message : 'unknown error'}`,
+    };
+  }
+
+  const now = new Date();
+  await db
+    .update(tasks)
+    .set({
+      status: 'failed',
+      haltReason: 'manual_abort',
+      lastError: 'Aborted by operator',
+      updatedAt: now,
+      completedAt: now,
+    })
+    .where(eq(tasks.id, taskId));
+
+  await db.insert(ledgerEvents).values({
+    id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
+    missionId: task.missionId,
+    taskId: task.id,
+    eventType: 'task.aborted',
+    payload: { sessionId: task.sessionId },
+    createdAt: now,
+  });
 
   return { ok: true };
 }
