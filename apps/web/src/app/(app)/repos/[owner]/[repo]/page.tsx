@@ -2,8 +2,10 @@ import Link from 'next/link';
 
 import { Button } from '@/components/ui/button';
 import { LiveRefresh } from '@/components/live-refresh';
+import { RepoBudgetLine } from '@/components/repo-budget-line';
 import { env } from '@/lib/env';
 import { listLedgerForTask } from '@/lib/ledger';
+import { getRepoBudget } from '@/lib/repo-budget';
 import { listTasksTouchingRepo } from '@/lib/repo-activity';
 import { rollupTasks } from '@/lib/rollups';
 import { listTasksForWorkspace } from '@/lib/tasks';
@@ -70,6 +72,7 @@ export default async function RepoWorkspacePage({
   }
 
   const mission = await findWorkspaceMission(user.id, repo);
+  const repoBudget = await getRepoBudget(user.id, repo);
   const tasks = mission ? await listTasksForWorkspace(mission.id) : [];
   const groups = groupTasksByIssue(tasks);
   const rows = mergeIssuesWithGroups(search.issues, groups);
@@ -111,9 +114,12 @@ export default async function RepoWorkspacePage({
               <h1 className="text-2xl font-semibold tracking-tight">{repo}</h1>
               {hasActiveWork ? <LiveRefresh intervalMs={5000} /> : null}
             </div>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {rows.length} open issue{rows.length === 1 ? '' : 's'}
-            </p>
+            <div className="mt-1 flex items-center gap-3">
+              <p className="text-sm text-muted-foreground">
+                {rows.length} open issue{rows.length === 1 ? '' : 's'}
+              </p>
+              <RepoBudgetLine budget={repoBudget} />
+            </div>
           </div>
           <div className="flex shrink-0 items-start gap-2">
             <NewIssueDialog owner={owner} repo={repoName} />
