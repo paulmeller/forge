@@ -63,7 +63,7 @@ export function SessionLogView({
         <p className="text-muted-foreground">No activity yet.</p>
       ) : (
         visible.map((event) => (
-          <div key={event.id} className="whitespace-pre-wrap break-words">
+          <div key={event.id} className="console-line-in whitespace-pre-wrap break-words">
             {formatLogLine(event)}
           </div>
         ))

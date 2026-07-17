@@ -54,7 +54,7 @@ export default async function MissionDetailPage({
   return (
     <ConsoleShell>
       {/* Header */}
-      <div className="mb-6 shrink-0">
+      <div className="title-glow mb-6 shrink-0">
         <Button asChild variant="ghost" size="sm" className="-ml-2 mb-3">
           <Link href="/missions">← All missions</Link>
         </Button>
@@ -138,7 +138,7 @@ export default async function MissionDetailPage({
         <div className="min-h-0 min-w-0 flex-[2] overflow-y-auto">
           <div className="grid min-w-0 grid-cols-12 gap-6">
             {/* Left: Tasks */}
-            <section className="col-span-12 min-w-0 lg:col-span-8">
+            <section className="rise rise-1 col-span-12 min-w-0 lg:col-span-8">
               <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Tasks {tasks.length > 0 && <span className="font-normal">({tasks.length})</span>}
               </h2>
@@ -185,7 +185,7 @@ export default async function MissionDetailPage({
             </section>
 
             {/* Right: Sidebar */}
-            <aside className="col-span-12 flex min-w-0 flex-col gap-4 lg:col-span-4">
+            <aside className="rise rise-2 col-span-12 flex min-w-0 flex-col gap-4 lg:col-span-4">
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm">Goal</CardTitle>
@@ -313,7 +313,7 @@ export default async function MissionDetailPage({
         </div>
 
         {/* Timeline — tailed console, bottom third */}
-        <section className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <section className="rise rise-3 flex min-h-0 min-w-0 flex-1 flex-col">
           <div className="mb-2 flex shrink-0 items-center justify-between">
             <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Timeline {ledger.length > 0 && <span className="font-normal">({ledger.length} events)</span>}

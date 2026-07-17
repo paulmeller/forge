@@ -75,16 +75,18 @@ export default async function DashboardPage({
         }
       />
 
-      <div className="mb-4">
+      <div className="rise rise-1 mb-4">
         <MissionFilters />
       </div>
 
-      <MissionsTable
-        missions={allMissions}
-        rollups={rollups}
-        sparklines={sparklines}
-        hasFilters={hasFilters}
-      />
+      <div className="rise rise-2">
+        <MissionsTable
+          missions={allMissions}
+          rollups={rollups}
+          sparklines={sparklines}
+          hasFilters={hasFilters}
+        />
+      </div>
     </PageShell>
   );
 }

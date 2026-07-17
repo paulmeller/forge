@@ -71,43 +71,53 @@ export default async function HomePage() {
         </Alert>
       )}
 
-      <div className="mb-8 grid grid-cols-2 gap-4 md:grid-cols-4">
-        <Card className="px-4 py-3">
-          <p className="text-2xl font-semibold">{stats.mergedThisWeek}</p>
-          <p className="text-xs text-muted-foreground">PRs merged this week</p>
-        </Card>
-        <Card className="px-4 py-3">
-          <p className="text-2xl font-semibold">{stats.activeAgents}</p>
-          <p className="text-xs text-muted-foreground">Active agents</p>
-        </Card>
-        <Card className="px-4 py-3">
-          <p className="text-2xl font-semibold">${stats.spentUsd.toFixed(2)}</p>
-          <p className="text-xs text-muted-foreground">Total spend</p>
-        </Card>
-        <Card className="px-4 py-3">
-          <p className="text-2xl font-semibold">{stats.connectedRepos}</p>
-          <p className="text-xs text-muted-foreground">Connected repos</p>
-        </Card>
+      <div className="rise rise-1 mb-8 grid grid-cols-2 gap-4 md:grid-cols-4">
+        <Link href="/missions?status=completed" className="block">
+          <Card className="px-4 py-3 transition-colors hover:bg-accent">
+            <p className="text-4xl font-semibold tabular-nums">{stats.mergedThisWeek}</p>
+            <p className="text-xs text-muted-foreground">PRs merged this week</p>
+          </Card>
+        </Link>
+        <Link href="/missions?status=running" className="block">
+          <Card className="px-4 py-3 transition-colors hover:bg-accent">
+            <p className="text-4xl font-semibold tabular-nums">{stats.activeAgents}</p>
+            <p className="text-xs text-muted-foreground">Active agents</p>
+          </Card>
+        </Link>
+        <Link href="/missions" className="block">
+          <Card className="px-4 py-3 transition-colors hover:bg-accent">
+            <p className="text-4xl font-semibold tabular-nums">${stats.spentUsd.toFixed(2)}</p>
+            <p className="text-xs text-muted-foreground">Total spend</p>
+          </Card>
+        </Link>
+        <Link href="/repos" className="block">
+          <Card className="px-4 py-3 transition-colors hover:bg-accent">
+            <p className="text-4xl font-semibold tabular-nums">{stats.connectedRepos}</p>
+            <p className="text-xs text-muted-foreground">Connected repos</p>
+          </Card>
+        </Link>
       </div>
 
       <div className="flex flex-col gap-6">
-        <QueueSection
-          title="Needs you"
-          rows={needsYou}
-          empty="Nothing waiting on you."
-        />
-        <QueueSection
-          title="Working"
-          rows={nowRunning}
-          rollups={runningRollups}
-          empty="Nothing running right now."
-          live
-        />
-        <QueueSection
-          title="Recently done"
-          rows={recentOutcomes}
-          empty="No merged PRs or resolved issues yet."
-        />
+        <div className="rise rise-2">
+          <QueueSection title="Needs you" rows={needsYou} empty="Nothing waiting on you." />
+        </div>
+        <div className="rise rise-3">
+          <QueueSection
+            title="Working"
+            rows={nowRunning}
+            rollups={runningRollups}
+            empty="Nothing running right now."
+            live
+          />
+        </div>
+        <div className="rise rise-4">
+          <QueueSection
+            title="Recently done"
+            rows={recentOutcomes}
+            empty="No merged PRs or resolved issues yet."
+          />
+        </div>
       </div>
     </PageShell>
   );

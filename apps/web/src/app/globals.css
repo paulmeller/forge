@@ -137,3 +137,48 @@
     color: var(--color-foreground);
   }
 }
+
+/* ---- Motion utilities (spec §4) — CSS-only, reduced-motion safe ---- */
+@media (prefers-reduced-motion: no-preference) {
+  .rise {
+    animation: forge-rise 0.3s ease-out both;
+  }
+  .rise-1 { animation-delay: 40ms; }
+  .rise-2 { animation-delay: 80ms; }
+  .rise-3 { animation-delay: 120ms; }
+  .rise-4 { animation-delay: 160ms; }
+  .rise-5 { animation-delay: 200ms; }
+  .rise-6 { animation-delay: 240ms; }
+  .console-line-in {
+    animation: forge-console-line-in 0.2s ease-out both;
+  }
+}
+
+@keyframes forge-rise {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes forge-console-line-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ---- Title glow (spec §5) — the one signature; dark mode only ---- */
+.title-glow {
+  position: relative;
+}
+.dark .title-glow::before {
+  content: '';
+  position: absolute;
+  left: -80px;
+  right: -80px;
+  top: -60px;
+  height: 220px;
+  background: radial-gradient(
+    600px circle at 20% 20%,
+    color-mix(in oklab, var(--primary) 5%, transparent),
+    transparent 70%
+  );
+  pointer-events: none;
+}
