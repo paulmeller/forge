@@ -3,7 +3,7 @@
 import { randomUUID } from 'node:crypto';
 
 import Anthropic from '@anthropic-ai/sdk';
-import { ledgerEvents, tasks, type TaskStatus } from '@forge/db';
+import { ledgerEvents, missions, tasks, type TaskStatus } from '@forge/db';
 import { eq } from 'drizzle-orm';
 
 import { db } from '@/lib/db';
@@ -11,9 +11,14 @@ import { env } from '@/lib/env';
 import { buildCreateIssuePayload } from '@/lib/github-issue-create';
 import { resolveMissionDefaults } from '@/lib/mission-defaults-db';
 import { pauseMission, resumeMission } from '@/lib/mission-transitions';
+import { updateNextIssueRefs } from '@/lib/next-marker';
 import { buildTriageTaskRows, type TriageIssue } from '@/lib/triage-planner';
 import { withAuth } from '@/lib/with-auth';
-import { findWorkspaceMission, getOrCreateIssueMission } from '@/lib/workspace-mission';
+import {
+  findWorkspaceMission,
+  getOrCreateIssueMission,
+  getOrCreateWorkspaceMission,
+} from '@/lib/workspace-mission';
 
 /**
  * Enqueue a gated reproduce→fix Task pair for one issue, in the repo's
@@ -29,8 +34,9 @@ export async function workOnIssue(
   const issueRef = `${repo}#${issue.number}`;
 
   let mission;
+  let defaults;
   try {
-    const defaults = await resolveMissionDefaults(user.id);
+    defaults = await resolveMissionDefaults(user.id);
     mission = await getOrCreateIssueMission(user.id, repo, issueRef, defaults);
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : 'Could not prepare mission' };
@@ -57,6 +63,18 @@ export async function workOnIssue(
       createdAt: now,
     });
   });
+
+  // Working an issue consumes its "Next" mark, if any.
+  try {
+    const container = await getOrCreateWorkspaceMission(user.id, repo, defaults);
+    if (container.nextIssueRefs?.includes(issueRef)) {
+      const next = updateNextIssueRefs(container.nextIssueRefs, issueRef, false);
+      await db.update(missions).set({ nextIssueRefs: next, updatedAt: new Date() }).where(eq(missions.id, container.id));
+    }
+  } catch {
+    // Non-fatal — the issue was successfully worked either way; a stale
+    // Next mark is cosmetic and will be cleared next time this runs.
+  }
 
   return { ok: true };
 }
@@ -213,4 +231,26 @@ export async function triggerManualTick(): Promise<{ ok: true } | { ok: false; e
       error: `Could not reach tick: ${err instanceof Error ? err.message : 'unknown error'}`,
     };
   }
+}
+
+/** Mark or unmark an issue as "Next" on this repo — queued for work without dispatching. */
+export async function toggleNextMarker(
+  repo: string,
+  issueRef: string,
+  marked: boolean,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const user = await withAuth();
+  const defaults = await resolveMissionDefaults(user.id);
+
+  let container;
+  try {
+    container = await getOrCreateWorkspaceMission(user.id, repo, defaults);
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'Could not prepare container' };
+  }
+
+  const next = updateNextIssueRefs(container.nextIssueRefs, issueRef, marked);
+  await db.update(missions).set({ nextIssueRefs: next, updatedAt: new Date() }).where(eq(missions.id, container.id));
+
+  return { ok: true };
 }
