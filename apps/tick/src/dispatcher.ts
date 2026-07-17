@@ -41,6 +41,12 @@ export async function runDispatcher(log: {
   const parentIds = Array.from(
     new Set(runningMissions.map((m) => m.parentMissionId).filter((id): id is string => !!id)),
   );
+  let containersById = new Map<string, Mission>();
+  if (parentIds.length > 0) {
+    const containerRows = await db.select().from(missions).where(inArray(missions.id, parentIds));
+    containersById = new Map(containerRows.map((c) => [c.id, c]));
+  }
+
   let siblingInflightByParentId = new Map<string, number>();
   if (parentIds.length > 0) {
     const rows = await db
@@ -57,7 +63,7 @@ export async function runDispatcher(log: {
         .map((r) => [r.parentMissionId, Number(r.count)]),
     );
   }
-  const containerCaps = computeContainerCaps(runningMissions, siblingInflightByParentId);
+  const containerCaps = computeContainerCaps(runningMissions, containersById, siblingInflightByParentId);
 
   let totalClaimed = 0;
   let totalDispatched = 0;
@@ -117,29 +123,32 @@ export function depsSatisfied(depIds: string[], deps: Task[]): boolean {
 /**
  * For every currently-running mission that has a parent (an issue leaf
  * nested under a repo's container), computes how many of that container's
- * slots remain this tick, given the container's own concurrencyCap and how
- * many tasks are already inflight across ALL its children (siblings).
- * Missions with no parent are unconstrained and don't appear in the
- * result.
+ * slots remain this tick. A leaf whose container is paused (Deactivate) or
+ * doesn't exist gets zero slots — blocked, not unconstrained. Otherwise:
+ * container concurrencyCap minus tasks already inflight across ALL its
+ * children (siblings).
  *
  * Pure given its inputs — the caller (runDispatcher) queries the live
- * sibling-inflight counts once per tick and passes them in. This is a
- * per-tick snapshot, not perfectly atomic across siblings claimed within
- * the same tick — two siblings under a busy container could each be handed
- * the same remaining-slots ceiling and jointly claim slightly over cap in
- * one tick; the next tick's fresh snapshot self-corrects. Exported for
- * testing.
+ * container rows and sibling-inflight counts once per tick and passes them
+ * in. This is a per-tick snapshot, not perfectly atomic across siblings
+ * claimed within the same tick — two siblings under a busy container could
+ * each be handed the same remaining-slots ceiling and jointly claim
+ * slightly over cap in one tick; the next tick's fresh snapshot
+ * self-corrects. Exported for testing.
  */
 export function computeContainerCaps(
   runningMissions: Mission[],
+  containersById: Map<string, Mission>,
   siblingInflightByParentId: Map<string, number>,
 ): Map<string, number> {
-  const byId = new Map(runningMissions.map((m) => [m.id, m]));
   const caps = new Map<string, number>();
   for (const mission of runningMissions) {
     if (!mission.parentMissionId) continue;
-    const container = byId.get(mission.parentMissionId);
-    if (!container) continue;
+    const container = containersById.get(mission.parentMissionId);
+    if (!container || container.status !== 'running') {
+      caps.set(mission.id, 0);
+      continue;
+    }
     const inflight = siblingInflightByParentId.get(mission.parentMissionId) ?? 0;
     caps.set(mission.id, Math.max(0, container.concurrencyCap - inflight));
   }

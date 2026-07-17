@@ -368,35 +368,50 @@ describe('claimNextBatch', () => {
 describe('computeContainerCaps', () => {
   it('returns no cap for missions without a parent', () => {
     const campaign = mission({ id: 'msn_campaign' });
-    const caps = computeContainerCaps([campaign], new Map());
+    const caps = computeContainerCaps([campaign], new Map(), new Map());
     expect(caps.has('msn_campaign')).toBe(false);
   });
 
-  it('caps a leaf mission by its container concurrencyCap minus sibling inflight', () => {
-    const container = mission({ id: 'msn_container', concurrencyCap: 3 });
+  it('caps a leaf mission by its running container concurrencyCap minus sibling inflight', () => {
+    const container = mission({ id: 'msn_container', concurrencyCap: 3, status: 'running' });
     const leaf = mission({ id: 'msn_leaf', parentMissionId: 'msn_container' });
-    const caps = computeContainerCaps([container, leaf], new Map([['msn_container', 2]]));
+    const containersById = new Map([['msn_container', container]]);
+    const caps = computeContainerCaps([container, leaf], containersById, new Map([['msn_container', 2]]));
     expect(caps.get('msn_leaf')).toBe(1);
   });
 
   it('floors at zero when sibling inflight already meets or exceeds the container cap', () => {
-    const container = mission({ id: 'msn_container', concurrencyCap: 2 });
+    const container = mission({ id: 'msn_container', concurrencyCap: 2, status: 'running' });
     const leaf = mission({ id: 'msn_leaf', parentMissionId: 'msn_container' });
-    const caps = computeContainerCaps([container, leaf], new Map([['msn_container', 5]]));
+    const containersById = new Map([['msn_container', container]]);
+    const caps = computeContainerCaps([container, leaf], containersById, new Map([['msn_container', 5]]));
     expect(caps.get('msn_leaf')).toBe(0);
   });
 
-  it('ignores a leaf whose parent is not in the running-missions list', () => {
-    const leaf = mission({ id: 'msn_leaf', parentMissionId: 'msn_missing_container' });
-    const caps = computeContainerCaps([leaf], new Map());
-    expect(caps.has('msn_leaf')).toBe(false);
+  it('blocks all claiming (cap 0) when the leaf container is paused — Deactivate has real teeth', () => {
+    const container = mission({ id: 'msn_container', concurrencyCap: 5, status: 'paused' });
+    const leaf = mission({ id: 'msn_leaf', parentMissionId: 'msn_container' });
+    const containersById = new Map([['msn_container', container]]);
+    const caps = computeContainerCaps([leaf], containersById, new Map());
+    expect(caps.get('msn_leaf')).toBe(0);
   });
 
-  it('gives every sibling under the same container the same remaining-slots ceiling', () => {
-    const container = mission({ id: 'msn_container', concurrencyCap: 4 });
+  it('blocks all claiming (cap 0), not unconstrained, when the parent container is missing entirely', () => {
+    const leaf = mission({ id: 'msn_leaf', parentMissionId: 'msn_missing_container' });
+    const caps = computeContainerCaps([leaf], new Map(), new Map());
+    expect(caps.get('msn_leaf')).toBe(0);
+  });
+
+  it('gives every sibling under the same running container the same remaining-slots ceiling', () => {
+    const container = mission({ id: 'msn_container', concurrencyCap: 4, status: 'running' });
     const leafA = mission({ id: 'msn_leaf_a', parentMissionId: 'msn_container' });
     const leafB = mission({ id: 'msn_leaf_b', parentMissionId: 'msn_container' });
-    const caps = computeContainerCaps([container, leafA, leafB], new Map([['msn_container', 1]]));
+    const containersById = new Map([['msn_container', container]]);
+    const caps = computeContainerCaps(
+      [container, leafA, leafB],
+      containersById,
+      new Map([['msn_container', 1]]),
+    );
     expect(caps.get('msn_leaf_a')).toBe(3);
     expect(caps.get('msn_leaf_b')).toBe(3);
   });
