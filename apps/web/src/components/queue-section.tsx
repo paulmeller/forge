@@ -71,7 +71,7 @@ export function QueueSection({
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   {rollup ? <TaskProgressPill rollup={rollup} /> : null}
-                  {task.prUrl ? <PrChip prUrl={task.prUrl} prNumber={task.prNumber} /> : null}
+                  {task.prUrl ? <PrChip prUrl={task.prUrl} prNumber={task.prNumber} linked={false} /> : null}
                   <CostChip costTokens={task.costTokens} />
                   {isIssueMission ? (
                     <Badge variant="outline" className="text-[10px]">

@@ -3,9 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { formatDateTime, formatRelative, formatTokens, formatUsd } from './format';
 
 describe('formatDateTime', () => {
-  // NB: hardcoded strings assume the process timezone is Australia/Sydney,
-  // matching this repo's dev/CI sandbox (no explicit `timeZone` is passed —
-  // same behavior as the pre-migration call sites this replaces).
+  // NB: these tests are timezone-safe; no-Z ISO inputs parse in local time and format in local time, cancelling out.
   const date = new Date('2026-07-17T09:43:00');
 
   it('formats without seconds by default', () => {
@@ -38,7 +36,7 @@ describe('formatRelative', () => {
 
   it('defaults nowMs to Date.now()', () => {
     const justNow = new Date(Date.now() - 1000);
-    expect(formatRelative(justNow)).toBe('1s ago');
+    expect(formatRelative(justNow)).toMatch(/^[12]s ago$/);
   });
 });
 

@@ -11,17 +11,25 @@ export function PrChip({
   prUrl,
   prNumber,
   status,
+  linked = true,
 }: {
   prUrl: string;
   prNumber: number | null;
   status?: string;
+  linked?: boolean;
 }) {
+  const label = (
+    <>
+      PR #{prNumber}
+      {status ? ` · ${status}` : ''}
+    </>
+  );
+  if (!linked) {
+    return <Badge variant="outline">{label}</Badge>;
+  }
   return (
-    <a href={prUrl} target="_blank" rel="noreferrer">
-      <Badge variant="outline">
-        PR #{prNumber}
-        {status ? ` · ${status}` : ''} ↗
-      </Badge>
+    <a href={prUrl} target="_blank" rel="noreferrer" className="inline-flex">
+      <Badge variant="outline">{label} ↗</Badge>
     </a>
   );
 }
