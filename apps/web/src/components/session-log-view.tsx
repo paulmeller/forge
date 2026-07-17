@@ -44,11 +44,13 @@ export function SessionLogView({
   const containerRef = useRef<HTMLDivElement>(null);
   const pinnedRef = useRef(true);
   const prevLengthRef = useRef(initialEvents.length);
+  const forceScrollRef = useRef(true);
 
   useEffect(() => {
     setEvents(initialEvents);
     prevLengthRef.current = initialEvents.length;
     pinnedRef.current = true;
+    forceScrollRef.current = true;
     setNewCount(0);
     // Only re-seed when the task changes — live events accumulate on top
     // independently, and initialEvents is a snapshot taken once per render
@@ -76,7 +78,13 @@ export function SessionLogView({
     const el = containerRef.current;
     const delta = events.length - prevLengthRef.current;
     prevLengthRef.current = events.length;
-    if (!el || delta <= 0) return;
+    if (!el) return;
+    if (forceScrollRef.current) {
+      el.scrollTop = el.scrollHeight;
+      forceScrollRef.current = false;
+      return;
+    }
+    if (delta <= 0) return;
     if (pinnedRef.current) {
       el.scrollTop = el.scrollHeight;
     } else {
