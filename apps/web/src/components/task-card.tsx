@@ -49,17 +49,17 @@ export function TaskCard({
             target="_blank"
             rel="noopener noreferrer"
             onClick={(e) => e.stopPropagation()}
-            className="text-foreground underline decoration-dotted hover:no-underline"
+            className="text-foreground underline underline-offset-2 hover:no-underline"
           >
-            PR #{task.prNumber ?? ''}
+            PR #{task.prNumber ?? ''} ↗
           </a>
         ) : null}
         <Link
           href={`/missions/${missionId}/tasks/${task.id}`}
           onClick={(e) => e.stopPropagation()}
-          className="ml-auto underline decoration-dotted hover:text-foreground"
+          className="ml-auto underline underline-offset-2 hover:text-foreground"
         >
-          open
+          open →
         </Link>
       </div>
     </article>

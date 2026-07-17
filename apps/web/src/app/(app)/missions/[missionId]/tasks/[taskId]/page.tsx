@@ -128,7 +128,7 @@ export default async function TaskDetailPage({
             files — not a view of the actual sandbox filesystem.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="flex flex-col gap-4">
           <TaskFileTabs
             promptVars={task.promptVars as Record<string, unknown> | null}
             status={task.status}
@@ -160,7 +160,7 @@ export default async function TaskDetailPage({
           {ledger.length === 0 ? (
             <p className="text-sm text-muted-foreground">No events yet.</p>
           ) : (
-            <ol className="space-y-3">
+            <ol className="flex flex-col gap-3">
               {ledger.map((event) => (
                 <li key={event.id} className="rounded-md border p-3">
                   <div className="flex items-baseline justify-between gap-4">

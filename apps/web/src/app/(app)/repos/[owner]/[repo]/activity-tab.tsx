@@ -17,7 +17,7 @@ export function ActivityTab({ rows }: { rows: RepoActivityRow[] }) {
   }
 
   return (
-    <div className="space-y-2">
+    <div className="flex flex-col gap-2">
       {rows.map((row) => (
         <Link
           key={row.task.id}

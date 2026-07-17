@@ -108,7 +108,7 @@ export function MissionFilters({ basePath = '/missions' }: { basePath?: string }
         <button
           type="button"
           onClick={() => router.replace(basePath, { scroll: false })}
-          className="text-[11px] text-muted-foreground underline decoration-dotted hover:text-foreground"
+          className="text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
         >
           Clear
         </button>

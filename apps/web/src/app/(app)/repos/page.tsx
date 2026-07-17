@@ -29,7 +29,7 @@ export default async function ReposPage() {
           </EmptyHeader>
         </Empty>
       ) : (
-        <div className="space-y-2">
+        <div className="flex flex-col gap-2">
           {repos.map((repo) => {
             const [owner, name] = repo.split('/');
             return (

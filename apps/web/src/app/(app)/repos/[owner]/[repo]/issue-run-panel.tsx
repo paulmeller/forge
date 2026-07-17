@@ -73,7 +73,7 @@ export function IssueRunPanel({
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
-      <div className="shrink-0 space-y-3">
+      <div className="flex shrink-0 flex-col gap-3">
         {prChips.length > 0 ? (
           <div className="flex flex-wrap gap-2">
             {prChips.map((f) => (

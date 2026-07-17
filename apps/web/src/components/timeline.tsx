@@ -59,12 +59,12 @@ export function Timeline({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col gap-4">
       {selectedTaskId && (
         <button
           type="button"
           onClick={() => onSelectTask?.(null)}
-          className="text-xs text-muted-foreground underline decoration-dotted hover:text-foreground"
+          className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
         >
           ← Show all Tasks
         </button>
@@ -80,7 +80,7 @@ export function Timeline({
                 onClick={() => taskId && toggleTask(taskId)}
                 className={cn(
                   'flex items-baseline gap-2 text-left',
-                  taskId && 'hover:underline decoration-dotted',
+                  taskId && 'hover:underline underline-offset-2',
                 )}
               >
                 <span className="text-xs font-semibold">
@@ -95,14 +95,14 @@ export function Timeline({
                 <button
                   type="button"
                   onClick={() => onSelectTask?.(taskId)}
-                  className="text-[10px] text-muted-foreground underline decoration-dotted hover:text-foreground"
+                  className="text-[10px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
                 >
                   focus
                 </button>
               )}
             </header>
             {!isCollapsed && (
-              <ol className="space-y-1 px-4 py-3">
+              <ol className="flex flex-col gap-1 px-4 py-3">
                 {group.map((e) => (
                   <RoleTaggedEvent key={e.id} event={e} />
                 ))}

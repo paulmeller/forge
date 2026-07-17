@@ -1,5 +1,6 @@
 import Link from 'next/link';
 
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { MissionFilters } from '@/components/mission-filters';
 import { MissionsTable } from '@/components/missions-table';
@@ -50,20 +51,18 @@ export default async function DashboardPage({
     <PageShell>
       {/* Setup banner */}
       {stats.connectedRepos === 0 && (
-        <div className="mb-8 rounded-lg border border-dashed border-yellow-600/40 bg-yellow-950/20 px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium">Connect your repos to get started</p>
-              <p className="text-xs text-muted-foreground">
-                Install the GitHub App and select repos. Then comment{' '}
-                <code className="rounded bg-muted px-1 py-0.5">@forge</code> on any issue.
-              </p>
-            </div>
-            <Button asChild size="sm">
-              <Link href="/setup">Connect Repos</Link>
-            </Button>
+        <Alert className="mb-8 flex items-center justify-between gap-4 border-dashed border-warning/40 text-foreground">
+          <div>
+            <AlertTitle className="text-sm">Connect your repos to get started</AlertTitle>
+            <AlertDescription className="text-xs text-muted-foreground">
+              Install the GitHub App and select repos. Then comment{' '}
+              <code className="rounded bg-muted px-1 py-0.5">@forge</code> on any issue.
+            </AlertDescription>
           </div>
-        </div>
+          <Button asChild size="sm">
+            <Link href="/setup">Connect Repos</Link>
+          </Button>
+        </Alert>
       )}
 
       <PageHeader

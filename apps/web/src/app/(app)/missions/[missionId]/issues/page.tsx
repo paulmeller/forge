@@ -55,7 +55,7 @@ export default async function MissionIssuesPage({
         }
       />
       {(mission.issueQuery || mission.targetRepos?.length === 1) && (
-        <div className="-mt-4 mb-6 space-y-2">
+        <div className="-mt-4 mb-6 flex flex-col gap-2">
           {mission.issueQuery && (
             <p className="inline-block rounded bg-muted px-2 py-1 font-mono text-xs text-muted-foreground">
               {mission.issueQuery}
@@ -85,7 +85,7 @@ export default async function MissionIssuesPage({
           </EmptyHeader>
         </Empty>
       ) : (
-        <div className="space-y-3">
+        <div className="flex flex-col gap-3">
           {groups.map((g) => (
             <IssueTriageCard key={g.issueRef} group={g} missionId={missionId} />
           ))}

@@ -19,7 +19,7 @@ export function RepoBudgetLine({ budget }: { budget: RepoBudget }) {
           <span
             className={cn(
               'absolute inset-y-0 left-0 rounded-full',
-              pct >= 100 ? 'bg-destructive' : pct >= 80 ? 'bg-amber-500' : 'bg-foreground',
+              pct >= 100 ? 'bg-destructive' : pct >= 80 ? 'bg-warning' : 'bg-primary',
             )}
             style={{ width: `${Math.min(100, pct)}%` }}
           />

@@ -61,7 +61,7 @@ export function QueueSection({
                   <div className="flex items-center gap-2">
                     {live ? (
                       <span
-                        className="inline-block h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-emerald-500"
+                        className="inline-block h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-live"
                         aria-hidden
                       />
                     ) : null}

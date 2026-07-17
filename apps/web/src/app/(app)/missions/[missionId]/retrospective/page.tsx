@@ -70,7 +70,7 @@ export default async function RetrospectivePage({
           </EmptyHeader>
         </Empty>
       ) : (
-        <div className="space-y-6">
+        <div className="flex flex-col gap-6">
           {retro.analysis && (
             <Card>
               <CardHeader className="pb-2">
@@ -87,7 +87,7 @@ export default async function RetrospectivePage({
               <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Pending review ({pending.length})
               </h2>
-              <div className="space-y-3">
+              <div className="flex flex-col gap-3">
                 {pending.map((p) => (
                   <ProposalCard key={p.id} proposal={p} />
                 ))}
@@ -100,7 +100,7 @@ export default async function RetrospectivePage({
               <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Reviewed ({reviewed.length})
               </h2>
-              <div className="space-y-3">
+              <div className="flex flex-col gap-3">
                 {reviewed.map((p) => (
                   <ProposalCard key={p.id} proposal={p} />
                 ))}

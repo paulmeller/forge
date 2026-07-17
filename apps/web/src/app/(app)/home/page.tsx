@@ -4,6 +4,7 @@ import { eq } from '@forge/db/orm';
 
 import { githubInstallations } from '@forge/db';
 
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { LiveRefresh } from '@/components/live-refresh';
 import { PageHeader, PageShell } from '@/components/page-shell';
@@ -55,20 +56,18 @@ export default async function HomePage() {
       />
 
       {stats.connectedRepos === 0 && (
-        <div className="mb-8 rounded-lg border border-dashed border-yellow-600/40 bg-yellow-950/20 px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium">Connect your repos to get started</p>
-              <p className="text-xs text-muted-foreground">
-                Install the GitHub App and select repos. Then comment{' '}
-                <code className="rounded bg-muted px-1 py-0.5">@forge</code> on any issue.
-              </p>
-            </div>
-            <Button asChild size="sm">
-              <Link href="/setup">Connect Repos</Link>
-            </Button>
+        <Alert className="mb-8 flex items-center justify-between gap-4 border-dashed border-warning/40 text-foreground">
+          <div>
+            <AlertTitle className="text-sm">Connect your repos to get started</AlertTitle>
+            <AlertDescription className="text-xs text-muted-foreground">
+              Install the GitHub App and select repos. Then comment{' '}
+              <code className="rounded bg-muted px-1 py-0.5">@forge</code> on any issue.
+            </AlertDescription>
           </div>
-        </div>
+          <Button asChild size="sm">
+            <Link href="/setup">Connect Repos</Link>
+          </Button>
+        </Alert>
       )}
 
       <div className="mb-8 grid grid-cols-2 gap-4 md:grid-cols-4">
@@ -90,7 +89,7 @@ export default async function HomePage() {
         </div>
       </div>
 
-      <div className="space-y-6">
+      <div className="flex flex-col gap-6">
         <QueueSection
           title="Needs you"
           rows={needsYou}

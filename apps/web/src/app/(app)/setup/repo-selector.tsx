@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
 
 import { connectRepos } from './actions';
@@ -47,7 +48,7 @@ export function RepoSelector({ installationId }: { installationId: string }) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="flex flex-col gap-4">
       <div>
         <Textarea
           placeholder={'owner/repo\nowner/another-repo'}
@@ -63,7 +64,8 @@ export function RepoSelector({ installationId }: { installationId: string }) {
       </div>
       {error && <p className="text-xs text-destructive">{error}</p>}
       <Button type="submit" disabled={pending}>
-        {pending ? 'Connecting...' : 'Connect repos'}
+        {pending ? <Spinner data-icon="inline-start" /> : null}
+        Connect repos
       </Button>
     </form>
   );

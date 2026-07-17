@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { Input } from '@/components/ui/input';
 import type { TaskRollup } from '@/components/progress-pill';
+import { cn } from '@/lib/utils';
 import type { WorkspaceIssueRow } from '@/lib/workspace-issues';
 
 import { toggleNextMarker } from './actions';
@@ -111,9 +112,10 @@ export function WorkspaceList({
     return (
       <div
         key={row.issue.number}
-        className={`flex items-center gap-1 border-b px-1 last:border-b-0 ${
-          selected?.issue.number === row.issue.number ? 'bg-accent' : ''
-        }`}
+        className={cn(
+          'flex items-center gap-1 border-b px-1 last:border-b-0',
+          selected?.issue.number === row.issue.number && 'bg-accent',
+        )}
       >
         <button
           type="button"
@@ -126,7 +128,7 @@ export function WorkspaceList({
               <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
                 {RUNNING_HEADLINES.has(row.group.headline) ? (
                   <span
-                    className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500"
+                    className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-live"
                     aria-hidden
                   />
                 ) : null}

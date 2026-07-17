@@ -47,7 +47,7 @@ export function PlanEditor({
   }
 
   return (
-    <div className="space-y-3">
+    <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
           Tasks ({initialTasks.length})
@@ -65,7 +65,7 @@ export function PlanEditor({
           <CardContent>
             <form
               action={addAction}
-              className="space-y-3"
+              className="flex flex-col gap-3"
               onSubmit={() => setTimeout(() => setShowAdd(false), 100)}
             >
               <input type="hidden" name="missionId" value={missionId} />
@@ -83,7 +83,8 @@ export function PlanEditor({
                 <p className="text-xs text-destructive">{(addState as { error?: string }).error}</p>
               ) : null}
               <Button type="submit" size="sm" disabled={addPending}>
-                {addPending ? 'Adding...' : 'Add'}
+                {addPending ? <Spinner data-icon="inline-start" /> : null}
+                Add
               </Button>
             </form>
           </CardContent>
@@ -97,7 +98,7 @@ export function PlanEditor({
           </EmptyHeader>
         </Empty>
       ) : (
-        <ol className="space-y-2">
+        <ol className="flex flex-col gap-2">
           {initialTasks.map((task) => (
             <TaskRow key={task.id} task={task} missionId={missionId} goalTemplate={goalTemplate} />
           ))}
@@ -110,7 +111,7 @@ export function PlanEditor({
 function TriagePlanView({ tasks }: { tasks: Task[] }) {
   const groups = groupTasksByIssue(tasks);
   return (
-    <div className="space-y-3">
+    <div className="flex flex-col gap-3">
       <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
         {groups.length} issue{groups.length === 1 ? '' : 's'} → {tasks.length} Tasks
       </h2>
@@ -118,7 +119,7 @@ function TriagePlanView({ tasks }: { tasks: Task[] }) {
         Each issue is planned as a gated <span className="font-mono">reproduce → fix</span> pair. The
         fix runs only if the reproduce stage confirms the bug.
       </p>
-      <ol className="space-y-2">
+      <ol className="flex flex-col gap-2">
         {groups.map((g) => (
           <li key={g.issueRef} className="rounded-lg border p-3">
             <div className="flex items-center gap-2">
@@ -228,16 +229,17 @@ function TaskRow({
             <input type="hidden" name="missionId" value={missionId} />
             <input type="hidden" name="taskId" value={task.id} />
             <Button type="submit" variant="ghost" size="sm" disabled={removePending}>
-              {removePending ? 'Removing...' : 'Remove'}
+              {removePending ? <Spinner data-icon="inline-start" /> : null}
+              Remove
             </Button>
           </form>
         </div>
       </div>
 
       {expanded && (
-        <div className="border-t px-4 py-3 space-y-3">
+        <div className="flex flex-col gap-3 border-t px-4 py-3">
           {customVarNames.length > 0 && (
-            <div className="space-y-2">
+            <div className="flex flex-col gap-2">
               <p className="text-xs font-medium text-muted-foreground">Template variables</p>
               <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
                 {customVarNames.map((name) => (

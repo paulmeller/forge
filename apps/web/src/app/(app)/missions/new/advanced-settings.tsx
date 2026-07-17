@@ -1,5 +1,6 @@
 'use client';
 
+import { Card } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -55,12 +56,12 @@ export function AdvancedSettings({
   fieldErrors: Record<string, string> | undefined;
 }) {
   return (
-    <div
+    <Card
       id="advanced-panel"
       hidden={!open}
-      className="space-y-6 rounded-xl border bg-card p-6 text-card-foreground shadow"
+      className="flex flex-col gap-6 p-6"
     >
-      <div className="space-y-4">
+      <div className="flex flex-col gap-4">
         <GroupLabel>Mission</GroupLabel>
         <div>
           <Label htmlFor="name">Name</Label>
@@ -88,7 +89,7 @@ export function AdvancedSettings({
         ) : null}
       </div>
 
-      <div className="space-y-4">
+      <div className="flex flex-col gap-4">
         <GroupLabel>Execution</GroupLabel>
         <div>
           <Label htmlFor="backend">Backend</Label>
@@ -159,7 +160,7 @@ export function AdvancedSettings({
         </div>
       </div>
 
-      <div className="space-y-4">
+      <div className="flex flex-col gap-4">
         <GroupLabel>Gates</GroupLabel>
         <div className="flex items-center gap-3">
           <Checkbox id="aiReviewEnabled" name="aiReviewEnabled" />
@@ -182,7 +183,7 @@ export function AdvancedSettings({
         </div>
       </div>
 
-      <div className="space-y-4">
+      <div className="flex flex-col gap-4">
         <GroupLabel>Budget</GroupLabel>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div>
@@ -232,7 +233,7 @@ export function AdvancedSettings({
         </div>
       </div>
 
-      <div className="space-y-4">
+      <div className="flex flex-col gap-4">
         <GroupLabel>Per-task hard stops</GroupLabel>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           <div>
@@ -262,7 +263,7 @@ export function AdvancedSettings({
         </div>
       </div>
 
-      <div className="space-y-4">
+      <div className="flex flex-col gap-4">
         <GroupLabel>GitHub</GroupLabel>
         <div>
           <Label htmlFor="githubInstallationId">GitHub App installation ID (repo clone)</Label>
@@ -283,6 +284,6 @@ export function AdvancedSettings({
           />
         </div>
       </div>
-    </div>
+    </Card>
   );
 }

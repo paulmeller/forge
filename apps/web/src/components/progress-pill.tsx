@@ -24,7 +24,7 @@ function Chip({
       className={cn(
         'inline-flex items-baseline gap-0.5 rounded px-1.5 py-0.5 text-[11px] font-medium tabular-nums',
         tone === 'live' && 'bg-foreground text-background',
-        tone === 'good' && 'bg-emerald-100 text-emerald-900 dark:bg-emerald-900/30 dark:text-emerald-100',
+        tone === 'good' && 'bg-live/15 text-live',
         tone === 'bad' && 'bg-destructive/15 text-destructive',
         (!tone || tone === 'muted') && 'bg-muted text-muted-foreground',
       )}

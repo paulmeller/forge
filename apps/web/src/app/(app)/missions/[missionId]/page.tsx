@@ -153,7 +153,7 @@ export default async function MissionDetailPage({
                   </EmptyHeader>
                   {targetRepos.length > 0 && mission.status === 'draft' ? (
                     <EmptyContent>
-                      <ul className="space-y-1 font-mono text-[11px]">
+                      <ul className="flex flex-col gap-1 font-mono text-[11px]">
                         {targetRepos.map((repo) => (
                           <li key={repo}>{repo}</li>
                         ))}
@@ -162,7 +162,7 @@ export default async function MissionDetailPage({
                   ) : null}
                 </Empty>
               ) : (
-                <ol className="space-y-2">
+                <ol className="flex flex-col gap-2">
                   {tasks.map((t) => (
                     <li key={t.id}>
                       <TaskCard
@@ -185,7 +185,7 @@ export default async function MissionDetailPage({
             </section>
 
             {/* Right: Sidebar */}
-            <aside className="col-span-12 min-w-0 space-y-4 lg:col-span-4">
+            <aside className="col-span-12 flex min-w-0 flex-col gap-4 lg:col-span-4">
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm">Goal</CardTitle>
@@ -215,7 +215,7 @@ export default async function MissionDetailPage({
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm">Triage skills</CardTitle>
                   </CardHeader>
-                  <CardContent className="space-y-2 text-xs">
+                  <CardContent className="flex flex-col gap-2 text-xs">
                     <p className="text-[11px] text-muted-foreground">
                       Attached per Task kind — reproduce and fix run different playbooks.
                     </p>
@@ -241,14 +241,14 @@ export default async function MissionDetailPage({
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm">Skill</CardTitle>
                   </CardHeader>
-                  <CardContent className="space-y-1 text-xs">
+                  <CardContent className="flex flex-col gap-1 text-xs">
                     <Row label="Name" value={skill.name} />
                     <Row label="Version" value={skill.version} mono />
                     {skill.allowedTools && (
                       <Row label="Tools" value={`${skill.allowedTools.length} allowed`} />
                     )}
                     <details className="mt-2">
-                      <summary className="cursor-pointer text-[11px] text-muted-foreground underline decoration-dotted hover:text-foreground">
+                      <summary className="cursor-pointer text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground">
                         View raw
                       </summary>
                       <pre className="mt-2 max-h-48 overflow-auto rounded bg-muted/50 p-2 font-mono text-[10px] leading-tight">
@@ -263,10 +263,10 @@ export default async function MissionDetailPage({
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm">Execution</CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-1 text-xs">
+                <CardContent className="flex flex-col gap-1 text-xs">
                   <Link
                     href={`/missions/${mission.id}/ledger`}
-                    className="block border-b py-1.5 text-muted-foreground underline decoration-dotted hover:text-foreground"
+                    className="block border-b py-1.5 text-muted-foreground underline underline-offset-2 hover:text-foreground"
                   >
                     View full Ledger &rarr;
                   </Link>
@@ -282,7 +282,7 @@ export default async function MissionDetailPage({
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm">GitHub</CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-1 text-xs">
+                <CardContent className="flex flex-col gap-1 text-xs">
                   <Row
                     label="Install"
                     value={mission.githubInstallationId ?? '—'}
@@ -301,7 +301,7 @@ export default async function MissionDetailPage({
                   <CardContent className="py-3">
                     <Link
                       href={`/missions/${mission.id}/retrospective`}
-                      className="text-xs text-muted-foreground underline decoration-dotted hover:text-foreground"
+                      className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
                     >
                       Retrospective &rarr;
                     </Link>
@@ -320,7 +320,7 @@ export default async function MissionDetailPage({
             </h2>
             <Link
               href={`/missions/${mission.id}/ledger`}
-              className="text-[11px] text-muted-foreground underline decoration-dotted hover:text-foreground"
+              className="text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
             >
               Full ledger &rarr;
             </Link>

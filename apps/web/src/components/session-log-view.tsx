@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { formatLogLine, normalizeRawSessionEvent, type LogEventLike } from '@/lib/session-log-format';
+import { cn } from '@/lib/utils';
 
 type LogEvent = LogEventLike & { id: string; createdAt: Date | string };
 
@@ -56,7 +57,7 @@ export function SessionLogView({
   return (
     <div
       ref={containerRef}
-      className={`overflow-y-auto rounded-md border bg-muted/40 p-3 font-mono text-xs leading-relaxed ${className ?? ''}`}
+      className={cn('overflow-y-auto rounded-md border bg-muted/40 p-3 font-mono text-xs leading-relaxed', className)}
     >
       {visible.length === 0 ? (
         <p className="text-muted-foreground">No activity yet.</p>

@@ -111,7 +111,7 @@ export function NewMissionForm({
       action={formAction}
       onSubmit={handleSubmit}
       onInvalidCapture={() => setShowAdvanced(true)}
-      className="space-y-6"
+      className="flex flex-col gap-6"
     >
       <input type="hidden" name="plannerStrategy" value={plannerStrategy} />
 
@@ -141,11 +141,11 @@ export function NewMissionForm({
                 )}
               >
                 {selected ? (
-                  <span className="absolute right-3 top-3 flex h-4 w-4 items-center justify-center rounded-full bg-primary">
-                    <Check className="h-2.5 w-2.5 text-primary-foreground" />
+                  <span className="absolute right-3 top-3 flex size-4 items-center justify-center rounded-full bg-primary">
+                    <Check className="size-2.5 text-primary-foreground" />
                   </span>
                 ) : null}
-                <Icon className="h-4 w-4 text-muted-foreground" />
+                <Icon className="size-4 text-muted-foreground" />
                 <p className="mt-2 text-sm font-medium">{option.label}</p>
                 <p className="mt-1 text-xs text-muted-foreground">{option.description}</p>
               </button>
@@ -223,7 +223,7 @@ export function NewMissionForm({
           )}
 
           {missingAgent ? (
-            <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
+            <div className="rounded-md border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
               No agent configured — set an Agent ID in Advanced settings, or connect one in{' '}
               <Link href="/setup" className="underline underline-offset-2">
                 Setup
@@ -231,7 +231,7 @@ export function NewMissionForm({
               , before creating.
             </div>
           ) : missingInstallation ? (
-            <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
+            <div className="rounded-md border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-warning">
               Missions can be planned now, but connect GitHub in{' '}
               <Link href="/setup" className="underline underline-offset-2">
                 Setup

@@ -15,8 +15,8 @@ function Bar({ pct, threshold, tone }: { pct: number; threshold: number; tone: '
       <div
         className={cn(
           'absolute inset-y-0 left-0 rounded-full',
-          tone === 'normal' && 'bg-foreground',
-          tone === 'warn' && 'bg-amber-500',
+          tone === 'normal' && 'bg-primary',
+          tone === 'warn' && 'bg-warning',
           tone === 'over' && 'bg-destructive',
         )}
         style={{ width: `${Math.min(100, Math.max(0, pct))}%` }}
@@ -51,7 +51,7 @@ export function BudgetGauge({
     pct >= 100 ? 'over' : pct >= thresholdPct ? 'warn' : 'normal';
 
   return (
-    <div className="space-y-3">
+    <div className="flex flex-col gap-3">
       <div>
         <div className="mb-1 flex items-baseline justify-between text-xs">
           <span className="text-muted-foreground">USD</span>

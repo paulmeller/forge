@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 
 import { formatLogLine, isToolEvent } from '@/lib/session-log-format';
+import { cn } from '@/lib/utils';
 import type { LedgerEvent, ReproduceVerdict } from '@forge/db';
 
 type FileTab = 'prompt.txt' | 'agent.log' | 'console.log' | 'status.json';
@@ -53,11 +54,12 @@ export function TaskFileTabs({
             key={tab}
             type="button"
             onClick={() => setActive(tab)}
-            className={`rounded-t px-3 py-1.5 font-mono text-xs ${
+            className={cn(
+              'rounded-t px-3 py-1.5 font-mono text-xs',
               active === tab
                 ? 'border border-b-0 bg-background text-foreground'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
+                : 'text-muted-foreground hover:text-foreground',
+            )}
           >
             {tab}
           </button>

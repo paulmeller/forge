@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { Badge } from '@/components/ui/badge';
 import { TaskStatusBadge } from '@/components/task-status-badge';
 import type { IssueGroup, TriageHeadline } from '@/lib/triage-view';
+import { cn } from '@/lib/utils';
 
 const HEADLINE: Record<TriageHeadline, { label: string; variant: 'default' | 'secondary' | 'outline' | 'destructive' }> = {
   reproducing: { label: 'Reproducing', variant: 'secondary' },
@@ -76,9 +77,10 @@ export function IssueTriageCard({ group, missionId }: { group: IssueGroup; missi
                 Object.entries(verdict.affectedVersions).map(([v, hit]) => (
                   <span
                     key={v}
-                    className={`rounded px-1.5 py-0.5 font-mono text-[11px] ${
-                      hit ? 'bg-destructive/10 text-destructive' : 'bg-muted text-muted-foreground'
-                    }`}
+                    className={cn(
+                      'rounded px-1.5 py-0.5 font-mono text-[11px]',
+                      hit ? 'bg-destructive/10 text-destructive' : 'bg-muted text-muted-foreground',
+                    )}
                   >
                     {v} {hit ? '✗' : '✓'}
                   </span>
