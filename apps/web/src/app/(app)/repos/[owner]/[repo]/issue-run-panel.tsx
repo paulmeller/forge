@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react';
 import Link from 'next/link';
 
 import { Button } from '@/components/ui/button';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PrChip } from '@/components/pr-chip';
 import { TaskProgressPill, type TaskRollup } from '@/components/progress-pill';
 import { SessionLogView } from '@/components/session-log-view';
@@ -87,49 +88,41 @@ export function IssueRunPanel({
         ) : null}
 
         {group.attempts.length > 1 ? (
-          <div className="flex flex-wrap gap-1 border-b">
-            {group.attempts.map((a) => (
-              <button
-                key={a.index}
-                type="button"
-                onClick={() => setAttemptIndex(a.index)}
-                className={`px-3 py-1.5 text-xs font-medium ${
-                  attemptIndex === a.index
-                    ? 'border-b-2 border-primary text-foreground'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                Attempt {a.index}
-                {a.index === group.attempts.length ? ' ●' : ''}
-              </button>
-            ))}
-          </div>
+          <Tabs
+            value={String(attemptIndex)}
+            onValueChange={(v) => setAttemptIndex(Number(v))}
+          >
+            <TabsList>
+              {group.attempts.map((a) => (
+                <TabsTrigger key={a.index} value={String(a.index)}>
+                  Attempt {a.index}
+                  {a.index === group.attempts.length ? ' ●' : ''}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
         ) : null}
 
-        <div className="flex gap-1 border-b">
-          {(['reproduce', 'fix'] as const).map((key) => {
-            const t = key === 'reproduce' ? attempt.reproduce : attempt.fix;
-            return (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setStage(key)}
-                className={`px-3 py-1.5 text-xs font-medium capitalize ${
-                  effectiveStage === key
-                    ? 'border-b-2 border-primary text-foreground'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                {key}
-                {t ? (
-                  <span className="ml-1.5 inline-block align-middle">
-                    <TaskStatusBadge status={t.status} haltReason={t.haltReason} />
-                  </span>
-                ) : null}
-              </button>
-            );
-          })}
-        </div>
+        <Tabs
+          value={effectiveStage}
+          onValueChange={(v) => setStage(v as 'reproduce' | 'fix')}
+        >
+          <TabsList>
+            {(['reproduce', 'fix'] as const).map((key) => {
+              const t = key === 'reproduce' ? attempt.reproduce : attempt.fix;
+              return (
+                <TabsTrigger key={key} value={key} className="capitalize">
+                  {key}
+                  {t ? (
+                    <span className="ml-1.5 inline-block align-middle">
+                      <TaskStatusBadge status={t.status} haltReason={t.haltReason} />
+                    </span>
+                  ) : null}
+                </TabsTrigger>
+              );
+            })}
+          </TabsList>
+        </Tabs>
 
         {task ? (
           <div className="flex items-center justify-between text-xs text-muted-foreground">

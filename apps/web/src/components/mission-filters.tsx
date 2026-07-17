@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback } from 'react';
 
 import { Input } from '@/components/ui/input';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 
 const STATUSES = ['draft', 'planning', 'running', 'paused', 'completed', 'cancelled'] as const;
 const BACKENDS = ['managed-agents', 'gateway'] as const;
@@ -29,51 +30,39 @@ export function MissionFilters({ basePath = '/missions' }: { basePath?: string }
     [params, router, basePath],
   );
 
-  const toggleStatus = useCallback(
-    (status: string) => {
-      const current = new Set(activeStatuses);
-      if (current.has(status)) current.delete(status);
-      else current.add(status);
-      updateParam('status', Array.from(current).join(','));
-    },
-    [activeStatuses, updateParam],
-  );
-
   return (
     <div className="flex flex-wrap items-center gap-2">
       {/* Status pills */}
-      {STATUSES.map((s) => (
-        <button
-          key={s}
-          type="button"
-          onClick={() => toggleStatus(s)}
-          className={`rounded-full border px-2.5 py-1 text-[11px] transition ${
-            activeStatuses.includes(s)
-              ? 'border-foreground bg-foreground text-background'
-              : 'border-border bg-card text-muted-foreground hover:border-foreground/30'
-          }`}
-        >
-          {s}
-        </button>
-      ))}
+      <ToggleGroup
+        type="multiple"
+        variant="outline"
+        size="sm"
+        value={activeStatuses}
+        onValueChange={(values) => updateParam('status', values.join(','))}
+      >
+        {STATUSES.map((s) => (
+          <ToggleGroupItem key={s} value={s} className="text-[11px]">
+            {s}
+          </ToggleGroupItem>
+        ))}
+      </ToggleGroup>
 
       <span className="mx-1 h-4 w-px bg-border" />
 
       {/* Backend pills */}
-      {BACKENDS.map((b) => (
-        <button
-          key={b}
-          type="button"
-          onClick={() => updateParam('backend', activeBackend === b ? '' : b)}
-          className={`rounded-full border px-2.5 py-1 font-mono text-[11px] transition ${
-            activeBackend === b
-              ? 'border-foreground bg-foreground text-background'
-              : 'border-border bg-card text-muted-foreground hover:border-foreground/30'
-          }`}
-        >
-          {b}
-        </button>
-      ))}
+      <ToggleGroup
+        type="single"
+        variant="outline"
+        size="sm"
+        value={activeBackend}
+        onValueChange={(value) => updateParam('backend', value)}
+      >
+        {BACKENDS.map((b) => (
+          <ToggleGroupItem key={b} value={b} className="font-mono text-[11px]">
+            {b}
+          </ToggleGroupItem>
+        ))}
+      </ToggleGroup>
 
       <span className="mx-1 h-4 w-px bg-border" />
 
@@ -97,20 +86,19 @@ export function MissionFilters({ basePath = '/missions' }: { basePath?: string }
       <span className="mx-1 h-4 w-px bg-border" />
 
       {/* Kind pills */}
-      {KINDS.map((k) => (
-        <button
-          key={k}
-          type="button"
-          onClick={() => updateParam('kind', k === 'all' ? '' : k)}
-          className={`rounded-full border px-2.5 py-1 text-[11px] capitalize transition ${
-            activeKind === k
-              ? 'border-foreground bg-foreground text-background'
-              : 'border-border bg-card text-muted-foreground hover:border-foreground/30'
-          }`}
-        >
-          {k}
-        </button>
-      ))}
+      <ToggleGroup
+        type="single"
+        variant="outline"
+        size="sm"
+        value={activeKind}
+        onValueChange={(value) => updateParam('kind', value === 'all' ? '' : value)}
+      >
+        {KINDS.map((k) => (
+          <ToggleGroupItem key={k} value={k} className="text-[11px] capitalize">
+            {k}
+          </ToggleGroupItem>
+        ))}
+      </ToggleGroup>
 
       {(activeStatuses.length > 0 ||
         activeBackend ||
