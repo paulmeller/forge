@@ -135,13 +135,13 @@ export function NewMissionForm({
                   'relative rounded-lg border p-3 text-left transition-colors',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
                   selected
-                    ? 'border-transparent ring-2 ring-[color:var(--forge-accent-to)]'
+                    ? 'border-transparent ring-2 ring-primary'
                     : 'border-input hover:bg-accent hover:text-accent-foreground',
                 )}
               >
                 {selected ? (
-                  <span className="absolute right-3 top-3 flex h-4 w-4 items-center justify-center rounded-full bg-[color:var(--forge-accent-to)]">
-                    <Check className="h-2.5 w-2.5 text-[color:var(--forge-accent-ink)]" />
+                  <span className="absolute right-3 top-3 flex h-4 w-4 items-center justify-center rounded-full bg-primary">
+                    <Check className="h-2.5 w-2.5 text-primary-foreground" />
                   </span>
                 ) : null}
                 <Icon className="h-4 w-4 text-muted-foreground" />

@@ -108,7 +108,7 @@ export function IssueRunPanel({
                 onClick={() => setAttemptIndex(a.index)}
                 className={`px-3 py-1.5 text-xs font-medium ${
                   attemptIndex === a.index
-                    ? 'border-b-2 border-[color:var(--forge-accent-to)] text-foreground'
+                    ? 'border-b-2 border-primary text-foreground'
                     : 'text-muted-foreground hover:text-foreground'
                 }`}
               >

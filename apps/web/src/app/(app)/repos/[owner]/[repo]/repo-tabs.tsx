@@ -26,7 +26,7 @@ export function RepoTabs({
             href={href}
             className={`px-3 py-2 text-sm font-medium ${
               active === tab.key
-                ? 'border-b-2 border-[color:var(--forge-accent-to)] text-foreground'
+                ? 'border-b-2 border-primary text-foreground'
                 : 'text-muted-foreground hover:text-foreground'
             }`}
           >
