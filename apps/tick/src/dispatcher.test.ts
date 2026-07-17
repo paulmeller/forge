@@ -167,6 +167,7 @@ function mission(overrides: Partial<Mission> = {}): Mission {
     workspaceRepo: null,
     issueRef: null,
     parentMissionId: null,
+    nextIssueRefs: null,
     skillId: null,
     aiReviewEnabled: false,
     budgetHardStopPct: 100,
