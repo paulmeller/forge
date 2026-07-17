@@ -23,6 +23,7 @@ const HALT_LABEL: Record<HaltReason, string> = {
   task_token_cap: 'token cap',
   no_progress: 'no progress',
   budget_hard_stop: 'budget hard stop',
+  manual_abort: 'aborted',
 };
 
 export function TaskStatusBadge({
