@@ -34,9 +34,12 @@ foundations; Phase B builds the rest of the console around them.
 - **Missions** (sidebar/UI) = the goal-based surface. The sidebar label
   "Dashboard" is retired (it pointed at `/missions` and lied).
 - **Repos** = the issue-based surface.
-- **Standing missions stop masquerading as campaigns**: wherever one
-  appears it carries a "Standing · owner/repo" badge and links to its repo
-  hub, not the campaign mental model.
+- **Standing missions stop masquerading as campaigns**: superseded by
+  Mission Hierarchy (2026-07-16 spec) — there's no longer a single
+  "standing mission" per repo to badge. Each issue worked is its own real
+  Mission (an "Issue · owner/repo#N" row wherever missions are listed,
+  linking to its repo's workspace); the repo's container mission is a
+  pure envelope that's never listed anywhere.
 - **Chat** repositions as "Ask Forge" — an assistant entry point, not a
   third work mode. Stays in the sidebar; not featured on Home. (Its
   `/v1/messages` backend gap is a separate, known concern — out of scope.)
@@ -78,13 +81,17 @@ Sidebar: **Home / Repos / Missions / Chat / Setup** (in that order).
 
 ### Missions list = campaigns by default
 
-- `/missions` default view filters `workspaceRepo IS NULL`. A quiet
-  toggle ("Show standing missions") reveals the rest.
-- Standing rows render the "Standing · owner/repo" badge linking to
-  `/repos/[owner]/[repo]`.
-- Every mission card states its shape, derived from existing fields:
+- Shipped as originally designed here, then superseded by Mission
+  Hierarchy (2026-07-16 spec, Phases 1-2): `/missions` first shipped
+  filtering to campaigns by default with a "Show standing missions"
+  toggle. Once issue leaves became real Missions in their own right
+  (not a shared container's tasks), that toggle became a **kind filter**
+  (All / Campaigns / Issues) defaulting to **All** — both kinds are
+  first-class rows now, so there's less reason to hide either.
+- Every mission row states its shape, derived from existing fields:
   "Fleet · N repos" (targetRepos length > 1), "Single repo · owner/name",
-  "Triage · <issueQuery>" (plannerStrategy = triage, no workspaceRepo).
+  "Triage · <issueQuery>" (plannerStrategy = triage, no workspaceRepo), or
+  "Issue · owner/repo#N" (issueRef set) linking to that repo's workspace.
 
 ### Cross-links (minimum connective tissue, Phase A scope)
 
@@ -99,14 +106,32 @@ Sidebar: **Home / Repos / Missions / Chat / Setup** (in that order).
 ## Phase B — the repo operator console
 
 `/repos/[owner]/[repo]` grows from "issue list" into the repo's factory
-floor, per the north-star reference:
+floor, per the north-star reference.
+
+**Reconciled with Mission Hierarchy Phases 1-2 (shipped since this
+section was first written):** there is no longer one "standing mission"
+per repo owning every issue's tasks directly. Each repo has a **container**
+mission (a pure budget/concurrency envelope, owns no tasks, never listed)
+and one **issue leaf mission** per issue actually worked (a real Mission,
+owns its own tasks). Everywhere below that used to say "the standing
+mission," read "the repo's container mission" — same UI surface, updated
+underneath.
 
 ### Repo-level controls (header toolbar)
 
-- **Deactivate / Activate** — pause/resume the standing mission (existing
-  mission pause; stops the dispatcher claiming this repo's tasks).
-- **Manual** — trigger a tick on demand (existing endpoint; server action
-  wraps it).
+- **Deactivate / Activate** — pauses/resumes the repo's container mission.
+  This needs real teeth it didn't have before Mission Hierarchy: today,
+  pausing a mission has no effect on its *children's* dispatch eligibility
+  — each issue leaf mission's own `status` independently governs whether
+  the dispatcher claims its tasks, and the container's status was never
+  checked. The dispatcher gains a check: before claiming a leaf mission's
+  tasks, look up its container (already fetched for the concurrency-cap
+  computation — see Mission Hierarchy Phase 1's `computeContainerCaps`)
+  and skip claiming entirely if the container's status isn't `running`.
+  Deactivating doesn't touch any child mission's own status — only what
+  the dispatcher is willing to claim.
+- **Manual** — trigger a tick on demand (existing `POST /tick` endpoint;
+  server action wraps it).
 - **Refresh** — re-fetch issues from GitHub.
 - **GitHub** — deep link to the repo.
 - **Run a goal on this repo →** — the escalation path to goal-mode:
@@ -118,27 +143,44 @@ floor, per the north-star reference:
 - **Activity** — every Task that has touched this repo from either mode
   (`tasks.repo` already exists; campaign tasks appear here too). This tab
   is where the two modes visibly meet.
-- **Settings** — the standing mission's knobs surfaced in place: budget
-  cap, AI review, self-verify. (Edits the standing mission row; no new
-  concepts.)
+- **Settings** — the container mission's knobs surfaced in place: budget
+  cap, concurrency cap, AI review, self-verify. Edits the container row
+  directly; no new concepts.
 
 ### Issues tab upgrades
 
 - **"Next" marker** — mark issues as queued-for-work without dispatching;
-  a curation state "Work on it" consumes. (Client/DB design decided at
-  plan time: lightest viable is a small table or a JSON column on the
-  standing mission; decision deferred to the Phase B plan.)
+  clicking "Work on it" consumes the mark. Decided: a `nextIssueRefs:
+  string[]` JSON column on the container mission (nullable, defaults
+  empty) — toggled from the issue list, cleared for an issueRef the
+  moment `workOnIssue` is called for it. No new table; the container
+  already exists per repo and this is the only place per-repo curation
+  state like this belongs.
 - **Inactive section** — closed/terminal issues collapse to the bottom.
-- **Attempt history tabs** — fixes a real latent bug: "Work again" mints
-  a fresh reproduce→fix pair with the same `issueRef`, and
-  `groupTasksByIssue` currently overwrites — earlier attempts silently
-  vanish. Rework grouping to be attempt-aware: each pair = an attempt tab
-  (Attempt 1, 2, …), newest active by default.
+- **Attempt history tabs** — fixes a real latent bug, now more precisely
+  scoped than originally written: Mission Hierarchy already ensures
+  "Work again" reopens the SAME issue leaf mission rather than colliding
+  with other issues' tasks (that cross-issue leakage is gone). The
+  remaining bug is narrower: `groupTasksByIssue` still assumes one
+  reproduce+fix pair per issueRef, so a second "Work again" on the same
+  issue mission — which appends a second reproduce+fix task pair to that
+  mission's own task list — still overwrites the first pair in the
+  grouping map. Rework grouping to be attempt-index-aware within one
+  mission's tasks (pair reproduce/fix tasks by creation order into
+  attempts, not by kind alone): each pair becomes an attempt tab (Attempt
+  1, 2, …), newest active by default.
 - **PR chips** in the issue header (`prUrl`/`prNumber` already on fix
   tasks; not currently shown here).
 - **Started timestamp + Abort** — abort maps to the adapter's existing
   `cancelSession`, which no UI currently exposes. New server action +
   button on a running attempt.
+
+### File browser
+
+Not new plumbing — reuses the Live Run View work's synthesized file tabs
+(prompt/agent.log/console.log/status.json), rendered here as a real
+Name/Modified/Size table instead of tabs, matching the reference's
+layout. Same underlying data source, no new sandbox/file-access code.
 
 ### Deliberately not copied from the reference
 
