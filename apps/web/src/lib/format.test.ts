@@ -86,4 +86,8 @@ describe('formatConsoleTime', () => {
   it('zero-pads single-digit components', () => {
     expect(formatConsoleTime(new Date('2026-01-01T03:04:05.000Z'))).toBe('03:04:05Z');
   });
+
+  it('falls back to a placeholder instead of throwing for an invalid date', () => {
+    expect(formatConsoleTime(new Date('not a date'))).toBe('--:--:--Z');
+  });
 });

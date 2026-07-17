@@ -49,5 +49,6 @@ export function formatTokens(n: number): string {
  *  mismatch (the same reasoning as formatDateTime's fixed 'en-US' locale,
  *  but console voice is UTC HH:MM:SS, not a localized clock). */
 export function formatConsoleTime(date: Date): string {
+  if (Number.isNaN(date.getTime())) return '--:--:--Z';
   return date.toISOString().slice(11, 19) + 'Z';
 }
