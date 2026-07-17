@@ -58,8 +58,8 @@ export function RepoToolbar({
       <div className="flex shrink-0 items-center gap-2">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="sm" className="h-8 w-8 px-0" disabled={pending}>
-              <MoreHorizontal className="size-4" />
+            <Button variant="ghost" size="sm" className="h-8 w-8 px-0">
+              <MoreHorizontal />
               <span className="sr-only">More actions</span>
             </Button>
           </DropdownMenuTrigger>
