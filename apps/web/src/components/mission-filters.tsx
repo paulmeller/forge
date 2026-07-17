@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback } from 'react';
 
 import { Input } from '@/components/ui/input';
+import { SectionLabel } from '@/components/section-label';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { statusLabel } from '@/lib/status-labels';
 
@@ -32,74 +33,80 @@ export function MissionFilters({ basePath = '/missions' }: { basePath?: string }
   );
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      {/* Status pills */}
-      <ToggleGroup
-        type="multiple"
-        variant="outline"
-        size="sm"
-        value={activeStatuses}
-        onValueChange={(values) => updateParam('status', values.join(','))}
-      >
-        {STATUSES.map((s) => (
-          <ToggleGroupItem key={s} value={s} className="text-[11px]">
-            {statusLabel(s)}
-          </ToggleGroupItem>
-        ))}
-      </ToggleGroup>
+    <div className="flex flex-wrap items-end gap-4">
+      <div className="flex flex-col gap-1">
+        <SectionLabel>Status</SectionLabel>
+        {/* Status pills */}
+        <ToggleGroup
+          type="multiple"
+          variant="outline"
+          size="sm"
+          value={activeStatuses}
+          onValueChange={(values) => updateParam('status', values.join(','))}
+        >
+          {STATUSES.map((s) => (
+            <ToggleGroupItem key={s} value={s} className="text-[11px]">
+              {statusLabel(s)}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+      </div>
 
-      <span className="mx-1 h-4 w-px bg-border" />
+      <div className="flex flex-col gap-1">
+        <SectionLabel>Backend</SectionLabel>
+        {/* Backend pills */}
+        <ToggleGroup
+          type="single"
+          variant="outline"
+          size="sm"
+          value={activeBackend}
+          onValueChange={(value) => updateParam('backend', value)}
+        >
+          {BACKENDS.map((b) => (
+            <ToggleGroupItem key={b} value={b} className="font-mono text-[11px]">
+              {b}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+      </div>
 
-      {/* Backend pills */}
-      <ToggleGroup
-        type="single"
-        variant="outline"
-        size="sm"
-        value={activeBackend}
-        onValueChange={(value) => updateParam('backend', value)}
-      >
-        {BACKENDS.map((b) => (
-          <ToggleGroupItem key={b} value={b} className="font-mono text-[11px]">
-            {b}
-          </ToggleGroupItem>
-        ))}
-      </ToggleGroup>
+      <div className="flex flex-col gap-1">
+        <SectionLabel>Search</SectionLabel>
+        {/* Search */}
+        <Input
+          placeholder="Search by repo..."
+          defaultValue={search}
+          onChange={(e) => {
+            // Debounce via setTimeout
+            const value = e.target.value;
+            const el = e.target;
+            clearTimeout((el as unknown as { _t?: ReturnType<typeof setTimeout> })._t);
+            (el as unknown as { _t?: ReturnType<typeof setTimeout> })._t = setTimeout(
+              () => updateParam('q', value),
+              300,
+            );
+          }}
+          className="h-7 w-44 text-xs"
+        />
+      </div>
 
-      <span className="mx-1 h-4 w-px bg-border" />
-
-      {/* Search */}
-      <Input
-        placeholder="Search by repo..."
-        defaultValue={search}
-        onChange={(e) => {
-          // Debounce via setTimeout
-          const value = e.target.value;
-          const el = e.target;
-          clearTimeout((el as unknown as { _t?: ReturnType<typeof setTimeout> })._t);
-          (el as unknown as { _t?: ReturnType<typeof setTimeout> })._t = setTimeout(
-            () => updateParam('q', value),
-            300,
-          );
-        }}
-        className="h-7 w-44 text-xs"
-      />
-
-      <span className="mx-1 h-4 w-px bg-border" />
-
-      {/* Kind pills */}
-      <ToggleGroup
-        type="single"
-        variant="outline"
-        size="sm"
-        value={activeKind}
-        onValueChange={(value) => updateParam('kind', value === 'all' ? '' : value)}
-      >
-        {KINDS.map((k) => (
-          <ToggleGroupItem key={k} value={k} className="text-[11px] capitalize">
-            {k}
-          </ToggleGroupItem>
-        ))}
-      </ToggleGroup>
+      <div className="flex flex-col gap-1">
+        <SectionLabel>Kind</SectionLabel>
+        {/* Kind pills */}
+        <ToggleGroup
+          type="single"
+          variant="outline"
+          size="sm"
+          value={activeKind}
+          onValueChange={(value) => updateParam('kind', value === 'all' ? '' : value)}
+        >
+          {KINDS.map((k) => (
+            <ToggleGroupItem key={k} value={k} className="text-[11px] capitalize">
+              {k}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+      </div>
 
       {(activeStatuses.length > 0 ||
         activeBackend ||

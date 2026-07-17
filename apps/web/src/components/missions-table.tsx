@@ -9,6 +9,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { DataChip } from '@/components/data-chip';
 import { MissionProgressPill, type MissionRollup } from '@/components/progress-pill';
 import { MissionStatusBadge } from '@/components/mission-status-badge';
 import { Sparkline } from '@/components/sparkline';
@@ -69,9 +70,11 @@ export function MissionsTable({
                   aria-label={mission.name}
                 />
                 <span className="block truncate font-medium">{mission.name}</span>
-                <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                  {missionShapeLabel(mission)}
-                </p>
+                {mission.issueRef ? null : (
+                  <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                    {missionShapeLabel(mission)}
+                  </p>
+                )}
               </TableCell>
               <TableCell>
                 <MissionStatusBadge status={mission.status} />
@@ -89,7 +92,11 @@ export function MissionsTable({
                   className="text-foreground/70"
                 />
               </TableCell>
-              <TableCell className="font-mono text-xs">{mission.backend}</TableCell>
+              <TableCell>
+                <DataChip title={mission.backend}>
+                  {mission.backend === 'managed-agents' ? 'ma' : 'gw'}
+                </DataChip>
+              </TableCell>
               <TableCell className="text-right text-xs text-muted-foreground">
                 {formatDateTime(mission.createdAt)}
               </TableCell>

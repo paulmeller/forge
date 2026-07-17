@@ -2,6 +2,7 @@ import Link from 'next/link';
 
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { DataChip } from '@/components/data-chip';
 import { PrChip } from '@/components/pr-chip';
 import { TaskProgressPill, type TaskRollup } from '@/components/progress-pill';
 import { TaskStatusBadge } from '@/components/task-status-badge';
@@ -15,16 +16,6 @@ function hrefFor(row: HomeTaskRow): string {
   return parsed
     ? `/repos/${parsed.repo}?issue=${parsed.number}`
     : `/missions/${row.task.missionId}/tasks/${row.task.id}`;
-}
-
-function CostChip({ costTokens }: { costTokens: number }) {
-  const usd = tokensToUsd(costTokens);
-  if (usd <= 0) return null;
-  return (
-    <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] tabular-nums text-muted-foreground">
-      {formatUsd(usd)}
-    </span>
-  );
 }
 
 export function QueueSection({
@@ -72,15 +63,24 @@ export function QueueSection({
                   </div>
                   <p className="truncate font-mono text-xs text-muted-foreground">{task.repo}</p>
                 </div>
-                <div className="flex shrink-0 items-center gap-2">
+                <div className="flex shrink-0 items-center gap-2 whitespace-nowrap">
                   {rollup ? <TaskProgressPill rollup={rollup} /> : null}
                   {task.prUrl ? <PrChip prUrl={task.prUrl} prNumber={task.prNumber} linked={false} /> : null}
-                  <CostChip costTokens={task.costTokens} />
-                  {isIssueMission ? (
-                    <Badge variant="outline" className="text-[10px]">
-                      Issue
-                    </Badge>
-                  ) : null}
+                  {(() => {
+                    const usd = tokensToUsd(task.costTokens);
+                    const chipCount =
+                      (rollup ? 1 : 0) + (task.prUrl ? 1 : 0) + (usd > 0 ? 1 : 0) + 1; // +1 status badge
+                    return (
+                      <>
+                        {usd > 0 ? <DataChip>{formatUsd(usd)}</DataChip> : null}
+                        {isIssueMission && chipCount < 4 ? (
+                          <Badge variant="outline" className="text-[10px]">
+                            Issue
+                          </Badge>
+                        ) : null}
+                      </>
+                    );
+                  })()}
                   <TaskStatusBadge status={task.status} haltReason={task.haltReason} />
                   <span
                     className="w-14 text-right text-[11px] tabular-nums text-muted-foreground"

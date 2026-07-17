@@ -56,24 +56,33 @@ export function MissionProgressPill({ rollup }: { rollup: MissionRollup }) {
   const settled =
     rollup.merged + rollup.resolved + rollup.awaitingReview + rollup.abandoned + rollup.failed;
   const pct = rollup.total === 0 ? 0 : Math.round((settled / rollup.total) * 100);
-  const hasFailures = rollup.failed > 0;
+
+  // Priority-ordered status chips; pct + cost always render, so at most 2
+  // status chips are visible (4-chip cap, spec §3) — the rest collapse to +N.
+  const statusChips: Array<{ key: string; tone: 'live' | 'good' | 'bad' | 'muted'; label: string }> = [];
+  if (rollup.inFlight > 0) statusChips.push({ key: 'inflight', tone: 'live', label: `${rollup.inFlight} in flight` });
+  if (rollup.failed > 0) statusChips.push({ key: 'failed', tone: 'bad', label: `${rollup.failed} failed` });
+  if (rollup.merged > 0) statusChips.push({ key: 'merged', tone: 'good', label: `${rollup.merged} merged` });
+  if (rollup.awaitingReview > 0) statusChips.push({ key: 'review', tone: 'muted', label: `${rollup.awaitingReview} review` });
+  if (rollup.resolved > 0) statusChips.push({ key: 'triaged', tone: 'muted', label: `${rollup.resolved} triaged` });
+  if (rollup.abandoned > 0) statusChips.push({ key: 'abandoned', tone: 'muted', label: `${rollup.abandoned} abandoned` });
+  const visible = statusChips.slice(0, 2);
+  const hidden = statusChips.length - visible.length;
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
+    <div className="flex items-center gap-1.5 whitespace-nowrap">
       <Chip tone="muted">
         <span className="font-semibold text-foreground">{pct}%</span>
         <span className="ml-1 text-muted-foreground">{settled}/{rollup.total}</span>
       </Chip>
-      {rollup.inFlight > 0 && <Chip tone="live">{rollup.inFlight} in flight</Chip>}
-      {rollup.merged > 0 && <Chip tone="good">{rollup.merged} merged</Chip>}
-      {rollup.resolved > 0 && <Chip tone="muted">{rollup.resolved} triaged</Chip>}
-      {rollup.awaitingReview > 0 && <Chip tone="muted">{rollup.awaitingReview} review</Chip>}
-      {hasFailures && <Chip tone="bad">{rollup.failed} failed</Chip>}
-      {rollup.abandoned > 0 && <Chip tone="muted">{rollup.abandoned} abandoned</Chip>}
+      {visible.map((c) => (
+        <Chip key={c.key} tone={c.tone}>{c.label}</Chip>
+      ))}
+      {hidden > 0 && <Chip tone="muted">+{hidden}</Chip>}
       <Chip tone="muted">{formatUsd(rollup.spentUsd)}</Chip>
-      <Chip tone="muted" timeSensitive>
+      <span className="text-[11px] tabular-nums text-muted-foreground" suppressHydrationWarning>
         {rollup.lastEventAt ? formatRelative(rollup.lastEventAt) : '—'}
-      </Chip>
+      </span>
     </div>
   );
 }
