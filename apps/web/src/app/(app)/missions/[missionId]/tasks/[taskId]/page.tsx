@@ -88,7 +88,7 @@ export default async function TaskDetailPage({
               <Row label="Base branch" value={task.baseBranch} mono />
               <Row label="Session" value={task.sessionId ?? '—'} mono={!!task.sessionId} />
               <Row label="Retry count" value={task.retryCount} />
-              <Row label="Cost (tokens)" value={new Intl.NumberFormat().format(task.costTokens)} />
+              <Row label="Cost (tokens)" value={new Intl.NumberFormat('en-US').format(task.costTokens)} />
               {task.lastError ? (
                 <Row
                   label="Last error"

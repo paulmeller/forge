@@ -110,7 +110,7 @@ export function RoleTaggedEvent({ event }: { event: LedgerEvent }) {
         {preview && !open ? (
           <span className="truncate text-xs text-muted-foreground">{preview}</span>
         ) : null}
-        <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
+        <span className="ml-auto shrink-0 font-mono text-[10px] text-muted-foreground">
           {formatTime(event.createdAt)}
         </span>
       </button>
