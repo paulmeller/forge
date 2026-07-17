@@ -1,8 +1,4 @@
-'use client';
-
-import Link from 'next/link';
-
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { NavTabs } from '@/components/nav-tabs';
 
 const TABS = [
   { key: 'issues', label: 'Issues' },
@@ -18,18 +14,14 @@ export function RepoTabs({
   repo: string;
 }) {
   return (
-    <Tabs value={active} className="mb-4">
-      <TabsList>
-        {TABS.map((tab) => {
-          const href =
-            tab.key === 'issues' ? `/repos/${repo}` : `/repos/${repo}?tab=${tab.key}`;
-          return (
-            <TabsTrigger key={tab.key} value={tab.key} asChild>
-              <Link href={href}>{tab.label}</Link>
-            </TabsTrigger>
-          );
-        })}
-      </TabsList>
-    </Tabs>
+    <NavTabs
+      className="mb-4"
+      activeKey={active}
+      items={TABS.map((tab) => ({
+        key: tab.key,
+        label: tab.label,
+        href: tab.key === 'issues' ? `/repos/${repo}` : `/repos/${repo}?tab=${tab.key}`,
+      }))}
+    />
   );
 }
