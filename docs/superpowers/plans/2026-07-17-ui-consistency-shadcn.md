@@ -114,7 +114,7 @@ Replace the file in full with:
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
-  --live: oklch(0.723 0.192 149.579);
+  --live: oklch(0.696 0.17 162.48);
   --warning: oklch(0.769 0.188 70.08);
   --radius: 0.625rem;
   --sidebar: oklch(0.985 0 0);
@@ -149,7 +149,7 @@ Replace the file in full with:
   --border: oklch(1 0 0 / 6%);
   --input: oklch(1 0 0 / 10%);
   --ring: oklch(0.84 0.24 113);
-  --live: oklch(0.723 0.192 149.579);
+  --live: oklch(0.696 0.17 162.48);
   --warning: oklch(0.769 0.188 70.08);
   --sidebar: oklch(0.205 0 0);
   --sidebar-foreground: oklch(0.985 0 0);
@@ -175,15 +175,15 @@ Replace the file in full with:
 }
 ```
 
-Deliberate deviations from the product file, all required by Forge's context (record these in your report; they are not errors): Forge keeps its fumadocs imports/`@source` lines and the `@config` bridge; product's `shadcn/tailwind.css`, `tw-animate-css`, chart tokens, glow vars, and marketing-only `@layer components` blocks are omitted; `--destructive-foreground` is ADDED (product's newer components stopped using it, Forge's `new-york` components still do); `--live`/`--warning` are ADDED per the spec (values are Tailwind's emerald-500 and amber-500 in oklch, matching today's rendered colors); the `.accent-checkbox` utility is DELETED (its one consumer keeps working with browser-default accent until Task 7 replaces the native checkboxes).
+Deliberate deviations from the product file, all required by Forge's context (record these in your report; they are not errors): Forge keeps its fumadocs imports/`@source` lines and the `@config` bridge; product's `shadcn/tailwind.css`, `tw-animate-css`, chart tokens, glow vars, and marketing-only `@layer components` blocks are omitted; `--destructive-foreground` is ADDED (product's newer components stopped using it, Forge's `new-york` components still do); `--live`/`--warning` are ADDED per the spec (values are Tailwind v4's emerald-500 (oklch(0.696 0.17 162.48)) and amber-500 in oklch, matching today's rendered colors); the `.accent-checkbox` utility is DELETED (its one consumer keeps working with browser-default accent until Task 7 replaces the native checkboxes).
 
 - [ ] **Step 2: Strip superseded config from `tailwind.config.ts`**
 
 The `@theme` block now owns colors, radius, and fonts. In `apps/web/tailwind.config.ts`, delete the entire `colors` object, the `borderRadius` object, and the `fontFamily` object from `theme.extend` (leaving `container` as the only `extend` key). Keep `darkMode`, `content`, and `plugins` untouched. This removal is what prevents `hsl(var(--border))`-style config colors from wrapping the new oklch values into invalid `hsl(oklch(…))`.
 
-- [ ] **Step 3: Migrate all three `--forge-accent` consumers**
+- [ ] **Step 3: Migrate all four `--forge-accent` consumers**
 
-Removing the vars in Step 1 breaks their consumers, so this task updates all three (the `accent` variant's full deletion remains Task 4's job — here it just stops referencing dead vars):
+Removing the vars in Step 1 breaks their consumers, so this task updates all four (the `accent` variant's full deletion remains Task 4's job — here it just stops referencing dead vars). The fourth — `app/(app)/missions/new/new-mission-form.tsx`'s selected mission-type card (ring + checkmark) — was missed in the original plan text and found by Task 1's implementer: replace its `--forge-accent-*` references with the equivalent `primary` token classes (`border-primary`/`ring-primary`/`text-primary`/`bg-primary` as each usage requires), preserving the current selected-state look (primary is lime in dark mode).
 
 1. `ui/button.tsx` — replace the `accent` variant's classes with the default-primary treatment so existing `variant="accent"` call sites keep compiling until Task 4 removes them:
    ```ts
