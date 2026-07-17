@@ -93,7 +93,7 @@ export function MissionsTable({
                 />
               </TableCell>
               <TableCell>
-                <DataChip title={mission.backend}>
+                <DataChip title={mission.backend} className="relative">
                   {mission.backend === 'managed-agents' ? 'ma' : 'gw'}
                 </DataChip>
               </TableCell>
