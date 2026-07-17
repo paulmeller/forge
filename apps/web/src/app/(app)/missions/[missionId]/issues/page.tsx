@@ -36,7 +36,7 @@ export default async function MissionIssuesPage({
   return (
     <PageShell className="max-w-[1000px]">
       <Button asChild variant="ghost" size="sm" className="-ml-2 mb-3">
-        <Link href={`/missions/${missionId}`}>← Mission control</Link>
+        <Link href={`/missions/${missionId}`}>← {mission.name}</Link>
       </Button>
       <PageHeader
         title={
