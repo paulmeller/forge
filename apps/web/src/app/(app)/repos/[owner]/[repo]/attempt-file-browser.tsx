@@ -24,7 +24,12 @@ function formatSize(bytes: number): string {
 export function AttemptFileBrowser({ task, ledger }: { task: Task; ledger: LedgerRow[] }) {
   const [openFile, setOpenFile] = useState<string | null>(null);
 
-  const chronological = useMemo(() => [...ledger].reverse(), [ledger]);
+  // `ledger` is already chronological (oldest→newest) by the time it reaches
+  // this component: page.tsx pre-reverses the newest-first rows returned by
+  // listLedgerForTask before storing them in ledgersByTaskId. No further
+  // reverse is needed here (unlike TaskFileTabs, which receives raw
+  // newest-first ledger rows and does exactly one reverse).
+  const chronological = ledger;
   const hasToolEvents = useMemo(() => chronological.some(isToolEvent), [chronological]);
   const latestEventAt = chronological.at(-1)?.createdAt ?? task.updatedAt;
 
