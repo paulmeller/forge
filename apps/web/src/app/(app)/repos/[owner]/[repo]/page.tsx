@@ -132,16 +132,12 @@ export default async function RepoWorkspacePage({
           </div>
           <div className="flex shrink-0 items-start gap-2">
             <NewIssueDialog owner={owner} repo={repoName} />
-            {mission ? (
-              <Button asChild variant="ghost" size="sm">
-                <Link href={`/missions?repo=${encodeURIComponent(repo)}`}>View missions</Link>
-              </Button>
-            ) : null}
             <RepoToolbar
               repo={repo}
               containerStatus={
                 mission ? (mission.status === 'paused' ? 'paused' : 'running') : null
               }
+              missionsHref={mission ? `/missions?repo=${encodeURIComponent(repo)}` : null}
             />
           </div>
         </div>
