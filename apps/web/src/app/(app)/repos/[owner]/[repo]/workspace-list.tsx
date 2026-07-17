@@ -137,12 +137,14 @@ export function WorkspaceList({
                 group={selected.group}
                 missionId={missionId}
                 reproduceLedger={
-                  selected.group.reproduce
-                    ? (ledgersByTaskId[selected.group.reproduce.id] ?? [])
+                  selected.group.attempts.at(-1)?.reproduce
+                    ? (ledgersByTaskId[selected.group.attempts.at(-1)!.reproduce!.id] ?? [])
                     : []
                 }
                 fixLedger={
-                  selected.group.fix ? (ledgersByTaskId[selected.group.fix.id] ?? []) : []
+                  selected.group.attempts.at(-1)?.fix
+                    ? (ledgersByTaskId[selected.group.attempts.at(-1)!.fix!.id] ?? [])
+                    : []
                 }
               />
             ) : (

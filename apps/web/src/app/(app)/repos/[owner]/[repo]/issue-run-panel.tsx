@@ -22,14 +22,15 @@ export function IssueRunPanel({
   reproduceLedger: LedgerRow[];
   fixLedger: LedgerRow[];
 }) {
+  const latest = group.attempts.at(-1) ?? null;
   const [stage, setStage] = useState<'reproduce' | 'fix'>(
-    group.fix ? 'fix' : 'reproduce',
+    latest?.fix ? 'fix' : 'reproduce',
   );
 
-  const task = stage === 'reproduce' ? group.reproduce : group.fix;
+  const task = stage === 'reproduce' ? (latest?.reproduce ?? null) : (latest?.fix ?? null);
   const ledger = stage === 'reproduce' ? reproduceLedger : fixLedger;
   const isLive = task ? RUNNING_STATUSES.has(task.status) : false;
-  const verdict = group.reproduce?.verdict ?? null;
+  const verdict = latest?.reproduce?.verdict ?? null;
 
   return (
     <div className="space-y-3">
@@ -41,7 +42,7 @@ export function IssueRunPanel({
 
       <div className="flex gap-1 border-b">
         {(['reproduce', 'fix'] as const).map((key) => {
-          const t = key === 'reproduce' ? group.reproduce : group.fix;
+          const t = key === 'reproduce' ? (latest?.reproduce ?? null) : (latest?.fix ?? null);
           return (
             <button
               key={key}

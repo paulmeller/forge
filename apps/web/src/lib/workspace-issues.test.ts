@@ -19,8 +19,7 @@ const group = (over: Partial<IssueGroup> = {}): IssueGroup => ({
   issueNumber: 1,
   title: 'Untouched issue',
   url: 'https://github.com/acme/api/issues/1',
-  reproduce: null,
-  fix: null,
+  attempts: [],
   headline: 'reproducing',
   ...over,
 });

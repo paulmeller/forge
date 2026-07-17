@@ -4,15 +4,21 @@ import type { Task } from '@forge/db';
  * A single issue's triage state, assembled from its reproduce and fix Tasks
  * (grouped by `issueRef`). Powers the issue-centric Console view.
  */
+export type Attempt = {
+  index: number;
+  reproduce: Task | null;
+  fix: Task | null;
+  headline: TriageHeadline;
+};
+
 export type IssueGroup = {
   issueRef: string;
   repo: string;
   issueNumber: number | null;
   title: string;
   url: string | null;
-  reproduce: Task | null;
-  fix: Task | null;
-  /** Coarse headline state for the row badge / sort order. */
+  attempts: Attempt[];
+  /** Coarse headline state for the row badge / sort order — the newest attempt's. */
   headline: TriageHeadline;
 };
 
@@ -41,37 +47,57 @@ function promptVar(task: Task | null, key: string): unknown {
 }
 
 /**
- * Group a Mission's Tasks into per-issue triage rows. Non-triage Tasks (those
- * without an issueRef) are ignored. Pure — exported for testing.
+ * Group a Mission's Tasks into per-issue triage rows, attempt-aware: each
+ * "Work again" appends a new reproduce+fix task pair to the SAME issue
+ * mission (see Mission Hierarchy's getOrCreateIssueMission), and every pair
+ * from one buildTriageTaskRows call shares essentially the same createdAt —
+ * so pairing reproduce/fix tasks by ascending createdAt index (1st with
+ * 1st, 2nd with 2nd, …) correctly reconstructs attempt history. Non-triage
+ * Tasks (no issueRef) are ignored. Pure — exported for testing.
  */
 export function groupTasksByIssue(tasks: Task[]): IssueGroup[] {
-  const byRef = new Map<string, { reproduce: Task | null; fix: Task | null }>();
+  const byRef = new Map<string, Task[]>();
 
   for (const task of tasks) {
     if (!task.issueRef) continue;
     if (task.kind !== 'reproduce' && task.kind !== 'fix') continue;
-    const entry = byRef.get(task.issueRef) ?? { reproduce: null, fix: null };
-    if (task.kind === 'reproduce') entry.reproduce = task;
-    else entry.fix = task;
-    byRef.set(task.issueRef, entry);
+    const list = byRef.get(task.issueRef) ?? [];
+    list.push(task);
+    byRef.set(task.issueRef, list);
   }
 
   const groups: IssueGroup[] = [];
-  for (const [issueRef, { reproduce, fix }] of byRef) {
-    const numRaw = promptVar(reproduce ?? fix, 'issue_number');
+  for (const [issueRef, issueTasks] of byRef) {
+    const reproduces = issueTasks
+      .filter((t) => t.kind === 'reproduce')
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+    const fixes = issueTasks
+      .filter((t) => t.kind === 'fix')
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+    const attemptCount = Math.max(reproduces.length, fixes.length);
+
+    const attempts: Attempt[] = [];
+    for (let i = 0; i < attemptCount; i++) {
+      const reproduce = reproduces[i] ?? null;
+      const fix = fixes[i] ?? null;
+      attempts.push({ index: i + 1, reproduce, fix, headline: headlineFor(reproduce, fix) });
+    }
+
+    const anyTask = issueTasks[0] ?? null;
+    const numRaw = promptVar(anyTask, 'issue_number');
     const issueNumber =
       typeof numRaw === 'number' ? numRaw : parseIssueNumber(issueRef);
-    const titleRaw = promptVar(reproduce ?? fix, 'issue_title');
-    const urlRaw = promptVar(reproduce ?? fix, 'issue_url');
+    const titleRaw = promptVar(anyTask, 'issue_title');
+    const urlRaw = promptVar(anyTask, 'issue_url');
+
     groups.push({
       issueRef,
-      repo: (reproduce ?? fix)?.repo ?? issueRef.split('#')[0] ?? '',
+      repo: anyTask?.repo ?? issueRef.split('#')[0] ?? '',
       issueNumber,
       title: typeof titleRaw === 'string' && titleRaw ? titleRaw : issueRef,
       url: typeof urlRaw === 'string' ? urlRaw : null,
-      reproduce,
-      fix,
-      headline: headlineFor(reproduce, fix),
+      attempts,
+      headline: attempts.at(-1)?.headline ?? 'reproducing',
     });
   }
 

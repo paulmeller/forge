@@ -33,7 +33,8 @@ function StageRow({
 
 export function IssueTriageCard({ group, missionId }: { group: IssueGroup; missionId: string }) {
   const headline = HEADLINE[group.headline];
-  const verdict = group.reproduce?.verdict ?? null;
+  const latest = group.attempts.at(-1) ?? null;
+  const verdict = latest?.reproduce?.verdict ?? null;
 
   return (
     <div className="rounded-lg border bg-card p-4">
@@ -63,9 +64,9 @@ export function IssueTriageCard({ group, missionId }: { group: IssueGroup; missi
 
       <div className="divide-y">
         <StageRow label="Reproduce">
-          {group.reproduce ? (
+          {latest?.reproduce ? (
             <>
-              <TaskStatusBadge status={group.reproduce.status} haltReason={group.reproduce.haltReason} />
+              <TaskStatusBadge status={latest.reproduce.status} haltReason={latest.reproduce.haltReason} />
               {verdict && (
                 <Badge variant={verdict.reproduced ? 'default' : 'outline'}>
                   {verdict.reproduced ? 'reproduced' : 'could not reproduce'}
@@ -93,17 +94,17 @@ export function IssueTriageCard({ group, missionId }: { group: IssueGroup; missi
         )}
 
         <StageRow label="Fix">
-          {group.fix ? (
+          {latest?.fix ? (
             <>
-              <TaskStatusBadge status={group.fix.status} haltReason={group.fix.haltReason} />
-              {group.fix.prUrl && (
+              <TaskStatusBadge status={latest.fix.status} haltReason={latest.fix.haltReason} />
+              {latest.fix.prUrl && (
                 <a
-                  href={group.fix.prUrl}
+                  href={latest.fix.prUrl}
                   target="_blank"
                   rel="noreferrer"
                   className="text-xs font-medium text-primary hover:underline"
                 >
-                  PR #{group.fix.prNumber ?? ''}
+                  PR #{latest.fix.prNumber ?? ''}
                 </a>
               )}
               {group.headline === 'fix_skipped' && (
@@ -117,17 +118,17 @@ export function IssueTriageCard({ group, missionId }: { group: IssueGroup; missi
       </div>
 
       <div className="mt-2 flex gap-3">
-        {group.reproduce && (
+        {latest?.reproduce && (
           <Link
-            href={`/missions/${missionId}/tasks/${group.reproduce.id}`}
+            href={`/missions/${missionId}/tasks/${latest.reproduce.id}`}
             className="text-[11px] text-muted-foreground hover:text-foreground hover:underline"
           >
             reproduce task →
           </Link>
         )}
-        {group.fix && (
+        {latest?.fix && (
           <Link
-            href={`/missions/${missionId}/tasks/${group.fix.id}`}
+            href={`/missions/${missionId}/tasks/${latest.fix.id}`}
             className="text-[11px] text-muted-foreground hover:text-foreground hover:underline"
           >
             fix task →

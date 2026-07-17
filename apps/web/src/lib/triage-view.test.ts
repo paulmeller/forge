@@ -49,8 +49,8 @@ describe('groupTasksByIssue', () => {
   it('pairs the reproduce and fix Tasks under one issue', () => {
     const groups = groupTasksByIssue([reproduce(), fix()]);
     expect(groups).toHaveLength(1);
-    expect(groups[0]!.reproduce?.kind).toBe('reproduce');
-    expect(groups[0]!.fix?.kind).toBe('fix');
+    expect(groups[0]!.attempts.at(-1)?.reproduce?.kind).toBe('reproduce');
+    expect(groups[0]!.attempts.at(-1)?.fix?.kind).toBe('fix');
   });
 
   it('ignores non-triage tasks (no issueRef / standard kind)', () => {
@@ -91,6 +91,100 @@ describe('groupTasksByIssue', () => {
       fix({ issueRef: 'vercel/ai#2', dependsOnIds: [] }),
     ]);
     expect(groups.map((g) => g.issueRef)).toEqual(['vercel/ai#2', 'vercel/ai#1']);
+  });
+
+  it('groups multiple attempts on the same issue into separate attempt entries, oldest first (regression: previously the second attempt silently overwrote the first)', () => {
+    const now = new Date('2026-01-01T00:00:00.000Z');
+    const later = new Date('2026-01-02T00:00:00.000Z');
+
+    const reproduce1 = task({
+      issueRef: 'acme/api#1',
+      kind: 'reproduce',
+      status: 'resolved',
+      verdict: { reproduced: false, summary: 'could not reproduce on attempt 1' },
+      createdAt: now,
+    });
+    const reproduce2 = task({
+      issueRef: 'acme/api#1',
+      kind: 'reproduce',
+      status: 'running',
+      createdAt: later,
+    });
+
+    const groups = groupTasksByIssue([reproduce1, reproduce2]);
+
+    expect(groups).toHaveLength(1);
+    const group = groups[0]!;
+    expect(group.attempts).toHaveLength(2);
+    expect(group.attempts[0]!.index).toBe(1);
+    expect(group.attempts[0]!.reproduce).toBe(reproduce1);
+    expect(group.attempts[0]!.fix).toBeNull();
+    expect(group.attempts[1]!.index).toBe(2);
+    expect(group.attempts[1]!.reproduce).toBe(reproduce2);
+    expect(group.attempts[1]!.fix).toBeNull();
+    // The row-level headline reflects the NEWEST attempt (still reproducing).
+    expect(group.headline).toBe('reproducing');
+  });
+
+  it('pairs reproduce and fix tasks into the same attempt by creation order, not by task id', () => {
+    const t1 = new Date('2026-01-01T00:00:00.000Z');
+    const t2 = new Date('2026-01-02T00:00:00.000Z');
+
+    const reproduce1 = task({
+      issueRef: 'acme/api#2',
+      kind: 'reproduce',
+      status: 'resolved',
+      verdict: { reproduced: true, summary: 'reproduced on attempt 1' },
+      createdAt: t1,
+    });
+    const fix1 = task({
+      issueRef: 'acme/api#2',
+      kind: 'fix',
+      status: 'merged',
+      createdAt: t1,
+    });
+    const reproduce2 = task({
+      issueRef: 'acme/api#2',
+      kind: 'reproduce',
+      status: 'resolved',
+      verdict: { reproduced: true, summary: 'reproduced on attempt 2' },
+      createdAt: t2,
+    });
+    const fix2 = task({
+      issueRef: 'acme/api#2',
+      kind: 'fix',
+      status: 'awaiting_review',
+      createdAt: t2,
+    });
+
+    // Deliberately out of chronological order in the input array — pairing must
+    // key off createdAt, not array position.
+    const groups = groupTasksByIssue([fix2, reproduce1, fix1, reproduce2]);
+
+    expect(groups).toHaveLength(1);
+    const group = groups[0]!;
+    expect(group.attempts).toHaveLength(2);
+    expect(group.attempts[0]!.reproduce).toBe(reproduce1);
+    expect(group.attempts[0]!.fix).toBe(fix1);
+    expect(group.attempts[1]!.reproduce).toBe(reproduce2);
+    expect(group.attempts[1]!.fix).toBe(fix2);
+    expect(group.headline).toBe('fix_review');
+  });
+
+  it('does not confuse attempts across two different issues in the same task list', () => {
+    const now = new Date('2026-01-01T00:00:00.000Z');
+    const r1 = task({ issueRef: 'acme/api#1', kind: 'reproduce', createdAt: now });
+    const r2 = task({ issueRef: 'acme/api#2', kind: 'reproduce', createdAt: now });
+
+    const groups = groupTasksByIssue([r1, r2]);
+
+    expect(groups).toHaveLength(2);
+    const g1 = groups.find((g) => g.issueRef === 'acme/api#1')!;
+    const g2 = groups.find((g) => g.issueRef === 'acme/api#2')!;
+    expect(g1.attempts).toHaveLength(1);
+    expect(g1.attempts[0]!.reproduce).toBe(r1);
+    expect(g2.attempts).toHaveLength(1);
+    expect(g2.attempts[0]!.reproduce).toBe(r2);
   });
 });
 
