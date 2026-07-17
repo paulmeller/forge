@@ -1,19 +1,23 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useTransition } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import type { WorkspaceIssueRow } from '@/lib/workspace-issues';
 
+import { toggleNextMarker } from './actions';
 import { IssueRunPanel } from './issue-run-panel';
 import { WorkOnItButton } from './work-on-it-button';
+
+const TERMINAL_HEADLINES = new Set(['fixed', 'not_reproduced', 'fix_skipped', 'failed']);
 
 export function WorkspaceList({
   repo,
   rows,
   missionId,
   ledgersByTaskId,
+  nextIssueRefs,
 }: {
   repo: string;
   rows: WorkspaceIssueRow[];
@@ -22,10 +26,13 @@ export function WorkspaceList({
     string,
     Array<{ id: string; eventType: string; payload: unknown; createdAt: Date }>
   >;
+  nextIssueRefs: string[];
 }) {
   const [query, setQuery] = useState('');
   const [selectedNumber, setSelectedNumber] = useState<number | null>(rows[0]?.issue.number ?? null);
   const [selectedLabels, setSelectedLabels] = useState<Set<string>>(new Set());
+  const [showInactive, setShowInactive] = useState(false);
+  const [pending, startTransition] = useTransition();
 
   const allLabels = useMemo(() => {
     const labels = new Set<string>();
@@ -56,7 +63,61 @@ export function WorkspaceList({
     });
   }, [rows, query, selectedLabels]);
 
+  function issueRefFor(row: WorkspaceIssueRow): string {
+    return `${row.issue.repo}#${row.issue.number}`;
+  }
+
+  const nextSet = new Set(nextIssueRefs);
+  const nextRows = filtered.filter((r) => nextSet.has(issueRefFor(r)));
+  const inactiveRows = filtered.filter(
+    (r) => r.group && TERMINAL_HEADLINES.has(r.group.headline) && !nextSet.has(issueRefFor(r)),
+  );
+  const workingRows = filtered.filter(
+    (r) => !nextSet.has(issueRefFor(r)) && !(r.group && TERMINAL_HEADLINES.has(r.group.headline)),
+  );
+
   const selected = filtered.find((r) => r.issue.number === selectedNumber) ?? filtered[0] ?? null;
+
+  function handleToggleNext(row: WorkspaceIssueRow, marked: boolean) {
+    startTransition(async () => {
+      await toggleNextMarker(repo, issueRefFor(row), marked);
+    });
+  }
+
+  function renderRow(row: WorkspaceIssueRow) {
+    const ref = issueRefFor(row);
+    return (
+      <div
+        key={row.issue.number}
+        className={`flex items-center gap-1 border-b px-1 last:border-b-0 ${
+          selected?.issue.number === row.issue.number ? 'bg-accent' : ''
+        }`}
+      >
+        <button
+          type="button"
+          onClick={() => setSelectedNumber(row.issue.number)}
+          className="flex-1 py-2 text-left text-sm hover:bg-accent"
+        >
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-xs text-muted-foreground">#{row.issue.number}</span>
+            {row.group ? (
+              <span className="text-xs text-muted-foreground">{row.group.headline}</span>
+            ) : null}
+          </div>
+          <p className="truncate">{row.issue.title}</p>
+        </button>
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => handleToggleNext(row, !nextSet.has(ref))}
+          className="shrink-0 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground"
+          title={nextSet.has(ref) ? 'Remove from Next' : 'Mark as Next'}
+        >
+          {nextSet.has(ref) ? '★' : '☆'}
+        </button>
+      </div>
+    );
+  }
 
   if (rows.length === 0) {
     return (
@@ -93,26 +154,36 @@ export function WorkspaceList({
           ) : null}
         </div>
         <div className="max-h-[70vh] overflow-y-auto">
-          {filtered.map((row) => (
-            <button
-              key={row.issue.number}
-              type="button"
-              onClick={() => setSelectedNumber(row.issue.number)}
-              className={`block w-full border-b px-3 py-2 text-left text-sm last:border-b-0 hover:bg-accent ${
-                selected?.issue.number === row.issue.number ? 'bg-accent' : ''
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-xs text-muted-foreground">
-                  #{row.issue.number}
-                </span>
-                {row.group ? (
-                  <span className="text-xs text-muted-foreground">{row.group.headline}</span>
-                ) : null}
-              </div>
-              <p className="truncate">{row.issue.title}</p>
-            </button>
-          ))}
+          {nextRows.length > 0 ? (
+            <>
+              <p className="px-3 pt-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Next
+              </p>
+              {nextRows.map(renderRow)}
+            </>
+          ) : null}
+
+          <p className="px-3 pt-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Working
+          </p>
+          {workingRows.length > 0 ? (
+            workingRows.map(renderRow)
+          ) : (
+            <p className="px-3 py-2 text-xs text-muted-foreground">Nothing in progress.</p>
+          )}
+
+          {inactiveRows.length > 0 ? (
+            <div className="border-t">
+              <button
+                type="button"
+                onClick={() => setShowInactive((v) => !v)}
+                className="w-full px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground"
+              >
+                {showInactive ? '▾' : '▸'} Inactive ({inactiveRows.length})
+              </button>
+              {showInactive ? inactiveRows.map(renderRow) : null}
+            </div>
+          ) : null}
         </div>
       </div>
 

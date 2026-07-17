@@ -134,6 +134,7 @@ export default async function RepoWorkspacePage({
           rows={rows}
           missionId={mission?.id ?? null}
           ledgersByTaskId={ledgersByTaskId}
+          nextIssueRefs={mission?.nextIssueRefs ?? []}
         />
       )}
     </main>
