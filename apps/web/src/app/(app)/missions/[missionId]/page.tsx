@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { BudgetGauge } from '@/components/budget-gauge';
+import { ConsoleShell } from '@/components/console-shell';
 import { MissionStatusBadge } from '@/components/mission-status-badge';
 import { LiveRefresh } from '@/components/live-refresh';
 import { TaskCard } from '@/components/task-card';
@@ -50,7 +51,7 @@ export default async function MissionDetailPage({
   const totalSpentUsd = tokensToUsd(mission.spentTokens || 0);
 
   return (
-    <main className="flex h-full flex-col overflow-hidden px-6 py-4">
+    <ConsoleShell>
       {/* Header */}
       <div className="mb-6 shrink-0">
         <Button asChild variant="ghost" size="sm" className="-ml-2 mb-3">
@@ -59,7 +60,7 @@ export default async function MissionDetailPage({
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-3">
-              <h1 className="truncate text-2xl font-semibold tracking-tight">{mission.name}</h1>
+              <h1 className="truncate font-title text-3xl uppercase tracking-tight">{mission.name}</h1>
               <MissionStatusBadge status={mission.status} />
             </div>
             <div className="mt-1 flex items-center gap-2">
@@ -333,7 +334,7 @@ export default async function MissionDetailPage({
           />
         </section>
       </div>
-    </main>
+    </ConsoleShell>
   );
 }
 

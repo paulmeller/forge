@@ -1,6 +1,7 @@
 import Link from 'next/link';
 
 import { Button } from '@/components/ui/button';
+import { PageHeader, PageShell } from '@/components/page-shell';
 import { listUserRepos } from '@/lib/mission-defaults-db';
 import { withAuth } from '@/lib/with-auth';
 
@@ -11,13 +12,11 @@ export default async function ReposPage() {
   const repos = await listUserRepos(user.id);
 
   return (
-    <main className="container max-w-3xl py-10">
-      <div className="mb-8">
-        <h1 className="text-2xl font-semibold tracking-tight">Repos</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Pick a repo to see its open issues and work on them one at a time.
-        </p>
-      </div>
+    <PageShell className="max-w-3xl">
+      <PageHeader
+        title="Repos"
+        subtitle="Pick a repo to see its open issues and work on them one at a time."
+      />
 
       {repos.length === 0 ? (
         <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
@@ -46,6 +45,6 @@ export default async function ReposPage() {
           </Button>
         </div>
       )}
-    </main>
+    </PageShell>
   );
 }

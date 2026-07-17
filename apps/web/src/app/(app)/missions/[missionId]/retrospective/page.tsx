@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { MissionStatusBadge } from '@/components/mission-status-badge';
+import { PageHeader, PageShell } from '@/components/page-shell';
 import { getMission } from '@/lib/missions';
 import { getRetrospectiveForMission, listProposals } from '@/lib/retrospectives';
 
@@ -28,30 +29,34 @@ export default async function RetrospectivePage({
   const reviewed = proposals.filter((p) => p.status !== 'pending');
 
   return (
-    <main className="container max-w-4xl py-8">
-      <div className="mb-6">
-        <Button asChild variant="ghost" size="sm" className="-ml-2 mb-3">
-          <Link href={`/missions/${missionId}`}>&larr; {mission.name}</Link>
-        </Button>
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-semibold tracking-tight">Retrospective</h1>
+    <PageShell className="max-w-4xl">
+      <Button asChild variant="ghost" size="sm" className="-ml-2 mb-3">
+        <Link href={`/missions/${missionId}`}>&larr; {mission.name}</Link>
+      </Button>
+      <PageHeader
+        title={
+          <span className="flex items-center gap-3">
+            Retrospective
+            <span className="normal-case">
               <MissionStatusBadge status={mission.status} />
-            </div>
-            {retro && (
-              <p className="mt-1 text-sm text-muted-foreground">
-                Status: <span className="font-mono">{retro.status}</span>
-                {' \u00b7 '}
-                {proposals.length} proposals ({pending.length} pending)
-              </p>
-            )}
-          </div>
-          {!retro && (mission.status === 'completed' || mission.status === 'cancelled') && (
+            </span>
+          </span>
+        }
+        subtitle={
+          retro ? (
+            <>
+              Status: <span className="font-mono">{retro.status}</span>
+              {' \u00b7 '}
+              {proposals.length} proposals ({pending.length} pending)
+            </>
+          ) : undefined
+        }
+        actions={
+          !retro && (mission.status === 'completed' || mission.status === 'cancelled') ? (
             <RequestRetroButton missionId={missionId} />
-          )}
-        </div>
-      </div>
+          ) : undefined
+        }
+      />
 
       {!retro ? (
         <div className="rounded-lg border border-dashed p-12 text-center">
@@ -101,6 +106,6 @@ export default async function RetrospectivePage({
           )}
         </div>
       )}
-    </main>
+    </PageShell>
   );
 }

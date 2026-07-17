@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { PageHeader, PageShell } from '@/components/page-shell';
 import { SessionLogView } from '@/components/session-log-view';
 import { SteerInput } from '@/components/steer-input';
 import { formatDateTime } from '@/lib/format';
@@ -50,27 +51,31 @@ export default async function TaskDetailPage({
   const ledger = await listLedgerForTask(task.id, 200);
 
   return (
-    <main className="container max-w-4xl py-10">
+    <PageShell className="max-w-4xl">
       <Button asChild variant="ghost" size="sm" className="-ml-2 mb-4">
         <Link href={`/missions/${mission.id}`}>← {mission.name}</Link>
       </Button>
 
-      <div className="mb-8 flex items-start justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-3">
-            <h1 className="font-mono text-2xl font-semibold">{task.repo}</h1>
-            <Badge variant={taskStatusVariant[task.status] ?? 'outline'}>{task.status}</Badge>
-          </div>
-          <p className="mt-1 font-mono text-xs text-muted-foreground">{task.id}</p>
-        </div>
-        {task.prUrl ? (
-          <Button asChild variant="outline">
-            <a href={task.prUrl} target="_blank" rel="noopener noreferrer">
-              View PR #{task.prNumber ?? ''}
-            </a>
-          </Button>
-        ) : null}
-      </div>
+      <PageHeader
+        title={
+          <span className="flex items-center gap-3">
+            {task.repo}
+            <span className="normal-case">
+              <Badge variant={taskStatusVariant[task.status] ?? 'outline'}>{task.status}</Badge>
+            </span>
+          </span>
+        }
+        subtitle={<span className="font-mono text-xs">{task.id}</span>}
+        actions={
+          task.prUrl ? (
+            <Button asChild variant="outline">
+              <a href={task.prUrl} target="_blank" rel="noopener noreferrer">
+                View PR #{task.prNumber ?? ''}
+              </a>
+            </Button>
+          ) : undefined
+        }
+      />
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
         <Card>
@@ -178,6 +183,6 @@ export default async function TaskDetailPage({
           )}
         </CardContent>
       </Card>
-    </main>
+    </PageShell>
   );
 }

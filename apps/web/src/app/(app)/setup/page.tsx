@@ -3,6 +3,7 @@ import { eq } from '@forge/db/orm';
 
 import { githubInstallations, githubInstallationRepos } from '@forge/db';
 
+import { PageHeader, PageShell } from '@/components/page-shell';
 import { db } from '@/lib/db';
 import { env } from '@/lib/env';
 import { withAuth } from '@/lib/with-auth';
@@ -22,14 +23,11 @@ export default async function SetupPage() {
   // No installation yet — show install button
   if (!installation) {
     return (
-      <main className="mx-auto max-w-lg px-6 py-20">
-        <h1 className="mb-2 text-2xl font-semibold tracking-tight">
-          Connect your repos
-        </h1>
-        <p className="mb-8 text-sm text-muted-foreground">
-          Install the Forge GitHub App to connect your repositories. Webhooks
-          are configured automatically — no manual setup needed.
-        </p>
+      <PageShell className="max-w-lg px-6 py-20">
+        <PageHeader
+          title="Connect your repos"
+          subtitle="Install the Forge GitHub App to connect your repositories. Webhooks are configured automatically — no manual setup needed."
+        />
         <a
           href={`https://github.com/apps/${env.GITHUB_APP_SLUG}/installations/new`}
           className="inline-flex items-center rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
@@ -40,7 +38,7 @@ export default async function SetupPage() {
         <p className="mt-6 text-xs text-muted-foreground">
           After installing, you&rsquo;ll be redirected back here to select repos.
         </p>
-      </main>
+      </PageShell>
     );
   }
 
@@ -52,16 +50,18 @@ export default async function SetupPage() {
 
   if (repos.length > 0) {
     return (
-      <main className="mx-auto max-w-lg px-6 py-20">
-        <h1 className="mb-2 text-2xl font-semibold tracking-tight">
-          You&rsquo;re all set
-        </h1>
-        <p className="mb-6 text-sm text-muted-foreground">
-          {repos.length} repo{repos.length !== 1 ? 's' : ''} connected via{' '}
-          <span className="font-medium text-foreground">{installation.accountLogin}</span>.
-          Comment <code className="rounded bg-muted px-1 py-0.5 text-xs">@forge</code>{' '}
-          on any issue to get started.
-        </p>
+      <PageShell className="max-w-lg px-6 py-20">
+        <PageHeader
+          title="You're all set"
+          subtitle={
+            <>
+              {repos.length} repo{repos.length !== 1 ? 's' : ''} connected via{' '}
+              <span className="font-medium text-foreground">{installation.accountLogin}</span>.
+              Comment <code className="rounded bg-muted px-1 py-0.5 text-xs">@forge</code>{' '}
+              on any issue to get started.
+            </>
+          }
+        />
         <div className="mb-8 space-y-1">
           {repos.map((r) => (
             <div key={r.id} className="flex items-center gap-2 text-sm">
@@ -84,20 +84,18 @@ export default async function SetupPage() {
             Add more repos
           </a>
         </div>
-      </main>
+      </PageShell>
     );
   }
 
   // Installation exists but no repos selected — show selector
   return (
-    <main className="mx-auto max-w-lg px-6 py-20">
-      <h1 className="mb-2 text-2xl font-semibold tracking-tight">
-        Select repos
-      </h1>
-      <p className="mb-8 text-sm text-muted-foreground">
-        Choose which repositories Forge can work on. You can change this later.
-      </p>
+    <PageShell className="max-w-lg px-6 py-20">
+      <PageHeader
+        title="Select repos"
+        subtitle="Choose which repositories Forge can work on. You can change this later."
+      />
       <RepoSelector installationId={installation.id} />
-    </main>
+    </PageShell>
   );
 }

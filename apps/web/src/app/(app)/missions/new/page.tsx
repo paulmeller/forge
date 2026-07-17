@@ -1,6 +1,7 @@
 import Link from 'next/link';
 
 import { Button } from '@/components/ui/button';
+import { PageHeader, PageShell } from '@/components/page-shell';
 import { resolveMissionDefaults, listUserRepos } from '@/lib/mission-defaults-db';
 import { listSkills } from '@/lib/skills';
 import { withAuth } from '@/lib/with-auth';
@@ -23,16 +24,14 @@ export default async function NewMissionPage({
   ]);
 
   return (
-    <main className="container max-w-3xl py-10">
-      <div className="mb-8">
-        <Button asChild variant="ghost" size="sm" className="-ml-2 mb-4">
-          <Link href="/missions">&larr; Back to missions</Link>
-        </Button>
-        <h1 className="font-title text-3xl uppercase tracking-tight">New Mission</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Describe the work. Forge plans it into Tasks you review before anything dispatches.
-        </p>
-      </div>
+    <PageShell className="max-w-3xl py-10">
+      <Button asChild variant="ghost" size="sm" className="-ml-2 mb-4">
+        <Link href="/missions">&larr; Back to missions</Link>
+      </Button>
+      <PageHeader
+        title="New Mission"
+        subtitle="Describe the work. Forge plans it into Tasks you review before anything dispatches."
+      />
       <NewMissionForm
         availableSkills={skills.map((s) => ({
           id: s.id,
@@ -44,6 +43,6 @@ export default async function NewMissionPage({
         defaults={defaults}
         initialRepo={repo}
       />
-    </main>
+    </PageShell>
   );
 }

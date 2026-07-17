@@ -6,6 +6,7 @@ import { githubInstallations } from '@forge/db';
 
 import { Button } from '@/components/ui/button';
 import { LiveRefresh } from '@/components/live-refresh';
+import { PageHeader, PageShell } from '@/components/page-shell';
 import { QueueSection } from '@/components/queue-section';
 import { db } from '@/lib/db';
 import { getDashboardStats, getNeedsYou, getNowRunning, getRecentOutcomes } from '@/lib/home';
@@ -33,21 +34,21 @@ export default async function HomePage() {
   const runningRollups = await rollupTasks(nowRunning.map((r) => r.task.id));
 
   return (
-    <main className="container max-w-[1400px] py-10">
-      <div className="mb-8 flex items-start justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="font-title text-3xl uppercase tracking-tight">Home</h1>
+    <PageShell className="py-10">
+      <PageHeader
+        title={
+          <span className="flex items-center gap-2">
+            Home
             {nowRunning.length > 0 ? <LiveRefresh intervalMs={5000} /> : null}
-          </div>
-          <p className="mt-1 text-sm text-muted-foreground">
-            What needs you, what&apos;s running, what just landed.
-          </p>
-        </div>
-        <Button asChild variant="outline" size="sm">
-          <Link href="/missions">View all missions →</Link>
-        </Button>
-      </div>
+          </span>
+        }
+        subtitle={`What needs you, what's running, what just landed.`}
+        actions={
+          <Button asChild variant="outline" size="sm">
+            <Link href="/missions">View all missions →</Link>
+          </Button>
+        }
+      />
 
       {stats.connectedRepos === 0 && (
         <div className="mb-8 rounded-lg border border-dashed border-yellow-600/40 bg-yellow-950/20 px-6 py-4">
@@ -104,6 +105,6 @@ export default async function HomePage() {
           empty="No merged PRs or resolved issues yet."
         />
       </div>
-    </main>
+    </PageShell>
   );
 }

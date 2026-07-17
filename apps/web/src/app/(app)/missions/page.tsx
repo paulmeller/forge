@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { MissionFilters } from '@/components/mission-filters';
 import { MissionsTable } from '@/components/missions-table';
+import { PageHeader, PageShell } from '@/components/page-shell';
 import { getDashboardStats } from '@/lib/home';
 import { filterMissionList, hasActiveMissionListFilters } from '@/lib/mission-list-filters';
 import { listMissions } from '@/lib/missions';
@@ -46,7 +47,7 @@ export default async function DashboardPage({
   const hasFilters = hasActiveMissionListFilters(filters);
 
   return (
-    <main className="container max-w-[1400px] py-10">
+    <PageShell>
       {/* Setup banner */}
       {stats.connectedRepos === 0 && (
         <div className="mb-8 rounded-lg border border-dashed border-yellow-600/40 bg-yellow-950/20 px-6 py-4">
@@ -65,18 +66,15 @@ export default async function DashboardPage({
         </div>
       )}
 
-      {/* Missions header */}
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Missions</h1>
-          <p className="mt-0.5 text-sm text-muted-foreground">
-            Every campaign and issue Forge is working on, across every repo.
-          </p>
-        </div>
-        <Button asChild>
-          <Link href="/missions/new">New Mission</Link>
-        </Button>
-      </div>
+      <PageHeader
+        title="Missions"
+        subtitle="Every campaign and issue Forge is working on, across every repo."
+        actions={
+          <Button asChild>
+            <Link href="/missions/new">New Mission</Link>
+          </Button>
+        }
+      />
 
       <div className="mb-4">
         <MissionFilters />
@@ -88,6 +86,6 @@ export default async function DashboardPage({
         sparklines={sparklines}
         hasFilters={hasFilters}
       />
-    </main>
+    </PageShell>
   );
 }

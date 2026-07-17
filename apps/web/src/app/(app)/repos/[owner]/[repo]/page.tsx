@@ -1,7 +1,9 @@
 import Link from 'next/link';
 
 import { Button } from '@/components/ui/button';
+import { ConsoleShell } from '@/components/console-shell';
 import { LiveRefresh } from '@/components/live-refresh';
+import { PageShell } from '@/components/page-shell';
 import { RepoBudgetLine } from '@/components/repo-budget-line';
 import { env } from '@/lib/env';
 import { listLedgerForTask } from '@/lib/ledger';
@@ -42,7 +44,7 @@ export default async function RepoWorkspacePage({
 
   if (!env.GITHUB_APP_TOKEN) {
     return (
-      <main className="container max-w-3xl py-10">
+      <PageShell className="max-w-3xl">
         <Button asChild variant="ghost" size="sm" className="-ml-2 mb-4">
           <Link href="/repos">&larr; Repos</Link>
         </Button>
@@ -50,7 +52,7 @@ export default async function RepoWorkspacePage({
           Issue search needs a <code className="font-mono">GITHUB_APP_TOKEN</code> configured on
           the server. Ask an operator to set it, then reload this page.
         </div>
-      </main>
+      </PageShell>
     );
   }
 
@@ -59,7 +61,7 @@ export default async function RepoWorkspacePage({
     search = await githubSearchIssues(`repo:${repo} is:issue is:open`);
   } catch (err) {
     return (
-      <main className="container max-w-3xl py-10">
+      <PageShell className="max-w-3xl">
         <Button asChild variant="ghost" size="sm" className="-ml-2 mb-4">
           <Link href="/repos">&larr; Repos</Link>
         </Button>
@@ -67,7 +69,7 @@ export default async function RepoWorkspacePage({
           Couldn&apos;t load issues from GitHub:{' '}
           {err instanceof Error ? err.message : 'unknown error'}
         </div>
-      </main>
+      </PageShell>
     );
   }
 
@@ -103,7 +105,7 @@ export default async function RepoWorkspacePage({
   );
 
   return (
-    <main className="flex h-full flex-col overflow-hidden px-6 py-4">
+    <ConsoleShell>
       <div className="shrink-0">
         <Button asChild variant="ghost" size="sm" className="-ml-2 mb-3">
           <Link href="/repos">&larr; Repos</Link>
@@ -111,7 +113,7 @@ export default async function RepoWorkspacePage({
         <div className="mb-4 flex items-start justify-between gap-4">
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-2xl font-semibold tracking-tight">{repo}</h1>
+              <h1 className="font-title text-3xl uppercase tracking-tight">{repo}</h1>
               {hasActiveWork ? <LiveRefresh intervalMs={5000} /> : null}
             </div>
             <div className="mt-1 flex items-center gap-3">
@@ -172,6 +174,6 @@ export default async function RepoWorkspacePage({
           />
         )}
       </div>
-    </main>
+    </ConsoleShell>
   );
 }
