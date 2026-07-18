@@ -43,8 +43,8 @@ export default async function AppLayout({
     <SidebarProvider>
       <ForgeSidebar userName={user.name} userEmail={user.email} />
       <SidebarInset className="flex h-svh flex-col overflow-hidden">
-        <header className="grid h-10 shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-2 border-b px-3">
-          <SidebarTrigger />
+        <header className="grid h-16 shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-2 border-b px-4 transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12">
+          <SidebarTrigger className="-ml-1" />
           <div id="page-header-slot" className="flex min-w-0 items-center justify-center gap-2" />
           <div aria-hidden />
         </header>
