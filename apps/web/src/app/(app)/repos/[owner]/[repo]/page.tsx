@@ -1,5 +1,6 @@
 import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { ConsoleShell } from '@/components/console-shell';
+import { HeaderPortal } from '@/components/header-portal';
 import { LiveRefresh } from '@/components/live-refresh';
 import { PageShell } from '@/components/page-shell';
 import { RepoBudgetLine } from '@/components/repo-budget-line';
@@ -102,6 +103,9 @@ export default async function RepoWorkspacePage({
 
   return (
     <ConsoleShell>
+      <HeaderPortal>
+        <RepoTabs active={activeTab} repo={repo} />
+      </HeaderPortal>
       <div className="shrink-0">
         <div className="title-glow mb-4 flex items-start justify-between gap-4">
           <div className="min-w-0">
@@ -129,7 +133,6 @@ export default async function RepoWorkspacePage({
             />
           </div>
         </div>
-        <RepoTabs active={activeTab} repo={repo} />
       </div>
 
       <div className="min-h-0 flex-1">
