@@ -14,7 +14,8 @@ import { cn } from '@/lib/utils';
 import type { WorkspaceIssueRow } from '@/lib/workspace-issues';
 
 import { toggleNextMarker } from './actions';
-import { IssueRunPanel, type ActiveConsoleTask } from './issue-run-panel';
+import { AttemptFileBrowser } from './attempt-file-browser';
+import { IssueRunPanel, type ActiveTaskInfo } from './issue-run-panel';
 import { WorkOnItButton } from './work-on-it-button';
 
 const TERMINAL_HEADLINES = new Set(['fixed', 'not_reproduced', 'fix_skipped', 'failed']);
@@ -57,7 +58,7 @@ export function WorkspaceList({
     ),
   );
   const [pending, startTransition] = useTransition();
-  const [activeConsole, setActiveConsole] = useState<ActiveConsoleTask | null>(null);
+  const [activeConsole, setActiveConsole] = useState<ActiveTaskInfo | null>(null);
 
   const allLabels = useMemo(() => {
     const labels = new Set<string>();
@@ -228,42 +229,54 @@ export function WorkspaceList({
       <div className="flex h-full min-h-0 flex-col gap-3">
           <div className="min-h-0 min-w-0 flex-[2]">
             {selected ? (
-              <div className="flex h-full min-h-0 flex-col">
-                <div className="mb-3 shrink-0">
-                  <h2 className="text-lg font-medium">
-                    #{selected.issue.number} {selected.issue.title}
-                  </h2>
-                  <a
-                    href={selected.issue.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-xs text-muted-foreground underline underline-offset-2"
-                  >
-                    View on GitHub
-                  </a>
-                </div>
-                <div className="min-h-0 min-w-0 flex-1">
-                  {selected.group && missionId ? (
-                    <IssueRunPanel
-                      key={selected.issue.number}
-                      group={selected.group}
-                      missionId={missionId}
-                      ledgersByTaskId={ledgersByTaskId}
-                      taskRollupsByTaskId={taskRollupsByTaskId}
-                      onActiveTaskChange={setActiveConsole}
+              <div className="grid h-full min-h-0 grid-cols-[minmax(0,1fr)_260px] gap-4">
+                <div className="flex h-full min-h-0 flex-col">
+                  <div className="mb-3 shrink-0">
+                    <h2 className="text-lg font-medium">
+                      #{selected.issue.number} {selected.issue.title}
+                    </h2>
+                    <a
+                      href={selected.issue.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-xs text-muted-foreground underline underline-offset-2"
+                    >
+                      View on GitHub
+                    </a>
+                  </div>
+                  <div className="min-h-0 min-w-0 flex-1">
+                    {selected.group && missionId ? (
+                      <IssueRunPanel
+                        key={selected.issue.number}
+                        group={selected.group}
+                        missionId={missionId}
+                        ledgersByTaskId={ledgersByTaskId}
+                        taskRollupsByTaskId={taskRollupsByTaskId}
+                        onActiveTaskChange={setActiveConsole}
+                      />
+                    ) : (
+                      <p className="whitespace-pre-wrap text-sm text-muted-foreground">
+                        {selected.issue.body || 'No description.'}
+                      </p>
+                    )}
+                  </div>
+                  <div className="mt-3 shrink-0">
+                    <WorkOnItButton
+                      repo={repo}
+                      issue={selected.issue}
+                      headline={selected.group?.headline ?? null}
                     />
-                  ) : (
-                    <p className="whitespace-pre-wrap text-sm text-muted-foreground">
-                      {selected.issue.body || 'No description.'}
-                    </p>
-                  )}
+                  </div>
                 </div>
-                <div className="mt-3 shrink-0">
-                  <WorkOnItButton
-                    repo={repo}
-                    issue={selected.issue}
-                    headline={selected.group?.headline ?? null}
-                  />
+
+                <div className="min-h-0 min-w-0 overflow-y-auto">
+                  {activeConsole ? (
+                    <AttemptFileBrowser task={activeConsole.task} ledger={activeConsole.ledger} />
+                  ) : (
+                    <div className="flex h-full items-center justify-center rounded-md border text-xs text-muted-foreground">
+                      No task selected.
+                    </div>
+                  )}
                 </div>
               </div>
             ) : (

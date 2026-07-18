@@ -15,11 +15,13 @@ import type { IssueGroup } from '@/lib/triage-view';
 import type { Task } from '@forge/db';
 
 import { abortTask } from './actions';
-import { AttemptFileBrowser } from './attempt-file-browser';
 
 export type LedgerRow = { id: string; eventType: string; payload: unknown; createdAt: Date };
 
-export type ActiveConsoleTask = { task: Task; ledger: LedgerRow[]; isLive: boolean };
+/** The task currently selected via the attempt/stage tabs, lifted up so
+ *  WorkspaceList can render the file browser and log console for it in
+ *  their own persistent panels, outside this component. */
+export type ActiveTaskInfo = { task: Task; ledger: LedgerRow[]; isLive: boolean };
 
 const RUNNING_STATUSES = new Set(['queued', 'dispatching', 'running']);
 const ABORTABLE_STATUSES = new Set(['dispatching', 'running', 'turn_ended', 'opening_pr']);
@@ -41,10 +43,9 @@ export function IssueRunPanel({
   missionId: string;
   ledgersByTaskId: Record<string, LedgerRow[]>;
   taskRollupsByTaskId: Record<string, TaskRollup>;
-  /** Reports the task whose log should render in the page-level Run Output
-   *  console (lifted up so the console can live outside this panel, in a
-   *  persistent bottom-third dev-console-style section — see WorkspaceList). */
-  onActiveTaskChange: (info: ActiveConsoleTask | null) => void;
+  /** Reports the task whose file list and log should render in
+   *  WorkspaceList's own persistent panels — see WorkspaceList. */
+  onActiveTaskChange: (info: ActiveTaskInfo | null) => void;
 }) {
   const [attemptIndex, setAttemptIndex] = useState(group.attempts.length);
   const [stage, setStage] = useState<'reproduce' | 'fix'>('fix');
@@ -157,11 +158,7 @@ export function IssueRunPanel({
       </div>
 
       {task ? (
-        <>
-          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-            <AttemptFileBrowser task={task} ledger={ledger} />
-          </div>
-
+        <div className="flex min-h-0 flex-1 flex-col justify-end gap-3">
           {canSteer ? <SteerInput key={task.id} taskId={task.id} /> : null}
 
           <Link
@@ -170,7 +167,7 @@ export function IssueRunPanel({
           >
             View full run →
           </Link>
-        </>
+        </div>
       ) : (
         <p className="text-xs text-muted-foreground">This stage hasn&apos;t started.</p>
       )}
