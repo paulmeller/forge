@@ -155,7 +155,7 @@ export function IssueRunPanel({
             <div className="shrink-0 border-b bg-muted/40 px-3 py-1.5">
               <SectionLabel>Run output</SectionLabel>
             </div>
-            <div className="min-h-0 min-w-0 flex-[2] overflow-y-auto p-3">
+            <div className="max-h-[200px] min-w-0 shrink-0 overflow-y-auto p-3">
               <AttemptFileBrowser task={task} ledger={ledger} />
             </div>
             <div className="flex min-h-0 min-w-0 flex-1 flex-col border-t">
