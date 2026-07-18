@@ -1,14 +1,12 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useEffect, useState, useTransition } from 'react';
 import Link from 'next/link';
 
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PrChip } from '@/components/pr-chip';
 import { TaskProgressPill, type TaskRollup } from '@/components/progress-pill';
-import { SectionLabel } from '@/components/section-label';
-import { SessionLogView } from '@/components/session-log-view';
 import { SteerInput } from '@/components/steer-input';
 import { TaskStatusBadge } from '@/components/task-status-badge';
 import { Spinner } from '@/components/ui/spinner';
@@ -19,7 +17,9 @@ import type { Task } from '@forge/db';
 import { abortTask } from './actions';
 import { AttemptFileBrowser } from './attempt-file-browser';
 
-type LedgerRow = { id: string; eventType: string; payload: unknown; createdAt: Date };
+export type LedgerRow = { id: string; eventType: string; payload: unknown; createdAt: Date };
+
+export type ActiveConsoleTask = { task: Task; ledger: LedgerRow[]; isLive: boolean };
 
 const RUNNING_STATUSES = new Set(['queued', 'dispatching', 'running']);
 const ABORTABLE_STATUSES = new Set(['dispatching', 'running', 'turn_ended', 'opening_pr']);
@@ -35,11 +35,16 @@ export function IssueRunPanel({
   missionId,
   ledgersByTaskId,
   taskRollupsByTaskId,
+  onActiveTaskChange,
 }: {
   group: IssueGroup;
   missionId: string;
   ledgersByTaskId: Record<string, LedgerRow[]>;
   taskRollupsByTaskId: Record<string, TaskRollup>;
+  /** Reports the task whose log should render in the page-level Run Output
+   *  console (lifted up so the console can live outside this panel, in a
+   *  persistent bottom-third dev-console-style section — see WorkspaceList). */
+  onActiveTaskChange: (info: ActiveConsoleTask | null) => void;
 }) {
   const [attemptIndex, setAttemptIndex] = useState(group.attempts.length);
   const [stage, setStage] = useState<'reproduce' | 'fix'>('fix');
@@ -47,21 +52,29 @@ export function IssueRunPanel({
   const [abortError, setAbortError] = useState<string | null>(null);
 
   const attempt = group.attempts.find((a) => a.index === attemptIndex) ?? group.attempts.at(-1);
-  if (!attempt) return <p className="text-xs text-muted-foreground">No attempts yet.</p>;
 
-  const effectiveStage = attempt.fix ? stage : 'reproduce';
-  const task = effectiveStage === 'reproduce' ? attempt.reproduce : attempt.fix;
+  const effectiveStage = attempt?.fix ? stage : 'reproduce';
+  const task = attempt ? (effectiveStage === 'reproduce' ? attempt.reproduce : attempt.fix) : null;
   const ledger = task ? (ledgersByTaskId[task.id] ?? []) : [];
   const rollup = task ? taskRollupsByTaskId[task.id] : undefined;
   const isLive = task ? RUNNING_STATUSES.has(task.status) : false;
-  const verdict = attempt.reproduce?.verdict ?? null;
+  const verdict = attempt?.reproduce?.verdict ?? null;
   const started = formatStarted(task);
   const canAbort = !!task && ABORTABLE_STATUSES.has(task.status);
   const canSteer = !!task && !!task.sessionId && ABORTABLE_STATUSES.has(task.status);
 
-  const prChips = group.attempts
-    .map((a) => a.fix)
-    .filter((f): f is Task => !!f?.prUrl);
+  const prChips = group.attempts.map((a) => a.fix).filter((f): f is Task => !!f?.prUrl);
+
+  useEffect(() => {
+    onActiveTaskChange(task ? { task, ledger, isLive } : null);
+    return () => onActiveTaskChange(null);
+    // Only re-notify when the active task or its live-ness actually changes —
+    // `ledger`/`onActiveTaskChange` are fresh references every render and
+    // would otherwise re-fire this on every poll.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [task?.id, isLive]);
+
+  if (!attempt) return <p className="text-xs text-muted-foreground">No attempts yet.</p>;
 
   function handleAbort() {
     if (!task) return;
@@ -90,10 +103,7 @@ export function IssueRunPanel({
         ) : null}
 
         {group.attempts.length > 1 ? (
-          <Tabs
-            value={String(attemptIndex)}
-            onValueChange={(v) => setAttemptIndex(Number(v))}
-          >
+          <Tabs value={String(attemptIndex)} onValueChange={(v) => setAttemptIndex(Number(v))}>
             <TabsList>
               {group.attempts.map((a) => (
                 <TabsTrigger key={a.index} value={String(a.index)}>
@@ -105,10 +115,7 @@ export function IssueRunPanel({
           </Tabs>
         ) : null}
 
-        <Tabs
-          value={effectiveStage}
-          onValueChange={(v) => setStage(v as 'reproduce' | 'fix')}
-        >
+        <Tabs value={effectiveStage} onValueChange={(v) => setStage(v as 'reproduce' | 'fix')}>
           <TabsList>
             {(['reproduce', 'fix'] as const).map((key) => {
               const t = key === 'reproduce' ? attempt.reproduce : attempt.fix;
@@ -151,25 +158,11 @@ export function IssueRunPanel({
 
       {task ? (
         <>
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-lg border">
-            <div className="shrink-0 border-b bg-muted/40 px-3 py-1.5">
-              <SectionLabel>Run output</SectionLabel>
-            </div>
-            <div className="max-h-[200px] min-w-0 shrink-0 overflow-y-auto p-3">
-              <AttemptFileBrowser task={task} ledger={ledger} />
-            </div>
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col border-t">
-              <SessionLogView
-                taskId={task.id}
-                isLive={isLive}
-                initialEvents={ledger}
-                maxLines={300}
-                className="h-full rounded-none border-0"
-              />
-            </div>
+          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
+            <AttemptFileBrowser task={task} ledger={ledger} />
           </div>
 
-          {canSteer && task ? <SteerInput key={task.id} taskId={task.id} /> : null}
+          {canSteer ? <SteerInput key={task.id} taskId={task.id} /> : null}
 
           <Link
             href={`/missions/${missionId}/tasks/${task.id}`}

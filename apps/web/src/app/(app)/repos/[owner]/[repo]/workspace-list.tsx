@@ -6,13 +6,15 @@ import { useRouter } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { Input } from '@/components/ui/input';
+import { SectionLabel } from '@/components/section-label';
+import { SessionLogView } from '@/components/session-log-view';
 import type { TaskRollup } from '@/components/progress-pill';
 import { statusLabel } from '@/lib/status-labels';
 import { cn } from '@/lib/utils';
 import type { WorkspaceIssueRow } from '@/lib/workspace-issues';
 
 import { toggleNextMarker } from './actions';
-import { IssueRunPanel } from './issue-run-panel';
+import { IssueRunPanel, type ActiveConsoleTask } from './issue-run-panel';
 import { WorkOnItButton } from './work-on-it-button';
 
 const TERMINAL_HEADLINES = new Set(['fixed', 'not_reproduced', 'fix_skipped', 'failed']);
@@ -55,6 +57,7 @@ export function WorkspaceList({
     ),
   );
   const [pending, startTransition] = useTransition();
+  const [activeConsole, setActiveConsole] = useState<ActiveConsoleTask | null>(null);
 
   const allLabels = useMemo(() => {
     const labels = new Set<string>();
@@ -114,7 +117,7 @@ export function WorkspaceList({
       <div
         key={row.issue.number}
         className={cn(
-          'flex items-center gap-1 border-b px-1 last:border-b-0',
+          'flex items-center gap-1 border-b px-3 last:border-b-0',
           selected?.issue.number === row.issue.number && 'bg-accent',
         )}
       >
@@ -163,7 +166,7 @@ export function WorkspaceList({
   }
 
   return (
-    <div className="grid h-full grid-cols-[320px_1fr] gap-4">
+    <div className="grid h-full min-h-0 grid-cols-[320px_1fr] gap-4">
       <div className="flex h-full min-h-0 flex-col rounded-lg border bg-card">
         <div className="shrink-0 border-b p-2">
           <Input
@@ -222,48 +225,75 @@ export function WorkspaceList({
         </div>
       </div>
 
-      <div className="flex h-full min-h-0 flex-col">
-        {selected ? (
-          <>
-            <div className="mb-3 shrink-0">
-              <h2 className="text-lg font-medium">
-                #{selected.issue.number} {selected.issue.title}
-              </h2>
-              <a
-                href={selected.issue.url}
-                target="_blank"
-                rel="noreferrer"
-                className="text-xs text-muted-foreground underline underline-offset-2"
-              >
-                View on GitHub
-              </a>
+      <div className="flex h-full min-h-0 flex-col gap-3">
+          <div className="min-h-0 min-w-0 flex-[2]">
+            {selected ? (
+              <div className="flex h-full min-h-0 flex-col">
+                <div className="mb-3 shrink-0">
+                  <h2 className="text-lg font-medium">
+                    #{selected.issue.number} {selected.issue.title}
+                  </h2>
+                  <a
+                    href={selected.issue.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-xs text-muted-foreground underline underline-offset-2"
+                  >
+                    View on GitHub
+                  </a>
+                </div>
+                <div className="min-h-0 min-w-0 flex-1">
+                  {selected.group && missionId ? (
+                    <IssueRunPanel
+                      key={selected.issue.number}
+                      group={selected.group}
+                      missionId={missionId}
+                      ledgersByTaskId={ledgersByTaskId}
+                      taskRollupsByTaskId={taskRollupsByTaskId}
+                      onActiveTaskChange={setActiveConsole}
+                    />
+                  ) : (
+                    <p className="whitespace-pre-wrap text-sm text-muted-foreground">
+                      {selected.issue.body || 'No description.'}
+                    </p>
+                  )}
+                </div>
+                <div className="mt-3 shrink-0">
+                  <WorkOnItButton
+                    repo={repo}
+                    issue={selected.issue}
+                    headline={selected.group?.headline ?? null}
+                  />
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">No issue matches your search.</p>
+            )}
+          </div>
+
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border">
+            <div className="shrink-0 border-b bg-muted/40 px-3 py-1.5">
+              <SectionLabel>Run output</SectionLabel>
             </div>
-            <div className="min-h-0 min-w-0 flex-1">
-              {selected.group && missionId ? (
-                <IssueRunPanel
-                  group={selected.group}
-                  missionId={missionId}
-                  ledgersByTaskId={ledgersByTaskId}
-                  taskRollupsByTaskId={taskRollupsByTaskId}
+            {activeConsole ? (
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+                <SessionLogView
+                  key={activeConsole.task.id}
+                  taskId={activeConsole.task.id}
+                  isLive={activeConsole.isLive}
+                  initialEvents={activeConsole.ledger}
+                  maxLines={300}
+                  className="h-full rounded-none border-0"
                 />
-              ) : (
-                <p className="whitespace-pre-wrap text-sm text-muted-foreground">
-                  {selected.issue.body || 'No description.'}
-                </p>
-              )}
-            </div>
-            <div className="mt-3 shrink-0">
-              <WorkOnItButton
-                repo={repo}
-                issue={selected.issue}
-                headline={selected.group?.headline ?? null}
-              />
-            </div>
-          </>
-        ) : (
-          <p className="text-sm text-muted-foreground">No issue matches your search.</p>
-        )}
+              </div>
+            ) : (
+              <div className="flex flex-1 items-center justify-center text-xs text-muted-foreground">
+                No task selected.
+              </div>
+            )}
+          </div>
+        </div>
       </div>
-    </div>
   );
 }
+
