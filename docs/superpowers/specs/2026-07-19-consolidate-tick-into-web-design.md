@@ -1,6 +1,6 @@
 # Consolidate apps/tick into apps/web (Next.js 16) — Design
 
-**Status:** Approved (2026-07-19). Revised same day after an adversarial code-grounded review caught an incomplete file inventory, a missing logger/dependency story, and an orphaned startup call — corrections folded in below.
+**Status:** Approved (2026-07-19). Revised twice same day after adversarial code-grounded reviews: round one caught an incomplete file inventory, a missing logger/dependency story, and an orphaned startup call; round two confirmed those fixes and added the test-file migrations-path fix, GitHub-workflow updates, and the explicit `withAuth()` retention on the stream route.
 
 ## Problem
 
@@ -8,7 +8,7 @@ Forge runs two deployed services against one shared DB (`@forge/db`): `apps/web`
 
 Given that, tick is really two thin HTTP routes (`POST /tick`, `GET /tasks/:taskId/stream`) wrapping ~3,700 LOC of framework-agnostic business logic, running on its own deploy (Cloud Run, `apps/tick/Dockerfile`), with its own env vars and its own credential surface (`ANTHROPIC_API_KEY`, `GATEWAY_API_KEY`, `GITHUB_APP_TOKEN`, `FORGE_MA_*`). `apps/web` also already terminates external webhooks directly (`api/forge/github/webhook`, `api/forge/webhook/[missionId]`), so tick's only remaining inbound trigger is the scheduler cron. Given Next.js 16 self-hosted (standalone output — already configured in `apps/web/next.config.mjs`) runs as a normal persistent Node process with no serverless duration ceiling, there's no structural reason left to keep two services, one extra deploy pipeline, and one extra network hop for what is fundamentally one app's worth of logic.
 
-"Framework-agnostic" has one caveat the original draft missed: `apps/tick/src/tick.ts:1` imports `FastifyBaseLogger` as the type of `runTick()`'s logger parameter. The subsystems themselves declare minimal structural `Logger` types (e.g. `ai-review.ts:13-16`, `dispatcher.ts:34`) and are genuinely portable; `tick.ts` needs a one-line type change (section A).
+"Framework-agnostic" has one caveat the original draft missed: `apps/tick/src/tick.ts:1` imports `FastifyBaseLogger` as the type of `runTick()`'s logger parameter. The subsystems themselves declare minimal structural `Logger` types (e.g. `dispatcher.ts:34-38` with `info`/`warn`/`error`; `ai-review.ts:13-16` an `info`/`warn` subset) and are genuinely portable; `tick.ts` needs a one-line type change (section A).
 
 **Explicitly out of scope:** replacing tick's poll-and-recheck model with the Vercel Workflow Dev Kit's durable suspend/resume primitives. That's a different, larger redesign (event-driven waits instead of re-polling every tick) evaluated and rejected for this project — tick's one-shot-per-pass execution model doesn't hold in-memory state to suspend, so the Workflow Dev Kit solves a problem this codebase doesn't have.
 
@@ -23,7 +23,8 @@ All of tick's business-logic source moves into `apps/web/src/server/tick/`, impo
 **Deliberate changes during the move (the only ones):**
 
 - `tick.ts` drops `import type { FastifyBaseLogger } from 'fastify'` and types `runTick()`'s `log` parameter with a local structural `Logger` type (`info`/`warn`/`error` taking `(object, string?)` — the same shape the subsystems already declare). Callers pass a pino logger (below).
-- `skill-loader.ts`'s `SKILLS_DIR` (`skill-loader.ts:46-49`, currently `resolve(__dirname, '../../../skills')`) is `__dirname`-relative and breaks both at the new location and under Next standalone bundling (where `import.meta.url` points into `.next/server` chunks). It changes to read `env.FORGE_SKILLS_DIR`, defaulting to `resolve(process.cwd(), '../../skills')` for monorepo dev; the production image copies the repo-root `skills/` directory in and sets `FORGE_SKILLS_DIR` explicitly.
+- `skill-loader.ts`'s `SKILLS_DIR` (`skill-loader.ts:46-49`, currently `resolve(__dirname, '../../../skills')`) is `__dirname`-relative and breaks both at the new location and under Next standalone bundling (where `import.meta.url` points into `.next/server` chunks). It changes to read `env.FORGE_SKILLS_DIR`, defaulting to `resolve(process.cwd(), '../../skills')` for monorepo dev (cwd is `apps/web` for both `next dev` and vitest); the production image copies the repo-root `skills/` directory in and sets `FORGE_SKILLS_DIR` explicitly.
+- Same `__dirname` bug class exists in two moved tests: `reconciler.test.ts:86` and `reconciler.integration.test.ts:32` hardcode `migrationsFolder: resolve(__dirname, '../../../packages/db/migrations')`, which from `apps/web/src/server/tick/` resolves two levels short. The relative path updates to `'../../../../../packages/db/migrations'` in both.
 
 `apps/tick/src/db.ts` is dropped — `apps/web/src/lib/db.ts` already exports the identical `{ db, client }` pair from the same `createDatabase`. `apps/tick/src/bootstrap.ts` is also dropped, with one documented behavior change: bootstrap deliberately loads `.env.local` with dotenv `override: true` so file values beat stale shell vars; Next's built-in `.env.local` loading does **not** override existing shell vars. We accept Next's semantics (a dev-only footgun: a stale exported shell var can shadow `.env.local` — noted here so it's a known quantity, not a mystery).
 
@@ -35,12 +36,12 @@ All of tick's business-logic source moves into `apps/web/src/server/tick/`, impo
 
 `apps/tick/src/server.ts` and `index.ts` (Fastify wiring, process bootstrap, signal handlers) are deleted outright; their 3 routes are re-homed per section B, and `next start` owns the process lifecycle.
 
-Once the migration is verified in deploy (see Rollout), `apps/tick/` (directory, `package.json`, `Dockerfile`) and its Cloud Run service are deleted, and it is removed from `pnpm-workspace.yaml` / root `package.json`'s workspace list.
+Once the migration is verified in deploy (see Rollout), `apps/tick/` (directory, `package.json`, `Dockerfile`) and its Cloud Run service are deleted. Workspace membership comes from `pnpm-workspace.yaml`'s `apps/*` glob, so deleting the directory removes it — no manifest edit needed, and no root script names tick.
 
 ### B. Routes & auth
 
 - **`POST /tick`** → new `apps/web/src/app/api/tick/route.ts`. Carries over `oidc.ts`'s verification logic unchanged (validates Cloud Scheduler's OIDC token against `TICK_EXPECTED_AUDIENCE`/`TICK_EXPECTED_ISSUER_EMAIL`, with `TICK_ALLOW_UNAUTHENTICATED` for local dev), constructs a pino logger (level from `env.LOG_LEVEL` — replacing today's `request.log`), and calls the moved `runTick()` with it.
-- **`GET /tasks/:taskId/stream`** → the existing `apps/web/src/app/(app)/api/tasks/[taskId]/stream/route.ts` is rewritten to do in-process exactly what tick's route does today (`server.ts:44-70`): a local DB lookup on the `tasks` table (404 when the task doesn't exist **or** exists without a `sessionId` yet — both 404s originate from this lookup, not from upstream), then a raw `fetch` to `${ANTHROPIC_BASE_URL}/v1/sessions/{sessionId}/events/stream` with the `managed-agents-2026-04-01` beta header, relaying the body as SSE. The route's existing 404→503 remap (so `EventSource` keeps retrying a real-but-not-yet-dispatched task) is preserved, now applied to its own DB-lookup result. `env.TICK_INTERNAL_URL` is deleted from `apps/web/src/lib/env.ts`.
+- **`GET /tasks/:taskId/stream`** → the existing `apps/web/src/app/(app)/api/tasks/[taskId]/stream/route.ts` is rewritten to do in-process what tick's route does today (`server.ts:44-85`): a local DB lookup on the `tasks` table (404 when the task doesn't exist **or** exists without a `sessionId` yet — both 404s originate from this lookup, not from upstream), then a raw `fetch` to `${ANTHROPIC_BASE_URL}/v1/sessions/{sessionId}/events/stream` with the `managed-agents-2026-04-01` beta header, relaying the body as SSE. **The web route's existing `withAuth()` guard is retained** — tick's route had no auth because it was network-internal, but the merged route is browser-facing and now sits directly in front of a raw `x-api-key` Anthropic call, so "exactly what tick does" explicitly does not extend to its lack of authentication. The 404→503 remap (so `EventSource` keeps retrying a real-but-not-yet-dispatched task) is preserved, now applied to its own DB-lookup result. `env.TICK_INTERNAL_URL` is deleted from `apps/web/src/lib/env.ts`.
 - **`GET /healthz`** → not recreated separately; `apps/web`'s existing `api/health/route.ts` already serves this role for the merged process.
 - **Manual tick trigger** (`apps/web/src/app/(app)/repos/[owner]/[repo]/actions.ts:285-300`) currently does `fetch(`${env.TICK_INTERNAL_URL}/tick`, { method: 'POST' })`. It becomes a direct call to the moved `runTick()` (with the same pino logger construction) — the network-hop error handling collapses to whatever `runTick()` itself can throw.
 
@@ -52,20 +53,21 @@ Deploy becomes a single `apps/web/Dockerfile` building one Next.js standalone-ou
 
 ### D. Testing & rollout
 
-`apps/web`'s vitest config is extended to pick up `src/server/tick/**/*.test.ts` alongside its existing test globs (both projects already share `@forge/db`, so no new path-alias work is expected; tick's remaining tests have no Fastify dependency once `server.test.ts` is deleted).
+`apps/web/vitest.config.ts` declares no `include` globs, so vitest's defaults already pick up `src/server/tick/**/*.test.ts` — no config change is expected. Web's `vitest.setup.ts` already stubs `DATABASE_URL`, covering what tick's own setup provided (tick's `PORT` stub becomes moot). Tick's remaining tests have no Fastify dependency once `server.test.ts` is deleted, and both projects already share `@forge/db`.
 
 Rollout is a single cutover, not a phased/dual-run migration (consistent with the "accept the risk" decision in section C):
 
-1. Upgrade `apps/web` to Next.js 16 (`^16.2`) first, as its own commit — verify build, standalone output, and existing routes before any tick code moves. (The spec's premise assumes Next 16 self-hosting; web currently pins `^15.1.0`, so this is an explicit step, not an assumption.)
+1. Upgrade `apps/web` to Next.js 16 (`^16.2`, with `eslint-config-next` bumped to match) first, as its own commit — verify build, standalone output, and existing routes before any tick code moves. (The spec's premise assumes Next 16 self-hosting; web currently pins `^15.1.0`, so this is an explicit step, not an assumption.)
 2. Merge the code per sections A/B; `pnpm typecheck` and `pnpm test` clean across the whole workspace.
-3. Deploy the merged `apps/web` to its existing Cloud Run service.
-4. Repoint Cloud Scheduler's job at `<web-service-url>/api/tick`.
-5. Confirm one full `/tick` pass succeeds against production data (checked via logs/DB state, not just a 200 response), and that skills synced at boot (step relies on `instrumentation.ts` — verify via its log line).
-6. Delete `apps/tick/` and its Cloud Run service, remove it from the pnpm workspace.
+3. Update the GitHub workflows: `.github/workflows/ci.yml:56` and `.github/workflows/deploy.yml:127` both build `apps/tick/Dockerfile` — drop the tick image from both so only the web image is built and deployed.
+4. Deploy the merged `apps/web` to its existing Cloud Run service.
+5. Repoint Cloud Scheduler's job at `<web-service-url>/api/tick`.
+6. Confirm one full `/tick` pass succeeds against production data (checked via logs/DB state, not just a 200 response), and that skills synced at boot (step relies on `instrumentation.ts` — verify via its log line).
+7. Delete `apps/tick/` and its Cloud Run service, and update the getting-started copy at `apps/web/src/app/(marketing)/page.tsx:137`, which still tells users to `cp apps/tick/.env.example`.
 
 ## Acceptance
 
-- `apps/tick` directory, `package.json`, and `Dockerfile` no longer exist; it's removed from `pnpm-workspace.yaml`.
+- `apps/tick` no longer exists (directory deletion alone removes it from the `apps/*` workspace glob); no GitHub workflow, doc, or marketing copy references it.
 - `apps/web` is on Next.js 16, building with standalone output.
 - `POST /api/tick` on the merged app performs an OIDC-verified tick pass equivalent to today's `POST /tick` (same subsystems, same order, same per-subsystem failure isolation), logging via pino at `LOG_LEVEL`.
 - `GET /api/tasks/:taskId/stream` streams task output with no hop through a separate service; the 404-vs-not-yet-dispatched retry behavior for `EventSource` clients is unchanged, with the task/sessionId lookup now performed in-process.
