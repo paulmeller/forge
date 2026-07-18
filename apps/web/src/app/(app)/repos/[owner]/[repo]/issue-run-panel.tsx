@@ -8,13 +8,13 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PrChip } from '@/components/pr-chip';
 import { TaskProgressPill, type TaskRollup } from '@/components/progress-pill';
 import { SteerInput } from '@/components/steer-input';
-import { TaskStatusBadge } from '@/components/task-status-badge';
 import { Spinner } from '@/components/ui/spinner';
 import { formatDateTime } from '@/lib/format';
 import type { IssueGroup } from '@/lib/triage-view';
 import type { Task } from '@forge/db';
 
 import { abortTask } from './actions';
+import { StageStepper } from './stage-stepper';
 
 export type LedgerRow = { id: string; eventType: string; payload: unknown; createdAt: Date };
 
@@ -116,23 +116,12 @@ export function IssueRunPanel({
           </Tabs>
         ) : null}
 
-        <Tabs value={effectiveStage} onValueChange={(v) => setStage(v as 'reproduce' | 'fix')}>
-          <TabsList>
-            {(['reproduce', 'fix'] as const).map((key) => {
-              const t = key === 'reproduce' ? attempt.reproduce : attempt.fix;
-              return (
-                <TabsTrigger key={key} value={key} className="capitalize">
-                  {key}
-                  {t ? (
-                    <span className="ml-1.5 inline-block align-middle">
-                      <TaskStatusBadge status={t.status} haltReason={t.haltReason} />
-                    </span>
-                  ) : null}
-                </TabsTrigger>
-              );
-            })}
-          </TabsList>
-        </Tabs>
+        <StageStepper
+          reproduce={attempt.reproduce}
+          fix={attempt.fix}
+          activeStage={effectiveStage}
+          onStageChange={setStage}
+        />
 
         {task ? (
           <div className="flex items-center justify-between text-xs text-muted-foreground">
