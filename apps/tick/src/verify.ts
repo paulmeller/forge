@@ -9,6 +9,7 @@ import { ledgerEvents, missions, tasks, type Task } from '@forge/db';
 import { getAdapter } from './adapters';
 import { db } from './db';
 import { env } from './env';
+import { resolveGateFlags } from './gate-flags';
 import { afterVerifyStatus } from './gates';
 import { getSkill } from './skill-loader';
 
@@ -170,12 +171,13 @@ async function verifyOne(task: Task, log: Logger): Promise<VerifyOutcome> {
     .select({
       backend: missions.backend,
       skillId: missions.skillId,
-      aiReviewEnabled: missions.aiReviewEnabled,
     })
     .from(missions)
     .where(eq(missions.id, task.missionId))
     .limit(1);
   if (!mission) throw new Error(`mission ${task.missionId} not found`);
+  // AI-review flag resolved via the container for issue leaves — see resolveGateFlags.
+  const { aiReviewEnabled } = await resolveGateFlags(task.missionId);
 
   const gh = ghClient();
   const { data: pr } = await gh.pulls.get({ owner, repo, pull_number: pullNumber });
@@ -237,7 +239,7 @@ async function verifyOne(task: Task, log: Logger): Promise<VerifyOutcome> {
   );
 
   if (verdict.verdict === 'done') {
-    await pass(task, newCostTokens, headSha, mission.aiReviewEnabled, { pullNumber, sha: headSha });
+    await pass(task, newCostTokens, headSha, aiReviewEnabled, { pullNumber, sha: headSha });
     return 'passed';
   }
 

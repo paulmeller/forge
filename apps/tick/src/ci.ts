@@ -8,6 +8,7 @@ import { ledgerEvents, missions, tasks, type Task } from '@forge/db';
 import { getAdapter } from './adapters';
 import { db } from './db';
 import { env } from './env';
+import { resolveGateFlags } from './gate-flags';
 import { postCiStatus } from './gates';
 
 type Logger = {
@@ -88,18 +89,12 @@ async function checkOne(task: Task): Promise<Outcome> {
   const pullNumber = Number(pullStr);
 
   // Look up mission gate config (AI review + self-verify) to route green CI.
-  const [missionRow] = await db
-    .select({
-      aiReviewEnabled: missions.aiReviewEnabled,
-      selfVerifyEnabled: missions.selfVerifyEnabled,
-    })
-    .from(missions)
-    .where(eq(missions.id, task.missionId))
-    .limit(1);
+  // Resolved via the container for issue leaves — see resolveGateFlags.
+  const gateFlags = await resolveGateFlags(task.missionId);
   const nextReviewStatus = postCiStatus({
-    selfVerifyEnabled: missionRow?.selfVerifyEnabled ?? false,
+    selfVerifyEnabled: gateFlags.selfVerifyEnabled,
     hasAcceptanceCriteria: task.acceptanceCriteria != null,
-    aiReviewEnabled: missionRow?.aiReviewEnabled ?? false,
+    aiReviewEnabled: gateFlags.aiReviewEnabled,
   });
 
   const gh = client();
