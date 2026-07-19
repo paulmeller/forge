@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto';
 
-import Anthropic from '@anthropic-ai/sdk';
+import { anthropic } from '@ai-sdk/anthropic';
 import { Octokit } from '@octokit/rest';
 import { and, eq, isNotNull } from 'drizzle-orm';
+import { generateObject, NoObjectGeneratedError } from 'ai';
+import { z } from 'zod';
 
 import { ledgerEvents, missions, tasks, type Task } from '@forge/db';
 
@@ -41,15 +43,6 @@ function ghClient(): Octokit {
   return octokit;
 }
 
-let anthropic: Anthropic | undefined;
-function aiClient(): Anthropic {
-  if (!anthropic) {
-    if (!env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY not configured');
-    anthropic = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
-  }
-  return anthropic;
-}
-
 /**
  * Build the done-check prompt. Pure function, exported for testing. This is the
  * `/goal` validator: does the diff actually satisfy the acceptance criteria?
@@ -66,41 +59,46 @@ ${acceptanceCriteria}
 
 \`\`\`diff
 ${diff.slice(0, MAX_DIFF_CHARS)}${truncated}
-\`\`\`
-
-## Instructions
-
-Respond with a JSON object (no markdown, no code fences) in exactly this format:
-{"verdict":"done"}
-or
-{"verdict":"incomplete","missing":"<specific, actionable description of what is still missing>"}
-
-Use "done" only if EVERY acceptance criterion is met by the diff. Otherwise use "incomplete" and say precisely what remains.`;
+\`\`\``;
 }
 
+const VerdictSchema = z.object({
+  verdict: z.enum(['done', 'incomplete']),
+  missing: z.string().optional(),
+});
+
 /**
- * Parse the validator's JSON response. Pure function, exported for testing. A
- * malformed response is treated as `incomplete` (safe default — never silently
- * passes a Task as done).
+ * Ask the checker model whether a diff satisfies its acceptance criteria.
+ * Never throws for a malformed model response — falls back to `incomplete`,
+ * matching the "never silently passes a Task as done" invariant.
  */
-export function parseVerdict(text: string): Verdict {
+export async function requestVerdict(opts: {
+  acceptanceCriteria: string;
+  diff: string;
+  model: string;
+}): Promise<{ verdict: Verdict; tokensUsed: number }> {
+  const prompt = buildVerifyPrompt(opts.acceptanceCriteria, opts.diff);
   try {
-    const cleaned = text
-      .trim()
-      .replace(/^```[^\n]*\n?/, '')
-      .replace(/\n?```$/, '')
-      .trim();
-    const parsed = JSON.parse(cleaned) as Record<string, unknown>;
-    if (parsed.verdict === 'done') return { verdict: 'done' };
+    const { object, usage } = await generateObject({
+      model: anthropic(opts.model),
+      schema: VerdictSchema,
+      prompt,
+    });
     return {
-      verdict: 'incomplete',
-      missing: typeof parsed.missing === 'string' ? parsed.missing : '(no detail provided)',
+      verdict: object,
+      tokensUsed: (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0),
     };
-  } catch {
-    return {
-      verdict: 'incomplete',
-      missing: `unparseable verifier response: ${text.slice(0, 200)}`,
-    };
+  } catch (error) {
+    if (NoObjectGeneratedError.isInstance(error)) {
+      return {
+        verdict: {
+          verdict: 'incomplete',
+          missing: `unparseable verifier response: ${(error.text ?? '').slice(0, 200)}`,
+        },
+        tokensUsed: (error.usage?.inputTokens ?? 0) + (error.usage?.outputTokens ?? 0),
+      };
+    }
+    throw error;
   }
 }
 
@@ -218,19 +216,12 @@ async function verifyOne(task: Task, log: Logger): Promise<VerifyOutcome> {
     if (skill?.loopPolicy?.verifyModel) verifyModel = skill.loopPolicy.verifyModel;
   }
 
-  const ai = aiClient();
-  const message = await ai.messages.create({
+  const { verdict, tokensUsed } = await requestVerdict({
+    acceptanceCriteria: task.acceptanceCriteria,
+    diff,
     model: verifyModel,
-    max_tokens: 1024,
-    messages: [{ role: 'user', content: buildVerifyPrompt(task.acceptanceCriteria, diff) }],
   });
-  const rawText = message.content
-    .filter((b) => b.type === 'text')
-    .map((b) => (b as { type: 'text'; text: string }).text)
-    .join('');
-  const verdict = parseVerdict(rawText);
 
-  const tokensUsed = (message.usage?.input_tokens ?? 0) + (message.usage?.output_tokens ?? 0);
   const newCostTokens = task.costTokens + tokensUsed;
 
   log.info(
