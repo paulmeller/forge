@@ -134,7 +134,6 @@ const skillPolicy = `loopPolicy:
 const quickstart = `git clone https://github.com/paulmeller/forge && cd forge
 pnpm install
 cp apps/web/.env.example apps/web/.env.local
-cp apps/tick/.env.example apps/tick/.env.local
 pnpm --filter @forge/db db:generate
 pnpm --filter @forge/db db:migrate
 pnpm dev`;

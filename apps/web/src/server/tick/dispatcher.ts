@@ -206,7 +206,7 @@ export async function dispatchOne(mission: Mission, task: Task): Promise<void> {
     throw new Error('mission is missing github_installation_id (repo clone credential)');
   }
   if (!env.GITHUB_APP_TOKEN) {
-    throw new Error('GITHUB_APP_TOKEN not configured on forge-tick');
+    throw new Error('GITHUB_APP_TOKEN not configured');
   }
   // github_vault_id is optional — agents without MCP tools don't need a vault.
   // When absent, createSession just passes vault_ids=[].
