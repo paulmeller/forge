@@ -59,6 +59,20 @@ const ALL_TASK_STATUSES: TaskStatus[] = [
 ];
 
 /**
+ * A budgeted mission's spend family: itself plus its issue-leaf children.
+ * Repo containers hold the budget but own zero tasks (the work lives on
+ * leaves with `parentMissionId` set), so budget math must roll spend up
+ * across the family — see mission-hierarchy design §"budgets".
+ */
+async function missionFamilyIds(missionId: string): Promise<string[]> {
+  const children = await db
+    .select({ id: missions.id })
+    .from(missions)
+    .where(eq(missions.parentMissionId, missionId));
+  return [missionId, ...children.map((c) => c.id)];
+}
+
+/**
  * Auto-pause Missions that crossed their budget threshold.
  *
  * PRD §7.6: per-Mission budget in USD and/or tokens, threshold trigger
@@ -67,8 +81,9 @@ const ALL_TASK_STATUSES: TaskStatus[] = [
  * Phase 2 implementation: just the auto-pause + Ledger event. Notification
  * via webhook is a separate concern (PRD §14 Q4, deferred).
  *
- * Spent is computed live from sum(task.cost_tokens) so we don't have to
- * keep a denormalised running total in sync.
+ * Spent is computed live from sum(task.cost_tokens) across the mission's
+ * family (itself + issue-leaf children) so we don't have to keep a
+ * denormalised running total in sync.
  */
 export async function runBudgets(log: Logger): Promise<BudgetResult> {
   // Both running AND paused Missions are evaluated: a Mission paused at the soft
@@ -87,10 +102,11 @@ export async function runBudgets(log: Logger): Promise<BudgetResult> {
       (mission.budgetTokens !== null && mission.budgetTokens > 0);
     if (!hasBudget) continue;
 
+    const familyIds = await missionFamilyIds(mission.id);
     const [agg] = await db
       .select({ tokens: sql<number>`coalesce(sum(${tasks.costTokens}), 0)` })
       .from(tasks)
-      .where(and(eq(tasks.missionId, mission.id), inArray(tasks.status, ALL_TASK_STATUSES)));
+      .where(and(inArray(tasks.missionId, familyIds), inArray(tasks.status, ALL_TASK_STATUSES)));
 
     const spentTokens = Number(agg?.tokens ?? 0);
     const { maxPct, spentUsd } = computeBudgetPct({
@@ -100,8 +116,8 @@ export async function runBudgets(log: Logger): Promise<BudgetResult> {
     });
 
     if (maxPct >= mission.budgetHardStopPct) {
-      // Hard stop: cancel in-flight sessions, abandon queued, cancel the Mission.
-      if (await hardStop(mission, spentTokens, spentUsd, maxPct, log)) hardStopped += 1;
+      // Hard stop: cancel in-flight sessions, abandon queued, pause the Mission.
+      if (await hardStop(mission, familyIds, spentTokens, spentUsd, maxPct, log)) hardStopped += 1;
       continue;
     }
 
@@ -148,14 +164,21 @@ export async function runBudgets(log: Logger): Promise<BudgetResult> {
 }
 
 /**
- * Hard-stop a Mission that crossed its `budgetHardStopPct` ceiling: cancel the
- * Mission, actively cancel every in-flight session (vs. the soft pause, which
- * lets in-flight Tasks finish), abandon queued Tasks, and Ledger it. The mission
- * UPDATE is guarded on the OBSERVED status (running or paused) so an operator
- * un-pausing mid-tick wins the race (spec §2). Returns true if it acted.
+ * Hard-stop a Mission that crossed its `budgetHardStopPct` ceiling: pause the
+ * Mission, actively cancel every in-flight session across its family (vs. the
+ * soft pause, which lets in-flight Tasks finish), abandon queued Tasks, and
+ * Ledger it. Pause — not cancel — because cancelled containers are excluded
+ * from workspace-mission lookup, so cancelling would let the next "Work on it"
+ * mint a fresh budget-less container and silently escape the stop; resuming
+ * requires an explicit operator action (raise the budget / reactivate). The
+ * mission UPDATE is guarded on the OBSERVED status (running or paused) so an
+ * operator un-pausing mid-tick wins the race (spec §2). Idempotent: an
+ * already-paused, already-drained family is a no-op (no repeat Ledger event).
+ * Returns true if it acted.
  */
 async function hardStop(
   mission: Mission,
+  familyIds: string[],
   spentTokens: number,
   spentUsd: number,
   maxPct: number,
@@ -165,11 +188,10 @@ async function hardStop(
   const [updated] = await db
     .update(missions)
     .set({
-      status: 'cancelled',
+      status: 'paused',
       spentUsd: Math.round(spentUsd),
       spentTokens,
       updatedAt: now,
-      completedAt: now,
     })
     .where(and(eq(missions.id, mission.id), eq(missions.status, mission.status)))
     .returning();
@@ -180,7 +202,7 @@ async function hardStop(
     .from(tasks)
     .where(
       and(
-        eq(tasks.missionId, mission.id),
+        inArray(tasks.missionId, familyIds),
         inArray(tasks.status, INFLIGHT_STATUSES),
         isNotNull(tasks.sessionId),
       ),
@@ -209,7 +231,7 @@ async function hardStop(
       .where(and(eq(tasks.id, task.id), eq(tasks.status, task.status)));
   }
 
-  await db
+  const abandoned = await db
     .update(tasks)
     .set({
       status: 'abandoned',
@@ -217,7 +239,13 @@ async function hardStop(
       updatedAt: now,
       completedAt: now,
     })
-    .where(and(eq(tasks.missionId, mission.id), eq(tasks.status, 'queued')));
+    .where(and(inArray(tasks.missionId, familyIds), eq(tasks.status, 'queued')))
+    .returning({ id: tasks.id });
+
+  // Nothing actually stopped this tick (mission was already paused and the
+  // family is drained) — don't Ledger the same hard stop every tick.
+  const statusChanged = mission.status !== 'paused';
+  if (!statusChanged && inflight.length === 0 && abandoned.length === 0) return false;
 
   await db.insert(ledgerEvents).values({
     id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
