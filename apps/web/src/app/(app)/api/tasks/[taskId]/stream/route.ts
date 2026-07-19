@@ -1,3 +1,8 @@
+import { eq } from 'drizzle-orm';
+
+import { tasks } from '@forge/db';
+
+import { db } from '@/lib/db';
 import { env } from '@/lib/env';
 import { withAuth } from '@/lib/with-auth';
 
@@ -5,10 +10,15 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 /**
- * Live run view (docs/superpowers/specs/2026-07-16-live-run-view-design.md).
- * Browser-facing half of the streaming proxy chain: authenticates the
- * request, then relays tick's own /tasks/:taskId/stream through as SSE. Tick
- * holds all Managed Agents credentials — this route never sees them.
+ * Live run view (docs/superpowers/specs/2026-07-16-live-run-view-design.md),
+ * consolidated (2026-07-19 spec §B): the old web→tick→Anthropic proxy chain is
+ * now a single in-process hop — DB lookup, then a raw fetch to the Managed
+ * Agents engine's session event stream. withAuth() is retained: this route is
+ * browser-facing and fronts a raw x-api-key call.
+ *
+ * Task-missing and no-session-yet both map to 503 (not 404): EventSource does
+ * not auto-retry non-5xx, and the browser only asks about real task ids — a
+ * 404 would strand the client forever even once dispatch creates a session.
  */
 export async function GET(
   _request: Request,
@@ -23,25 +33,26 @@ export async function GET(
       headers: { 'content-type': 'application/json' },
     });
 
+  const [task] = await db.select().from(tasks).where(eq(tasks.id, taskId)).limit(1);
+  if (!task || !task.sessionId) return streamUnavailable(503);
+
   let upstream: Response;
   try {
-    upstream = await fetch(`${env.TICK_INTERNAL_URL}/tasks/${taskId}/stream`);
+    upstream = await fetch(
+      `${env.ANTHROPIC_BASE_URL}/v1/sessions/${task.sessionId}/events/stream`,
+      {
+        headers: {
+          'x-api-key': env.ANTHROPIC_API_KEY ?? '',
+          'anthropic-version': '2023-06-01',
+          'anthropic-beta': 'managed-agents-2026-04-01',
+        },
+      },
+    );
   } catch {
     return streamUnavailable(502);
   }
 
   if (!upstream.ok || !upstream.body) {
-    // Tick returns 404 both when the task doesn't exist and when it exists
-    // but has no sessionId yet (e.g. still `queued`). The latter is the
-    // realistic case here — the browser only ever calls this with a real
-    // task id it already has from a real page — and EventSource does NOT
-    // auto-retry non-5xx statuses, so relaying a bare 404 would strand the
-    // client forever even once dispatch happens and a session shows up.
-    // Map it to a retryable 503 so the client's EventSource keeps polling
-    // until the session is live. Other non-ok statuses are relayed as-is.
-    if (upstream.status === 404) {
-      return streamUnavailable(503);
-    }
     return streamUnavailable(upstream.status || 502);
   }
 

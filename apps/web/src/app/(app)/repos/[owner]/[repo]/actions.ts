@@ -285,16 +285,14 @@ export async function activateRepo(repo: string): Promise<{ ok: true } | { ok: f
 export async function triggerManualTick(): Promise<{ ok: true } | { ok: false; error: string }> {
   await withAuth();
   try {
-    const res = await fetch(`${env.TICK_INTERNAL_URL}/tick`, { method: 'POST' });
-    if (!res.ok) {
-      const detail = await res.text().catch(() => '');
-      return { ok: false, error: `tick returned ${res.status}: ${detail.slice(0, 200)}` };
-    }
+    const pino = (await import('pino')).default;
+    const { runTick } = await import('@/server/tick/tick');
+    await runTick(pino({ level: env.LOG_LEVEL }));
     return { ok: true };
   } catch (err) {
     return {
       ok: false,
-      error: `Could not reach tick: ${err instanceof Error ? err.message : 'unknown error'}`,
+      error: `Tick failed: ${err instanceof Error ? err.message : 'unknown error'}`,
     };
   }
 }
