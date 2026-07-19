@@ -1,8 +1,7 @@
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
-import { Button } from '@/components/ui/button';
 import { MissionStatusBadge } from '@/components/mission-status-badge';
+import { PageHeader, PageShell } from '@/components/page-shell';
 import { Timeline } from '@/components/timeline';
 import { getMission } from '@/lib/missions';
 import { listLedgerForMission } from '@/lib/ledger';
@@ -26,21 +25,20 @@ export default async function MissionLedgerPage({
   ]);
 
   return (
-    <main className="container max-w-5xl py-8">
-      <div className="mb-6">
-        <Button asChild variant="ghost" size="sm" className="-ml-2 mb-3">
-          <Link href={`/missions/${missionId}`}>&larr; {mission.name}</Link>
-        </Button>
-        <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-semibold tracking-tight">Ledger</h1>
-          <MissionStatusBadge status={mission.status} />
-          <span className="text-sm text-muted-foreground">
-            {allEvents.length} events
+    <PageShell className="max-w-5xl">
+      <PageHeader
+        title={
+          <span className="flex items-center gap-3">
+            Ledger
+            <span className="normal-case">
+              <MissionStatusBadge status={mission.status} />
+            </span>
           </span>
-        </div>
-      </div>
+        }
+        subtitle={`${allEvents.length} events`}
+      />
 
       <Timeline events={allEvents} tasks={tasks} />
-    </main>
+    </PageShell>
   );
 }

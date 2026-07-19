@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 
+import { formatConsoleTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import {
   extractPrUrl,
@@ -20,13 +21,13 @@ const ROLE_STYLES: Record<EventRole, { label: string; chip: string; bar: string 
   },
   session: {
     label: 'session',
-    chip: 'bg-blue-100 text-blue-900 dark:bg-blue-900/30 dark:text-blue-200',
-    bar: 'bg-blue-500',
+    chip: 'bg-live/15 text-live',
+    bar: 'bg-live',
   },
   agent: {
     label: 'agent',
-    chip: 'bg-amber-100 text-amber-900 dark:bg-amber-900/30 dark:text-amber-200',
-    bar: 'bg-amber-500',
+    chip: 'bg-warning/15 text-warning',
+    bar: 'bg-warning',
   },
   model: {
     label: 'model',
@@ -34,13 +35,6 @@ const ROLE_STYLES: Record<EventRole, { label: string; chip: string; bar: string 
     bar: 'bg-muted-foreground/40',
   },
 };
-
-function formatTime(date: Date): string {
-  // UTC HH:MM:SS — deterministic across server and client. Locale-aware
-  // formatting causes hydration mismatches when server (Node) and browser
-  // pick different locales (e.g. en-US "AM" vs en-AU "am").
-  return date.toISOString().slice(11, 19) + 'Z';
-}
 
 function readPreview(event: LedgerEvent): string | null {
   const p = event.payload as Record<string, unknown> | null;
@@ -91,7 +85,7 @@ export function RoleTaggedEvent({ event }: { event: LedgerEvent }) {
       <span
         className={cn(
           'absolute left-2 top-2.5 h-2 w-2 -translate-x-1/2 rounded-full',
-          isPrCapture ? 'bg-emerald-500 ring-2 ring-emerald-200 dark:ring-emerald-900' : style.bar,
+          isPrCapture ? 'bg-live ring-2 ring-live/30' : style.bar,
         )}
         aria-hidden
       />
@@ -105,26 +99,26 @@ export function RoleTaggedEvent({ event }: { event: LedgerEvent }) {
         </span>
         <span className="font-mono text-xs font-semibold">
           {label}
-          {isPrCapture && <span className="ml-1.5 text-emerald-700 dark:text-emerald-400">★ PR #{pr?.number}</span>}
+          {isPrCapture && <span className="ml-1.5 text-live">★ PR #{pr?.number}</span>}
         </span>
         {preview && !open ? (
           <span className="truncate text-xs text-muted-foreground">{preview}</span>
         ) : null}
-        <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
-          {formatTime(event.createdAt)}
+        <span className="ml-auto shrink-0 font-mono text-[10px] text-muted-foreground">
+          {formatConsoleTime(event.createdAt)}
         </span>
       </button>
       {open ? (
-        <div className="mt-1.5 ml-1 space-y-1">
+        <div className="mt-1.5 ml-1 flex flex-col gap-1">
           {preview && <p className="whitespace-pre-wrap text-xs text-muted-foreground">{preview}</p>}
           {pr && (
             <a
               href={pr.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-block text-xs underline decoration-dotted hover:no-underline"
+              className="inline-block text-xs underline underline-offset-2 hover:no-underline"
             >
-              {pr.url}
+              {pr.url} ↗
             </a>
           )}
           {event.payload && Object.keys(event.payload).length > 0 && (

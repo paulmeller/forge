@@ -47,6 +47,12 @@ export async function runPlanner(missionId: string): Promise<PlanResult> {
   if (peek?.plannerStrategy === 'llm') {
     return runLlmPlanner(missionId);
   }
+  if (peek?.plannerStrategy === 'triage') {
+    // Imported lazily to avoid a cycle: triage-planner imports PlannerError
+    // and PlanResult from this module.
+    const { runTriagePlanner } = await import('./triage-planner');
+    return runTriagePlanner(missionId);
+  }
 
   // Rule-based (default) path.
   return db.transaction(async (tx) => {

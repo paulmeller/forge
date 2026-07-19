@@ -3,6 +3,7 @@
 import { useActionState } from 'react';
 
 import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
 
 import { missionAction, type MissionActionState } from './actions';
 
@@ -10,7 +11,6 @@ const initial: MissionActionState = {};
 
 type ButtonConfig = {
   label: string;
-  pendingLabel: string;
   variant?: 'default' | 'secondary' | 'outline' | 'destructive';
   op: 'plan' | 'start' | 'pause' | 'resume';
 };
@@ -19,7 +19,6 @@ export function MissionActionButton({
   missionId,
   op,
   label,
-  pendingLabel,
   variant = 'default',
   disabled,
   disabledReason,
@@ -36,7 +35,8 @@ export function MissionActionButton({
         <input type="hidden" name="missionId" value={missionId} />
         <input type="hidden" name="op" value={op} />
         <Button type="submit" variant={variant} disabled={pending || disabled}>
-          {pending ? pendingLabel : label}
+          {pending ? <Spinner data-icon="inline-start" /> : null}
+          {label}
         </Button>
       </form>
       {state.error ? (

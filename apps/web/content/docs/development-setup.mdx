@@ -24,14 +24,15 @@ pnpm install
 
 ## Environment variables
 
-Copy both example files and fill in your keys:
+Copy the example file and fill in your keys:
 
 ```bash
 cp apps/web/.env.example apps/web/.env.local
-cp apps/tick/.env.example apps/tick/.env.local
 ```
 
 ### `apps/web/.env.local`
+
+There is a single env file for the whole app, read through lazy getters in `apps/web/src/lib/env.ts` — it covers the Console/API and the tick engine alike.
 
 | Variable | Required | Default | Notes |
 |---|---|---|---|
@@ -42,17 +43,10 @@ cp apps/tick/.env.example apps/tick/.env.local
 | `FORGE_BACKEND` | Yes | `managed-agents` | `managed-agents` or `gateway`. |
 | `ANTHROPIC_API_KEY` | When backend = `managed-agents` | — | Your Anthropic API key. |
 | `GATEWAY_URL` | When backend = `gateway` | — | URL of your AgentStep Gateway instance. |
+| `LOG_LEVEL` | No | `info` | Pino log level for the tick engine. |
+| `TICK_ALLOW_UNAUTHENTICATED` | Dev only | — | Skips OIDC verification on `/api/tick` locally, for curl testing. |
 
-### `apps/tick/.env.local`
-
-| Variable | Required | Default | Notes |
-|---|---|---|---|
-| `DATABASE_URL` | Yes | `file:../../packages/db/local.db` | Points to the same local DB as web. |
-| `PORT` | No | `8080` | HTTP port for the tick service. |
-| `LOG_LEVEL` | No | `info` | Pino log level. |
-| `TICK_ALLOW_UNAUTHENTICATED` | Dev only | `true` | Skips OIDC verification locally. |
-
-The tick service ships with working defaults for local dev -- no changes needed unless you customize ports or log levels.
+The app ships with working defaults for local dev -- no changes needed unless you customize log levels or backends. There's no scheduled tick locally; use the Console's manual "Run tick now" button, or curl `/api/tick` with `TICK_ALLOW_UNAUTHENTICATED=true` set.
 
 ## Database setup
 
@@ -69,24 +63,22 @@ To inspect the database visually:
 pnpm --filter @forge/db db:studio
 ```
 
-## Running dev servers
+## Running the dev server
 
 ```bash
 pnpm dev
 ```
 
-This runs `pnpm --parallel -r dev` under the hood, starting both services with live reload:
+This runs `pnpm --parallel -r dev` under the hood, which today starts the single `@forge/web` app with live reload:
 
 | Service | URL | What it does |
 |---|---|---|
-| **web** (`@forge/web`) | [http://localhost:3100](http://localhost:3100) | Next.js -- console UI, API routes, webhook receiver |
-| **tick** (`@forge/tick`) | [http://localhost:8080](http://localhost:8080) | Tick loop -- claims Tasks, polls sessions, runs the Gate |
+| **web** (`@forge/web`) | [http://localhost:3100](http://localhost:3100) | Next.js -- console UI, API routes, webhook receiver, and the tick engine (triggered via the manual button or `POST /api/tick`) |
 
-You can also run them individually:
+You can also run it directly:
 
 ```bash
-pnpm --filter @forge/web dev    # web only
-pnpm --filter @forge/tick dev   # tick only
+pnpm --filter @forge/web dev
 ```
 
 ## Project structure
@@ -94,24 +86,25 @@ pnpm --filter @forge/tick dev   # tick only
 ```
 forge/
 ├── apps/
-│   ├── web/          Next.js app — console, API routes, business logic
-│   │   └── src/
-│   │       ├── app/api/missions/   API Route Handlers
-│   │       ├── app/missions/       Console pages
-│   │       ├── lib/                Business logic (missions, planner, tasks, ledger)
-│   │       └── components/         UI components (shadcn + custom)
-│   ├── tick/         Tick service — dispatcher, poller, CI, auto-merge, budgets
-│   │   └── src/
-│   │       ├── tick.ts             Main tick loop
-│   │       ├── dispatcher.ts       Claims and dispatches Tasks
-│   │       ├── poller.ts           Polls session events
-│   │       ├── ci.ts               CI status checks
-│   │       ├── auto-merge.ts       Auto-merge on green CI
-│   │       ├── budgets.ts          Budget enforcement
-│   │       ├── reconciler.ts       State reconciliation
-│   │       ├── state.ts            Task state machine
-│   │       └── adapters/           Backend adapters (managed-agents, gateway)
-│   └── docs/         Fumadocs documentation site
+│   └── web/          Next.js app — console, API routes, business logic, tick engine
+│       ├── content/docs/           Fumadocs documentation content (this site)
+│       └── src/
+│           ├── app/api/missions/   API Route Handlers
+│           ├── app/api/tick/       POST /api/tick — Cloud Scheduler's cron target
+│           ├── app/missions/       Console pages
+│           ├── lib/                Business logic (missions, planner, tasks, ledger, env.ts)
+│           ├── components/         UI components (shadcn + custom)
+│           ├── instrumentation.ts  Syncs skills/ into the DB once per boot
+│           └── server/tick/        Tick engine — dispatcher, poller, CI, auto-merge, budgets
+│               ├── tick.ts             Main tick pass (runTick)
+│               ├── dispatcher.ts       Claims and dispatches Tasks
+│               ├── poller.ts           Polls session events
+│               ├── ci.ts               CI status checks
+│               ├── auto-merge.ts       Auto-merge on green CI
+│               ├── budgets.ts          Budget enforcement
+│               ├── reconciler.ts       State reconciliation
+│               ├── state.ts            Task state machine
+│               └── adapters/           Backend adapters (managed-agents, gateway)
 ├── packages/
 │   └── db/           Shared database package (Drizzle ORM + libSQL)
 │       └── src/

@@ -6,12 +6,13 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import type { RetrospectiveProposal } from '@forge/db';
+import { cn } from '@/lib/utils';
 
 const STATUS_COLORS: Record<string, string> = {
-  pending: 'bg-amber-100 text-amber-900 dark:bg-amber-900/30 dark:text-amber-200',
-  accepted: 'bg-emerald-100 text-emerald-900 dark:bg-emerald-900/30 dark:text-emerald-200',
-  rejected: 'bg-red-100 text-red-900 dark:bg-red-900/30 dark:text-red-200',
-  edited: 'bg-blue-100 text-blue-900 dark:bg-blue-900/30 dark:text-blue-200',
+  pending: 'bg-warning/15 text-warning',
+  accepted: 'bg-live/15 text-live',
+  rejected: 'bg-destructive/15 text-destructive',
+  edited: 'bg-secondary text-secondary-foreground',
 };
 
 export function ProposalCard({ proposal }: { proposal: RetrospectiveProposal }) {
@@ -38,14 +39,14 @@ export function ProposalCard({ proposal }: { proposal: RetrospectiveProposal }) 
           <CardTitle className="text-sm">
             <span className="font-mono">{proposal.type}</span>
           </CardTitle>
-          <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${STATUS_COLORS[proposal.status] ?? ''}`}>
+          <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-medium', STATUS_COLORS[proposal.status])}>
             {proposal.status}
           </span>
         </div>
       </CardHeader>
-      <CardContent className="space-y-2">
+      <CardContent className="flex flex-col gap-2">
         {content && (
-          <div className="space-y-1 text-xs">
+          <div className="flex flex-col gap-1 text-xs">
             {proposal.type === 'skill_diff' && (
               <>
                 <p><span className="text-muted-foreground">Skill:</span> {String(content.skillSlug ?? '')}</p>

@@ -48,12 +48,3 @@ jobs:
           push: false
           cache-from: type=gha,scope=web
           cache-to: type=gha,scope=web,mode=max
-
-      - name: Build forge-tick
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: apps/tick/Dockerfile
-          push: false
-          cache-from: type=gha,scope=tick
-          cache-to: type=gha,scope=tick,mode=max

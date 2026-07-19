@@ -4,10 +4,14 @@ import { useActionState, useCallback, useMemo, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
 import type { Task } from '@forge/db';
+
+import { groupTasksByIssue } from '@/lib/triage-view';
 
 import { addTaskAction, removeTaskAction, updatePromptVarsAction } from './actions';
 
@@ -35,8 +39,15 @@ export function PlanEditor({
   const [addState, addAction, addPending] = useActionState(addTaskAction, initial);
   const [showAdd, setShowAdd] = useState(false);
 
+  // Triage plans are auto-generated reproduce→fix pairs — show them grouped by
+  // issue (read-only) rather than as a flat, individually-editable Task list.
+  const isTriage = initialTasks.some((t) => t.kind === 'reproduce' || t.kind === 'fix');
+  if (isTriage) {
+    return <TriagePlanView tasks={initialTasks} />;
+  }
+
   return (
-    <div className="space-y-3">
+    <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
           Tasks ({initialTasks.length})
@@ -54,7 +65,7 @@ export function PlanEditor({
           <CardContent>
             <form
               action={addAction}
-              className="space-y-3"
+              className="flex flex-col gap-3"
               onSubmit={() => setTimeout(() => setShowAdd(false), 100)}
             >
               <input type="hidden" name="missionId" value={missionId} />
@@ -72,7 +83,8 @@ export function PlanEditor({
                 <p className="text-xs text-destructive">{(addState as { error?: string }).error}</p>
               ) : null}
               <Button type="submit" size="sm" disabled={addPending}>
-                {addPending ? 'Adding...' : 'Add'}
+                {addPending ? <Spinner data-icon="inline-start" /> : null}
+                Add
               </Button>
             </form>
           </CardContent>
@@ -80,18 +92,51 @@ export function PlanEditor({
       )}
 
       {initialTasks.length === 0 ? (
-        <div className="rounded-lg border border-dashed p-6 text-center">
-          <p className="text-sm text-muted-foreground">
-            No Tasks. Add at least one before starting.
-          </p>
-        </div>
+        <Empty className="border">
+          <EmptyHeader>
+            <EmptyTitle>No Tasks. Add at least one before starting.</EmptyTitle>
+          </EmptyHeader>
+        </Empty>
       ) : (
-        <ol className="space-y-2">
+        <ol className="flex flex-col gap-2">
           {initialTasks.map((task) => (
             <TaskRow key={task.id} task={task} missionId={missionId} goalTemplate={goalTemplate} />
           ))}
         </ol>
       )}
+    </div>
+  );
+}
+
+function TriagePlanView({ tasks }: { tasks: Task[] }) {
+  const groups = groupTasksByIssue(tasks);
+  return (
+    <div className="flex flex-col gap-3">
+      <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+        {groups.length} issue{groups.length === 1 ? '' : 's'} → {tasks.length} Tasks
+      </h2>
+      <p className="text-xs text-muted-foreground">
+        Each issue is planned as a gated <span className="font-mono">reproduce → fix</span> pair. The
+        fix runs only if the reproduce stage confirms the bug.
+      </p>
+      <ol className="flex flex-col gap-2">
+        {groups.map((g) => (
+          <li key={g.issueRef} className="rounded-lg border bg-card p-3">
+            <div className="flex items-center gap-2">
+              {g.issueNumber != null && (
+                <span className="font-mono text-xs text-muted-foreground">#{g.issueNumber}</span>
+              )}
+              <span className="truncate text-sm font-medium">{g.title}</span>
+            </div>
+            <p className="mt-0.5 font-mono text-[11px] text-muted-foreground">{g.repo}</p>
+            <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
+              <span className="rounded bg-muted px-1.5 py-0.5 font-mono">reproduce</span>
+              <span className="text-muted-foreground">→</span>
+              <span className="rounded bg-muted px-1.5 py-0.5 font-mono">fix (gated)</span>
+            </div>
+          </li>
+        ))}
+      </ol>
     </div>
   );
 }
@@ -184,16 +229,17 @@ function TaskRow({
             <input type="hidden" name="missionId" value={missionId} />
             <input type="hidden" name="taskId" value={task.id} />
             <Button type="submit" variant="ghost" size="sm" disabled={removePending}>
-              {removePending ? 'Removing...' : 'Remove'}
+              {removePending ? <Spinner data-icon="inline-start" /> : null}
+              Remove
             </Button>
           </form>
         </div>
       </div>
 
       {expanded && (
-        <div className="border-t px-4 py-3 space-y-3">
+        <div className="flex flex-col gap-3 border-t px-4 py-3">
           {customVarNames.length > 0 && (
-            <div className="space-y-2">
+            <div className="flex flex-col gap-2">
               <p className="text-xs font-medium text-muted-foreground">Template variables</p>
               <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
                 {customVarNames.map((name) => (
@@ -225,7 +271,8 @@ function TaskRow({
                     })}
                   />
                   <Button type="submit" size="sm" disabled={varsPending}>
-                    {varsPending ? 'Saving...' : 'Save variables'}
+                    {varsPending ? <Spinner data-icon="inline-start" /> : null}
+                    Save variables
                   </Button>
                   {(varsState as { error?: string }).error ? (
                     <span className="ml-2 text-xs text-destructive">

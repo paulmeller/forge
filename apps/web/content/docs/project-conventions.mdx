@@ -41,8 +41,7 @@ pnpm format
 
 ## Linting
 
-- **`apps/web`** uses ESLint with `next/core-web-vitals` and `next/typescript` via flat config (`eslint.config.mjs`).
-- **`apps/tick`** uses ESLint with a standard config.
+- **`apps/web`** uses ESLint with `next/core-web-vitals` and `next/typescript` via flat config (`eslint.config.mjs`). This covers the tick engine at `apps/web/src/server/tick/` too, since it's part of the same package.
 
 Run linting across all packages:
 
@@ -101,10 +100,10 @@ Cross-package dependencies use `workspace:*` protocol (e.g., `"@forge/db": "work
 
 | Package | Purpose | Runtime |
 |---|---|---|
-| `@forge/web` | Console UI, API routes, webhook receiver | Next.js 15 on Node |
-| `@forge/tick` | Tick loop -- dispatcher, poller, CI, auto-merge, budgets | Fastify on Node (via tsx) |
+| `@forge/web` | Console UI, API routes, webhook receiver, tick engine (`src/server/tick/`) | Next.js 16 on Node |
 | `@forge/db` | Shared database schema and client | Library (Drizzle ORM + libSQL) |
-| `apps/docs` | Documentation site | Fumadocs |
+
+Documentation content lives at `apps/web/content/docs/` and is rendered by Fumadocs inside the same `@forge/web` app -- there is no separate docs package.
 
 ## Coding patterns
 
@@ -117,9 +116,9 @@ Cross-package dependencies use `workspace:*` protocol (e.g., `"@forge/db": "work
 
 ### Adding a tick subsystem
 
-1. Read `apps/tick/src/auto-merge.ts` -- that is the pattern.
-2. Create `apps/tick/src/<name>.ts` with a `run<Name>(log)` function.
-3. Wire it into `apps/tick/src/tick.ts` in the right order.
+1. Read `apps/web/src/server/tick/auto-merge.ts` -- that is the pattern.
+2. Create `apps/web/src/server/tick/<name>.ts` with a `run<Name>(log)` function.
+3. Wire it into `apps/web/src/server/tick/tick.ts` in the right order.
 
 ### Adding a DB column
 
@@ -128,8 +127,8 @@ Cross-package dependencies use `workspace:*` protocol (e.g., `"@forge/db": "work
 
 ### Backend adapters
 
-The tick service uses an **adapter pattern** for execution backends. Both `ManagedAgentsAdapter` and `GatewayAdapter` implement the `BackendAdapter` interface defined in `apps/tick/src/adapters/types.ts`. The active adapter is selected by the `FORGE_BACKEND` env var.
+The tick engine uses an **adapter pattern** for execution backends. Both `ManagedAgentsAdapter` and `GatewayAdapter` implement the `BackendAdapter` interface defined in `apps/web/src/server/tick/adapters/types.ts`. The active adapter is selected by the `FORGE_BACKEND` env var.
 
 ### State machine
 
-Task lifecycle is driven by a pure `transition(currentStatus, event)` function in `apps/tick/src/state.ts`. It takes the current status and a backend event, and returns either a state patch or `null` (no transition). This keeps state logic deterministic, testable, and free of side effects.
+Task lifecycle is driven by a pure `transition(currentStatus, event)` function in `apps/web/src/server/tick/state.ts`. It takes the current status and a backend event, and returns either a state patch or `null` (no transition). This keeps state logic deterministic, testable, and free of side effects.

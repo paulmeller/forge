@@ -39,21 +39,19 @@ export function LiveRefresh({
       onClick={() => setEnabled((e) => !e)}
       className={cn(
         'inline-flex items-center gap-1.5 rounded px-2 py-1 text-[11px] tabular-nums',
-        enabled
-          ? 'bg-emerald-100 text-emerald-900 dark:bg-emerald-900/30 dark:text-emerald-200'
-          : 'bg-muted text-muted-foreground',
+        enabled ? 'bg-live/15 text-live' : 'bg-muted text-muted-foreground',
       )}
       title={enabled ? 'Click to pause auto-refresh' : 'Click to resume auto-refresh'}
     >
       <span
         className={cn(
           'inline-block h-1.5 w-1.5 rounded-full',
-          enabled ? 'animate-pulse bg-emerald-500' : 'bg-muted-foreground',
+          enabled ? 'animate-pulse bg-live' : 'bg-muted-foreground',
         )}
         aria-hidden
       />
       <span>{enabled ? `Live · ${intervalMs / 1000}s` : 'Paused'}</span>
-      {enabled && tick > 0 && <span className="text-emerald-700/70 dark:text-emerald-400/70">×{tick}</span>}
+      {enabled && tick > 0 && <span className="text-live/70">×{tick}</span>}
     </button>
   );
 }

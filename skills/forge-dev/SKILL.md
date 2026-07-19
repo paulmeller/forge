@@ -18,8 +18,8 @@ loopPolicy:
 Monorepo with pnpm workspaces:
 
 ```
-apps/web/          Next.js 15 (App Router) — Console + API + webhook receiver
-apps/tick/         Fastify — tick loop (dispatcher, poller, CI, auto-merge, budgets, reconciler)
+apps/web/          Next.js 16 (App Router) — Console + API + webhook receiver + tick engine
+apps/web/src/server/tick/  Tick engine (dispatcher, poller, CI, auto-merge, budgets, reconciler)
 packages/db/       Drizzle ORM + libSQL schema, migrations, client factory
 skills/            Curated skill library (SKILL.md per skill)
 spikes/            One-off probes and operator utilities
@@ -30,15 +30,14 @@ docs/              PRD, audit notes, API gap docs
 
 - Schema: `packages/db/src/schema.ts` — all tables, enums, types
 - Migrations: `packages/db/migrations/` — generate with `pnpm --filter @forge/db db:generate`
-- State machine: `apps/tick/src/state.ts` — pure `transition(status, event) → delta`
-- Adapters: `apps/tick/src/adapters/` — BackendAdapter interface, MA + Gateway impls
-- Tick orchestration: `apps/tick/src/tick.ts` — runTick calls poller → ci → autoMerge → budgets → reconciler → dispatcher
+- State machine: `apps/web/src/server/tick/state.ts` — pure `transition(status, event) → delta`
+- Adapters: `apps/web/src/server/tick/adapters/` — BackendAdapter interface, MA + Gateway impls
+- Tick orchestration: `apps/web/src/server/tick/tick.ts` — runTick calls poller → ci → autoMerge → budgets → reconciler → dispatcher
 - API routes: `apps/web/src/app/api/`
 - Console pages: `apps/web/src/app/missions/`
 - Components: `apps/web/src/components/` — shadcn + custom (ProgressPill, Timeline, TaskCard, etc.)
 - Auth: `apps/web/src/lib/auth.ts` — better-auth with Drizzle adapter
-- Env (web): `apps/web/src/lib/env.ts` — lazy getters
-- Env (tick): `apps/tick/src/env.ts` — eager, loaded via dotenv in `src/bootstrap.ts`
+- Env: `apps/web/src/lib/env.ts` — lazy getters, the single source for all env vars (web and tick)
 
 ## Protocol
 

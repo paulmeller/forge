@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
 import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
 
 export function RequestRetroButton({ missionId }: { missionId: string }) {
   const router = useRouter();
@@ -33,7 +34,8 @@ export function RequestRetroButton({ missionId }: { missionId: string }) {
   return (
     <div>
       <Button onClick={handleClick} disabled={pending}>
-        {pending ? 'Requesting...' : 'Run Retrospective'}
+        {pending ? <Spinner data-icon="inline-start" /> : null}
+        Run Retrospective
       </Button>
       {error && <p className="mt-1 text-xs text-destructive">{error}</p>}
     </div>

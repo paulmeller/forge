@@ -5,6 +5,8 @@ import { useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import type { LedgerEvent, Task } from '@forge/db';
 
+import { Card } from './ui/card';
+import { Empty, EmptyHeader, EmptyTitle } from './ui/empty';
 import { RoleTaggedEvent } from './role-tagged-event';
 
 type TaskMeta = Pick<Task, 'id' | 'repo' | 'status'>;
@@ -49,19 +51,21 @@ export function Timeline({
 
   if (events.length === 0) {
     return (
-      <div className="rounded-lg border border-dashed p-12 text-center">
-        <p className="text-sm text-muted-foreground">No events yet.</p>
-      </div>
+      <Empty className="border">
+        <EmptyHeader>
+          <EmptyTitle>No events yet.</EmptyTitle>
+        </EmptyHeader>
+      </Empty>
     );
   }
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col gap-4">
       {selectedTaskId && (
         <button
           type="button"
           onClick={() => onSelectTask?.(null)}
-          className="text-xs text-muted-foreground underline decoration-dotted hover:text-foreground"
+          className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
         >
           ← Show all Tasks
         </button>
@@ -70,14 +74,14 @@ export function Timeline({
         const meta = taskId ? taskById.get(taskId) : null;
         const isCollapsed = taskId ? collapsedTasks.has(taskId) : false;
         return (
-          <section key={taskId ?? '_mission'} className="rounded-lg border bg-card">
+          <Card key={taskId ?? '_mission'}>
             <header className="flex items-center justify-between border-b px-4 py-2.5">
               <button
                 type="button"
                 onClick={() => taskId && toggleTask(taskId)}
                 className={cn(
                   'flex items-baseline gap-2 text-left',
-                  taskId && 'hover:underline decoration-dotted',
+                  taskId && 'hover:underline underline-offset-2',
                 )}
               >
                 <span className="text-xs font-semibold">
@@ -92,20 +96,20 @@ export function Timeline({
                 <button
                   type="button"
                   onClick={() => onSelectTask?.(taskId)}
-                  className="text-[10px] text-muted-foreground underline decoration-dotted hover:text-foreground"
+                  className="text-[10px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
                 >
                   focus
                 </button>
               )}
             </header>
             {!isCollapsed && (
-              <ol className="space-y-1 px-4 py-3">
+              <ol className="flex flex-col gap-1 px-4 py-3">
                 {group.map((e) => (
                   <RoleTaggedEvent key={e.id} event={e} />
                 ))}
               </ol>
             )}
-          </section>
+          </Card>
         );
       })}
     </div>

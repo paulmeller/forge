@@ -1,4 +1,5 @@
 import { Badge } from '@/components/ui/badge';
+import { statusLabel } from '@/lib/status-labels';
 import type { MissionStatus } from '@forge/db';
 
 const VARIANT: Record<MissionStatus, 'default' | 'secondary' | 'outline' | 'destructive'> = {
@@ -11,5 +12,5 @@ const VARIANT: Record<MissionStatus, 'default' | 'secondary' | 'outline' | 'dest
 };
 
 export function MissionStatusBadge({ status }: { status: MissionStatus }) {
-  return <Badge variant={VARIANT[status] ?? 'outline'}>{status}</Badge>;
+  return <Badge variant={VARIANT[status] ?? 'outline'}>{statusLabel(status)}</Badge>;
 }

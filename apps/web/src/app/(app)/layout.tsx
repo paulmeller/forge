@@ -1,9 +1,9 @@
 import Link from 'next/link';
 
+import { ForgeSidebar } from '@/components/forge-sidebar';
 import { ThemeToggle } from '@/components/theme-toggle';
-import { UserMenu } from '@/components/user-menu';
+import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import { getOptionalUser } from '@/lib/with-auth';
-import { SessionSidebar } from '@/components/session-sidebar';
 
 export default async function AppLayout({
   children,
@@ -40,14 +40,16 @@ export default async function AppLayout({
   }
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      {/* Sidebar */}
-      <SessionSidebar userName={user.name} userEmail={user.email} />
-
-      {/* Main content */}
-      <div className="flex flex-1 flex-col overflow-hidden">
-        {children}
-      </div>
-    </div>
+    <SidebarProvider>
+      <ForgeSidebar userName={user.name} userEmail={user.email} />
+      <SidebarInset className="flex h-svh flex-col overflow-hidden">
+        <header className="grid h-16 shrink-0 grid-cols-[1fr_auto_1fr] items-center gap-2 border-b px-4 transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12">
+          <SidebarTrigger className="-ml-1" />
+          <div id="page-header-slot" className="flex min-w-0 items-center justify-center gap-2" />
+          <div aria-hidden />
+        </header>
+        <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+      </SidebarInset>
+    </SidebarProvider>
   );
 }

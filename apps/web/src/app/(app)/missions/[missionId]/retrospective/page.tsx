@@ -1,9 +1,9 @@
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
-import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { MissionStatusBadge } from '@/components/mission-status-badge';
+import { PageHeader, PageShell } from '@/components/page-shell';
 import { getMission } from '@/lib/missions';
 import { getRetrospectiveForMission, listProposals } from '@/lib/retrospectives';
 
@@ -28,41 +28,44 @@ export default async function RetrospectivePage({
   const reviewed = proposals.filter((p) => p.status !== 'pending');
 
   return (
-    <main className="container max-w-4xl py-8">
-      <div className="mb-6">
-        <Button asChild variant="ghost" size="sm" className="-ml-2 mb-3">
-          <Link href={`/missions/${missionId}`}>&larr; {mission.name}</Link>
-        </Button>
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-semibold tracking-tight">Retrospective</h1>
+    <PageShell className="max-w-4xl">
+      <PageHeader
+        title={
+          <span className="flex items-center gap-3">
+            Retrospective
+            <span className="normal-case">
               <MissionStatusBadge status={mission.status} />
-            </div>
-            {retro && (
-              <p className="mt-1 text-sm text-muted-foreground">
-                Status: <span className="font-mono">{retro.status}</span>
-                {' \u00b7 '}
-                {proposals.length} proposals ({pending.length} pending)
-              </p>
-            )}
-          </div>
-          {!retro && (mission.status === 'completed' || mission.status === 'cancelled') && (
+            </span>
+          </span>
+        }
+        subtitle={
+          retro ? (
+            <>
+              Status: <span className="font-mono">{retro.status}</span>
+              {' \u00b7 '}
+              {proposals.length} proposals ({pending.length} pending)
+            </>
+          ) : undefined
+        }
+        actions={
+          !retro && (mission.status === 'completed' || mission.status === 'cancelled') ? (
             <RequestRetroButton missionId={missionId} />
-          )}
-        </div>
-      </div>
+          ) : undefined
+        }
+      />
 
       {!retro ? (
-        <div className="rounded-lg border border-dashed p-12 text-center">
-          <p className="text-sm text-muted-foreground">
-            {mission.status === 'completed' || mission.status === 'cancelled'
-              ? 'No retrospective yet. Click "Run Retrospective" to analyse this Mission.'
-              : 'Retrospectives are available after a Mission completes or is cancelled.'}
-          </p>
-        </div>
+        <Empty className="border">
+          <EmptyHeader>
+            <EmptyTitle>
+              {mission.status === 'completed' || mission.status === 'cancelled'
+                ? 'No retrospective yet. Click "Run Retrospective" to analyse this Mission.'
+                : 'Retrospectives are available after a Mission completes or is cancelled.'}
+            </EmptyTitle>
+          </EmptyHeader>
+        </Empty>
       ) : (
-        <div className="space-y-6">
+        <div className="flex flex-col gap-6">
           {retro.analysis && (
             <Card>
               <CardHeader className="pb-2">
@@ -79,7 +82,7 @@ export default async function RetrospectivePage({
               <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Pending review ({pending.length})
               </h2>
-              <div className="space-y-3">
+              <div className="flex flex-col gap-3">
                 {pending.map((p) => (
                   <ProposalCard key={p.id} proposal={p} />
                 ))}
@@ -92,7 +95,7 @@ export default async function RetrospectivePage({
               <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Reviewed ({reviewed.length})
               </h2>
-              <div className="space-y-3">
+              <div className="flex flex-col gap-3">
                 {reviewed.map((p) => (
                   <ProposalCard key={p.id} proposal={p} />
                 ))}
@@ -101,6 +104,6 @@ export default async function RetrospectivePage({
           )}
         </div>
       )}
-    </main>
+    </PageShell>
   );
 }

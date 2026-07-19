@@ -134,7 +134,6 @@ const skillPolicy = `loopPolicy:
 const quickstart = `git clone https://github.com/paulmeller/forge && cd forge
 pnpm install
 cp apps/web/.env.example apps/web/.env.local
-cp apps/tick/.env.example apps/tick/.env.local
 pnpm --filter @forge/db db:generate
 pnpm --filter @forge/db db:migrate
 pnpm dev`;
@@ -310,7 +309,7 @@ export default function LandingPage() {
                 <span className={cn(mono, 'text-xs text-foreground')}>CI failed on PR #187</span>
               </div>
               <div className="mt-3 flex items-center gap-2">
-                <span className="size-2 rounded-full bg-amber-400" />
+                <span className="size-2 rounded-full bg-warning" />
                 <span className={cn(mono, 'text-xs text-muted-foreground')}>Forge agent dispatched automatically</span>
               </div>
               <div className="mt-3 flex items-center gap-2">

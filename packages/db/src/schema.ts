@@ -14,8 +14,35 @@ export type MissionStatus = (typeof missionStatus)[number];
 export const backend = ['managed-agents', 'gateway'] as const;
 export type Backend = (typeof backend)[number];
 
-export const plannerStrategy = ['rule-based', 'llm', 'graph'] as const;
+export const plannerStrategy = ['rule-based', 'llm', 'graph', 'triage'] as const;
 export type PlannerStrategy = (typeof plannerStrategy)[number];
+
+/**
+ * Discriminates a Task's role in a multi-stage pipeline. `standard` is the
+ * default single-shot Task (open a PR, gate on CI). The triage planner emits
+ * `reproduce` → `fix` pairs: a `reproduce` Task confirms the bug and records a
+ * verdict but opens no PR; a `fix` Task depends on it and only runs when the
+ * verdict says the bug reproduced.
+ */
+export const taskKind = ['standard', 'reproduce', 'fix'] as const;
+export type TaskKind = (typeof taskKind)[number];
+
+/**
+ * The structured outcome of a `reproduce` Task. The bug-reproduce skill
+ * instructs the agent to end its turn by emitting this shape; the reconciler
+ * lifts it onto the Task and the dispatcher gates the dependent `fix` Task on
+ * `reproduced`.
+ */
+export type ReproduceVerdict = {
+  reproduced: boolean;
+  summary: string;
+  /** Versions the bug was confirmed present / absent on, e.g. { 'v5.0': true, 'v6.0': false }. */
+  affectedVersions?: Record<string, boolean>;
+  /** Free-form evidence pointer (failing test name, stack excerpt, repro steps). */
+  evidence?: string;
+  /** Branch the reproduce agent pushed a failing regression test to, for the fix stage to build on. */
+  branch?: string;
+};
 
 export const taskStatus = [
   'queued',
@@ -29,6 +56,7 @@ export const taskStatus = [
   'awaiting_review',
   'merging',
   'merged',
+  'resolved',
   'abandoned',
   'failed',
 ] as const;
@@ -39,6 +67,7 @@ export const haltReason = [
   'task_token_cap',
   'no_progress',
   'budget_hard_stop',
+  'manual_abort',
 ] as const;
 export type HaltReason = (typeof haltReason)[number];
 
@@ -64,6 +93,40 @@ export const missions = sqliteTable('missions', {
     .notNull()
     .default('rule-based'),
   targetRepos: text('target_repos', { mode: 'json' }).$type<string[]>(),
+  /**
+   * GitHub issue-search query for the `triage` planner, e.g.
+   * `repo:vercel/ai is:issue is:open label:bug`. One reproduce→fix Task pair is
+   * emitted per matching issue. Null for non-triage strategies.
+   */
+  issueQuery: text('issue_query'),
+  /**
+   * Set for any repo-scoped Mission (both the repo's container and its
+   * issue leaves — see `issueRef`/`parentMissionId` below for which is
+   * which). Null for ordinary composer-authored campaign missions.
+   */
+  workspaceRepo: text('workspace_repo'),
+  /**
+   * Set only on an issue leaf Mission (format "owner/repo#123", matching
+   * `tasks.issueRef`) — the specific issue this Mission's tasks belong to.
+   * Null on the repo's container Mission and on campaigns.
+   */
+  issueRef: text('issue_ref'),
+  /**
+   * Self-referential: set on an issue leaf Mission, pointing at its repo's
+   * container. Null on containers and on campaigns (both are always
+   * roots). A container has `workspaceRepo` set, `issueRef` null, and
+   * `parentMissionId` null, owns zero tasks, and must never appear as a
+   * row anywhere — see mission-shape.ts (Phase 2) and listMissions()
+   * (Task 4 of this plan).
+   */
+  parentMissionId: text('parent_mission_id'),
+  /**
+   * Issue refs ("owner/repo#123") a human has marked "Next" on this
+   * repo's container — queued-for-work without dispatching. Cleared for
+   * an issueRef the moment `workOnIssue` is called for it. Null/empty for
+   * everything except containers actually in use.
+   */
+  nextIssueRefs: text('next_issue_refs', { mode: 'json' }).$type<string[]>(),
   concurrencyCap: integer('concurrency_cap').notNull().default(5),
   budgetUsd: integer('budget_usd'),
   budgetTokens: integer('budget_tokens'),
@@ -103,6 +166,10 @@ export const tasks = sqliteTable(
     baseBranch: text('base_branch').notNull().default('main'),
     promptVars: text('prompt_vars', { mode: 'json' }).$type<Record<string, unknown>>(),
     issueRef: text('issue_ref'),
+    /** Pipeline role — `standard` (open a PR) vs. triage `reproduce` / `fix`. */
+    kind: text('kind', { enum: taskKind }).notNull().default('standard'),
+    /** Reproduce Task outcome (present once a `reproduce` Task reaches `resolved`). */
+    verdict: text('verdict', { mode: 'json' }).$type<ReproduceVerdict>(),
     dependsOnIds: text('depends_on_ids', { mode: 'json' }).$type<string[]>(),
     status: text('status', { enum: taskStatus }).notNull().default('queued'),
     sessionId: text('session_id'),

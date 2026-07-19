@@ -16,15 +16,14 @@ Full product spec: [`docs/forge-prd.md`](docs/forge-prd.md).
 
 ## Architecture in one paragraph
 
-Two Cloud Run services share one libSQL/Turso database. **`forge-web`** (Next.js) hosts the Console, the public API, and the HMAC-verified webhook receiver. **`forge-tick`** (Fastify) runs a single `POST /tick` endpoint invoked by Cloud Scheduler every 60 seconds; one tick claims queued Tasks, runs the Gate (open PRs, poll CI, retry/merge), and checks Mission budgets. Nothing is vendor-exclusive — the same containers run anywhere that can host a Node process.
+A single self-hosted Next.js app, **`forge-web`**, backed by one libSQL/Turso database. It hosts the Console, the public API, the HMAC-verified webhook receiver, and the tick engine itself — the engine lives at `apps/web/src/server/tick/` and runs a full pass whenever Cloud Scheduler POSTs to `POST /api/tick` (OIDC-verified) every 60 seconds; one tick claims queued Tasks, runs the Gate (open PRs, poll CI, retry/merge), and checks Mission budgets. Nothing is vendor-exclusive — the same container runs anywhere that can host a Node process.
 
 ## Repo layout
 
 ```
 forge/
 ├── apps/
-│   ├── web/          # Next.js — Console + API + webhook receiver
-│   └── tick/         # Fastify — the tick loop
+│   └── web/          # Next.js — Console + API + webhook receiver + tick engine (src/server/tick/)
 ├── packages/
 │   └── db/           # Drizzle schema + libSQL client factory
 ├── docs/
@@ -45,54 +44,43 @@ forge/
 # First time
 pnpm install
 cp apps/web/.env.example apps/web/.env.local
-cp apps/tick/.env.example apps/tick/.env.local
 
 # Generate and apply the initial migration
 pnpm --filter @forge/db db:generate
 pnpm --filter @forge/db db:migrate
 
-# Run both services with live reload
+# Run the app with live reload
 pnpm dev
 ```
 
-`forge-web` is at [http://localhost:3100](http://localhost:3100). `forge-tick` listens on [http://localhost:8080](http://localhost:8080); trigger a tick manually with:
+`forge-web` is at [http://localhost:3100](http://localhost:3100). There's no scheduled tick locally — trigger one via the Console's manual "Run tick now" button, or curl the route directly (requires `TICK_ALLOW_UNAUTHENTICATED=true` in `apps/web/.env.local`):
 
 ```bash
-curl -X POST http://localhost:8080/tick
+curl -X POST http://localhost:3100/api/tick
 ```
-
-(OIDC verification is bypassed locally via `TICK_ALLOW_UNAUTHENTICATED=true`.)
 
 ## Deploy (Google Cloud Run)
 
-Both services deploy as Cloud Run containers in the same GCP project and region.
+Forge deploys as a single Cloud Run service (`forge-web`); Cloud Scheduler drives the tick by POSTing to that service's `/api/tick` route.
 
 ```bash
-# Build and push images (substitute your project + region)
+# Build and push the image (substitute your project + region)
 gcloud builds submit --tag gcr.io/$PROJECT/forge-web --file apps/web/Dockerfile .
-gcloud builds submit --tag gcr.io/$PROJECT/forge-tick --file apps/tick/Dockerfile .
 
 # Deploy web (public)
 gcloud run deploy forge-web \
   --image gcr.io/$PROJECT/forge-web \
   --region $REGION \
   --allow-unauthenticated \
-  --set-env-vars DATABASE_URL=...,BETTER_AUTH_SECRET=...
+  --set-env-vars DATABASE_URL=...,BETTER_AUTH_SECRET=...,TICK_EXPECTED_AUDIENCE=https://forge-web-xxxx.a.run.app,TICK_EXPECTED_ISSUER_EMAIL=scheduler@$PROJECT.iam.gserviceaccount.com
 
-# Deploy tick (private — only Cloud Scheduler can invoke)
-gcloud run deploy forge-tick \
-  --image gcr.io/$PROJECT/forge-tick \
-  --region $REGION \
-  --no-allow-unauthenticated \
-  --set-env-vars DATABASE_URL=...,TICK_EXPECTED_AUDIENCE=https://forge-tick-xxxx.a.run.app,TICK_EXPECTED_ISSUER_EMAIL=scheduler@$PROJECT.iam.gserviceaccount.com
-
-# Wire Cloud Scheduler to invoke the tick every 60s with OIDC
-gcloud scheduler jobs create http forge-tick-60s \
+# Wire Cloud Scheduler to invoke /api/tick every 60s with OIDC
+gcloud scheduler jobs create http forge-tick \
   --schedule="* * * * *" \
-  --uri="https://forge-tick-xxxx.a.run.app/tick" \
+  --uri="https://forge-web-xxxx.a.run.app/api/tick" \
   --http-method=POST \
   --oidc-service-account-email=scheduler@$PROJECT.iam.gserviceaccount.com \
-  --oidc-token-audience="https://forge-tick-xxxx.a.run.app"
+  --oidc-token-audience="https://forge-web-xxxx.a.run.app"
 ```
 
 Secrets belong in Google Secret Manager, mounted via `--set-secrets` — see [`docs/forge-prd.md`](docs/forge-prd.md) §15.
@@ -103,7 +91,7 @@ From the repo root:
 
 | Command            | Effect                                     |
 | ------------------ | ------------------------------------------ |
-| `pnpm dev`         | Run `forge-web` (:3100) and `forge-tick` (:8080) in parallel |
+| `pnpm dev`         | Run `forge-web` (:3100), including the in-process tick engine |
 | `pnpm build`       | Build every workspace package              |
 | `pnpm typecheck`   | Run `tsc --noEmit` across all packages     |
 | `pnpm lint`        | Lint every package                         |

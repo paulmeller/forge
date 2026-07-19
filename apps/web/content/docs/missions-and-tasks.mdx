@@ -82,7 +82,7 @@ With failure branches at multiple points:
 
 ### State transitions
 
-The state machine in `apps/tick/src/state.ts` is a pure function: one backend event in, zero or one transitions out. Key transitions:
+The state machine in `apps/web/src/server/tick/state.ts` is a pure function: one backend event in, zero or one transitions out. Key transitions:
 
 - **`session.status_running`** — moves `dispatching` or `turn_ended` to `running`.
 - **`session.status_idle`** — moves `running` to `turn_ended` (unless the stop reason is `requires_action`, which is a transient pause for tool confirmation).

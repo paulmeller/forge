@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 
 const MCP_TOOLS = [
   { name: 'GitHub', description: 'PRs, issues, code search', connected: true },
@@ -75,11 +76,11 @@ export function ChatInterface() {
               <div key={msg.id} className="mb-6">
                 <div className="mb-1 flex items-center gap-2">
                   {msg.role === 'user' ? (
-                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-[10px] font-medium text-primary-foreground">
+                    <span className="flex size-6 items-center justify-center rounded-full bg-primary text-[10px] font-medium text-primary-foreground">
                       You
                     </span>
                   ) : (
-                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-muted text-[10px] font-medium">
+                    <span className="flex size-6 items-center justify-center rounded-full bg-muted text-[10px] font-medium">
                       F
                     </span>
                   )}
@@ -108,7 +109,7 @@ export function ChatInterface() {
                             key={i}
                             className="my-2 flex items-center gap-2 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground"
                           >
-                            <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-amber-500" />
+                            <span className="inline-block size-2 animate-pulse rounded-full bg-live" />
                             Working...
                           </div>
                         );
@@ -140,7 +141,7 @@ export function ChatInterface() {
             {isLoading && messages[messages.length - 1]?.role === 'user' && (
               <div className="mb-6">
                 <div className="mb-1 flex items-center gap-2">
-                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-muted text-[10px] font-medium">
+                  <span className="flex size-6 items-center justify-center rounded-full bg-muted text-[10px] font-medium">
                     F
                   </span>
                   <span className="text-xs font-medium">Forge</span>
@@ -178,7 +179,7 @@ export function ChatInterface() {
             <div className="flex items-center gap-1.5 px-3 pb-2.5">
               <button
                 type="button"
-                className="flex h-7 w-7 items-center justify-center rounded-md border bg-muted/50 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+                className="flex size-7 items-center justify-center rounded-md border bg-muted/50 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
               >
                 +
               </button>
@@ -190,9 +191,10 @@ export function ChatInterface() {
                   {[0, 1, 2, 3].map((i) => (
                     <span
                       key={i}
-                      className={`inline-block h-2.5 w-[3px] rounded-[1px] ${
-                        i < 3 ? 'bg-foreground/40' : 'bg-foreground/10'
-                      }`}
+                      className={cn(
+                        'inline-block h-2.5 w-[3px] rounded-[1px]',
+                        i < 3 ? 'bg-foreground/40' : 'bg-foreground/10',
+                      )}
                     />
                   ))}
                 </span>
@@ -215,13 +217,14 @@ export function ChatInterface() {
                 <button
                   type="button"
                   onClick={() => setShowMcp(!showMcp)}
-                  className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] transition-colors hover:text-foreground ${
+                  className={cn(
+                    'flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] transition-colors hover:text-foreground',
                     showMcp
                       ? 'border-primary/50 bg-primary/5 text-foreground'
-                      : 'bg-muted/50 text-muted-foreground'
-                  }`}
+                      : 'bg-muted/50 text-muted-foreground',
+                  )}
                 >
-                  <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
+                  <span className="size-1.5 rounded-full bg-live" />
                   MCP
                 </button>
                 {showMcp && (
@@ -241,8 +244,8 @@ export function ChatInterface() {
                           </p>
                         </div>
                         {t.connected ? (
-                          <span className="flex items-center gap-1 text-[10px] text-green-500">
-                            <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
+                          <span className="flex items-center gap-1 text-[10px] text-live">
+                            <span className="size-1.5 rounded-full bg-live" />
                             On
                           </span>
                         ) : (
@@ -264,7 +267,7 @@ export function ChatInterface() {
 
               <button
                 type="button"
-                className="flex h-7 w-7 items-center justify-center rounded-md border bg-muted/50 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+                className="flex size-7 items-center justify-center rounded-md border bg-muted/50 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
               >
                 ?
               </button>

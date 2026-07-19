@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq, isNotNull, isNull, or } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { backend, missions, plannerStrategy, type Mission, type NewMission } from '@forge/db';
@@ -20,6 +20,7 @@ export const createMissionSchema = z.object({
     .array(z.string().regex(repoSlugPattern, 'Expected "owner/repo"'))
     .max(500)
     .default([]),
+  issueQuery: z.string().max(500).optional().nullable(),
   concurrencyCap: z.coerce.number().int().min(1).max(100).default(5),
   budgetUsd: z.coerce.number().int().positive().nullish(),
   budgetTokens: z.coerce.number().int().positive().nullish(),
@@ -33,6 +34,15 @@ export const createMissionSchema = z.object({
   skillId: z.string().max(200).optional().nullable(),
   aiReviewEnabled: z.coerce.boolean().default(false),
   selfVerifyEnabled: z.coerce.boolean().default(false),
+}).superRefine((val, ctx) => {
+  // The triage Planner enumerates issues from issueQuery instead of repos.
+  if (val.plannerStrategy === 'triage' && !val.issueQuery?.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['issueQuery'],
+      message: 'Triage missions need a GitHub issue search query.',
+    });
+  }
 });
 
 export function parseRepoList(raw: string | null | undefined): string[] {
@@ -68,6 +78,7 @@ export async function createMissionForUser(
     agentId: input.agentId,
     plannerStrategy: input.plannerStrategy,
     targetRepos: input.targetRepos,
+    issueQuery: input.issueQuery ?? null,
     concurrencyCap: input.concurrencyCap,
     budgetUsd: input.budgetUsd ?? null,
     budgetTokens: input.budgetTokens ?? null,
@@ -97,12 +108,28 @@ export async function createMission(input: CreateMissionInput): Promise<Mission>
   return createMissionForUser(user.id, input);
 }
 
-/** List missions for a specific user. */
+/**
+ * List missions for a specific user — every campaign and issue leaf, but
+ * never a repo's container (workspaceRepo set, issueRef null, no
+ * parentMissionId — a pure budget/concurrency envelope, never a unit of
+ * work). Expressed as "NOT a container": either it isn't repo-scoped at
+ * all (campaign), or it's specifically issue-scoped (issueRef set), or it
+ * has a parent itself (defensive — containers are always roots).
+ */
 export async function listMissionsForUser(userId: string): Promise<Mission[]> {
   return db
     .select()
     .from(missions)
-    .where(eq(missions.userId, userId))
+    .where(
+      and(
+        eq(missions.userId, userId),
+        or(
+          isNull(missions.workspaceRepo),
+          isNotNull(missions.issueRef),
+          isNotNull(missions.parentMissionId),
+        ),
+      ),
+    )
     .orderBy(desc(missions.createdAt));
 }
 

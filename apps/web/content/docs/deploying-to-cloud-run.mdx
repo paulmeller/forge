@@ -3,34 +3,31 @@ title: Deploying to Cloud Run
 description: Deploy Forge to Google Cloud Run with Turso, Cloud Scheduler, and Secret Manager.
 ---
 
-Forge is designed to run as two small Cloud Run services against a single remote libSQL database, with no durable-execution vendor dependency. This guide walks through a production deployment.
+Forge is designed to run as a single small Cloud Run service against a remote libSQL database, with no durable-execution vendor dependency. This guide walks through a production deployment.
 
 ## Architecture overview
 
 ```
-┌─────────────────┐     HTTPS      ┌──────────────────┐
-│  Cloud Scheduler │──────────────▸ │  forge-tick       │
-│  (every 60s)     │   OIDC auth   │  Cloud Run        │
-└─────────────────┘                │  POST /tick       │
-                                   └────────┬─────────┘
-                                            │
-                                            ▼
-┌─────────────────┐                ┌──────────────────┐
-│  Users / GitHub  │──────────────▸ │  forge-web        │
-│  webhooks        │    HTTPS      │  Cloud Run        │
-└─────────────────┘                │  Next.js          │
-                                   └────────┬─────────┘
-                                            │
-                                            ▼
-                                   ┌──────────────────┐
-                                   │  Turso (libSQL)   │
-                                   │  remote database  │
-                                   └──────────────────┘
+┌─────────────────┐     HTTPS, OIDC auth      ┌──────────────────┐
+│  Cloud Scheduler │─────────────────────────▸ │                  │
+│  (every 60s)     │        POST /api/tick     │    forge-web     │
+└─────────────────┘                            │    Cloud Run     │
+                                                │    Next.js       │
+┌─────────────────┐          HTTPS             │  (Console, API,  │
+│  Users / GitHub  │─────────────────────────▸ │   webhooks,      │
+│  webhooks        │                           │   tick engine)   │
+└─────────────────┘                            └────────┬─────────┘
+                                                         │
+                                                         ▼
+                                                ┌──────────────────┐
+                                                │  Turso (libSQL)   │
+                                                │  remote database  │
+                                                └──────────────────┘
 ```
 
-- **forge-web** — Next.js (App Router). Hosts the Console, the REST API, and the webhook receiver. Autoscales, scale-to-zero allowed.
-- **forge-tick** — Node.js service exposing `POST /tick`. Invoked by Cloud Scheduler every 60 seconds. Runs one tick of work (claim Tasks, poll sessions, run Gate, check budgets) and returns. Scale-to-zero between invocations.
-- **Turso** — remote libSQL database over HTTP. Both services connect to the same database.
+- **forge-web** — Next.js (App Router). Hosts the Console, the REST API, the webhook receiver, and the tick engine (`apps/web/src/server/tick/`, orchestrated by `runTick()`). Autoscales, scale-to-zero allowed.
+- **`POST /api/tick`** — a route on `forge-web`, invoked by Cloud Scheduler every 60 seconds. Runs one tick of work (claim Tasks, poll sessions, run Gate, check budgets) in-process and returns.
+- **Turso** — remote libSQL database over HTTP. `forge-web` connects to it.
 
 ## Prerequisites
 
@@ -56,9 +53,9 @@ DATABASE_AUTH_TOKEN="<your-token>" \
 pnpm --filter @forge/db db:migrate
 ```
 
-## 2. Build Docker images
+## 2. Build the Docker image
 
-Forge ships Dockerfiles for both services. The web service uses Next.js standalone output mode (`output: 'standalone'` in `next.config.ts`), which produces a minimal self-contained Node.js server.
+Forge ships a single Dockerfile at `apps/web/Dockerfile`. The web app uses Next.js standalone output mode (`output: 'standalone'` in `next.config.ts`), which produces a minimal self-contained Node.js server.
 
 ### forge-web
 
@@ -71,16 +68,9 @@ The Dockerfile uses a multi-stage build:
 
 1. **deps** — installs dependencies with pnpm (frozen lockfile).
 2. **builder** — runs `pnpm --filter @forge/web build`, producing the standalone output.
-3. **runner** — copies only the standalone output (`server.js`, static assets, public files). Runs as a non-root user on port 3000.
+3. **runner** — copies the standalone output (`server.js`, static assets, public files) plus the repo-root `skills/` directory (synced into the DB at boot via `instrumentation.ts`, overridable with `FORGE_SKILLS_DIR`). Runs as a non-root user on port 3000.
 
-### forge-tick
-
-```bash
-docker build -t gcr.io/$PROJECT_ID/forge-tick -f apps/tick/Dockerfile .
-docker push gcr.io/$PROJECT_ID/forge-tick
-```
-
-The tick Dockerfile copies the source directly (no build step needed for a Node.js/TypeScript service) and runs on port 8080.
+There is no separate tick image — the tick engine ships inside this same image and runs in-process when Cloud Scheduler hits `/api/tick`.
 
 ## 3. Store secrets
 
@@ -96,6 +86,8 @@ echo -n "<github-token>" | gcloud secrets create GITHUB_APP_TOKEN --data-file=-
 
 ## 4. Deploy forge-web
 
+There's one deploy for the whole app — the Console, API, webhooks, and the tick engine all ship in this one image. `forge-web` stays `--allow-unauthenticated` at the Cloud Run layer (the Console and webhooks need public access); `/api/tick` protects itself with an app-level OIDC check against `TICK_EXPECTED_AUDIENCE`.
+
 ```bash
 gcloud run deploy forge-web \
   --image gcr.io/$PROJECT_ID/forge-web \
@@ -106,83 +98,64 @@ gcloud run deploy forge-web \
   --set-secrets="DATABASE_URL=DATABASE_URL:latest,\
 DATABASE_AUTH_TOKEN=DATABASE_AUTH_TOKEN:latest,\
 BETTER_AUTH_SECRET=BETTER_AUTH_SECRET:latest,\
-ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest" \
+ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,\
+GITHUB_APP_TOKEN=GITHUB_APP_TOKEN:latest" \
   --set-env-vars="BETTER_AUTH_URL=https://forge-web-xxx.a.run.app,\
-FORGE_BACKEND=managed-agents"
+FORGE_BACKEND=managed-agents,\
+TICK_EXPECTED_AUDIENCE=https://forge-web-xxx.a.run.app,\
+TICK_EXPECTED_ISSUER_EMAIL=scheduler@$PROJECT_ID.iam.gserviceaccount.com"
 ```
 
-Replace `BETTER_AUTH_URL` with the actual Cloud Run service URL after the first deploy. You may need to update and redeploy.
+Replace `BETTER_AUTH_URL` and `TICK_EXPECTED_AUDIENCE` with the actual Cloud Run service URL after the first deploy. You may need to update and redeploy.
 
 ### Optional env vars for forge-web
 
-| Variable | Purpose |
-|---|---|
-| `GATEWAY_URL` | Required if `FORGE_BACKEND=gateway`. URL of your AgentStep Gateway. |
-| `GITHUB_WEBHOOK_SECRET` | Enables GitHub webhook dispatch (issue comment and CI-fix triggers). |
-| `FORGE_DEFAULT_AGENT_ID` | Agent ID used by GitHub-dispatched missions. |
-| `FORGE_DEFAULT_GITHUB_VAULT_ID` | GitHub MCP vault ID for GitHub-dispatched missions. |
-
-## 5. Deploy forge-tick
-
-```bash
-gcloud run deploy forge-tick \
-  --image gcr.io/$PROJECT_ID/forge-tick \
-  --region $REGION \
-  --platform managed \
-  --no-allow-unauthenticated \
-  --port 8080 \
-  --set-secrets="DATABASE_URL=DATABASE_URL:latest,\
-DATABASE_AUTH_TOKEN=DATABASE_AUTH_TOKEN:latest,\
-ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,\
-GITHUB_APP_TOKEN=GITHUB_APP_TOKEN:latest" \
-  --set-env-vars="TICK_EXPECTED_AUDIENCE=https://forge-tick-xxx.a.run.app"
-```
-
-The tick service uses `--no-allow-unauthenticated` because only Cloud Scheduler should call it. OIDC token verification ensures this.
-
-### Tick-specific env vars
-
 | Variable | Purpose | Default |
 |---|---|---|
-| `TICK_EXPECTED_AUDIENCE` | Cloud Run service URL, used to verify OIDC tokens from Cloud Scheduler. | _(required in production)_ |
-| `TICK_EXPECTED_ISSUER_EMAIL` | Service account email that Cloud Scheduler uses. Optional but adds a second layer of defense. | _(none)_ |
-| `TASK_RETRY_MAX` | Maximum CI-failure retries before a Task is marked `failed`. | `3` |
-| `FORGE_MA_ENVIRONMENT_ID` | Managed Agents environment ID. Required when using `managed-agents` backend. | _(none)_ |
-| `GATEWAY_URL` | Required when using `gateway` backend. | _(none)_ |
+| `GATEWAY_URL` | Required if `FORGE_BACKEND=gateway`. URL of your AgentStep Gateway. | _(none)_ |
 | `GATEWAY_API_KEY` | API key for the gateway. Required when using `gateway` backend. | _(none)_ |
+| `GITHUB_WEBHOOK_SECRET` | Enables GitHub webhook dispatch (issue comment and CI-fix triggers). | _(none)_ |
+| `FORGE_DEFAULT_AGENT_ID` | Agent ID used by GitHub-dispatched missions. | _(none)_ |
+| `FORGE_DEFAULT_GITHUB_VAULT_ID` | GitHub MCP vault ID for GitHub-dispatched missions. | _(none)_ |
+| `FORGE_MA_ENVIRONMENT_ID` | Managed Agents environment ID. Required when using `managed-agents` backend. | _(none)_ |
+| `TASK_RETRY_MAX` | Maximum CI-failure retries before a Task is marked `failed`. | `3` |
+| `TICK_EXPECTED_AUDIENCE` | Cloud Run service URL, used to verify OIDC tokens from Cloud Scheduler on `/api/tick`. | _(required in production)_ |
+| `TICK_EXPECTED_ISSUER_EMAIL` | Service account email that Cloud Scheduler uses. Optional but adds a second layer of defense. | _(none)_ |
+| `FORGE_SKILLS_DIR` | Overrides the path the skills library is synced from at boot. The Docker image sets this to `/app/skills`. | `skills/` at repo root |
 
-## 6. Set up Cloud Scheduler
+## 5. Set up Cloud Scheduler
 
-Create a Cloud Scheduler job that POSTs to the tick service every 60 seconds:
+Create a Cloud Scheduler job that POSTs to `forge-web`'s `/api/tick` route every 60 seconds:
 
 ```bash
 # Create a service account for the scheduler
 gcloud iam service-accounts create forge-scheduler \
   --display-name "Forge Tick Scheduler"
 
-# Grant it permission to invoke the tick service
-gcloud run services add-iam-policy-binding forge-tick \
+# (Optional, defense-in-depth) grant it invoker on forge-web, since
+# forge-web is --allow-unauthenticated at the Cloud Run layer already
+gcloud run services add-iam-policy-binding forge-web \
   --region $REGION \
   --member "serviceAccount:forge-scheduler@$PROJECT_ID.iam.gserviceaccount.com" \
   --role "roles/run.invoker"
 
 # Create the scheduler job
-gcloud scheduler jobs create http forge-tick-job \
+gcloud scheduler jobs create http forge-tick \
   --location $REGION \
   --schedule "* * * * *" \
   --http-method POST \
-  --uri "https://forge-tick-xxx.a.run.app/tick" \
+  --uri "https://forge-web-xxx.a.run.app/api/tick" \
   --oidc-service-account-email "forge-scheduler@$PROJECT_ID.iam.gserviceaccount.com" \
-  --oidc-token-audience "https://forge-tick-xxx.a.run.app"
+  --oidc-token-audience "https://forge-web-xxx.a.run.app"
 ```
 
-The scheduler sends an OIDC token with each request. The tick service verifies the token against `TICK_EXPECTED_AUDIENCE` before executing.
+The scheduler sends an OIDC token with each request. The `/api/tick` route verifies the token against `TICK_EXPECTED_AUDIENCE` (and, if set, `TICK_EXPECTED_ISSUER_EMAIL`) before executing.
 
 ### Sub-minute cadence
 
-If you need sub-minute tick cadence in the future, flip `forge-tick` to `--min-instances=1` and run an in-process loop. No architectural changes are needed — the same code path works either way.
+If you need sub-minute tick cadence in the future, flip `forge-web` to `--min-instances=1` and run `runTick()` on an in-process interval instead of per-request. No architectural changes are needed — the same code path works either way.
 
-## 7. Verify the deployment
+## 6. Verify the deployment
 
 ```bash
 # Health check
@@ -190,7 +163,7 @@ curl https://forge-web-xxx.a.run.app/api/health
 # Expected: {"status":"ok","service":"forge-web"}
 
 # Trigger a tick manually
-curl -X POST https://forge-tick-xxx.a.run.app/tick \
+curl -X POST https://forge-web-xxx.a.run.app/api/tick \
   -H "Authorization: Bearer $(gcloud auth print-identity-token)"
 ```
 
@@ -198,44 +171,43 @@ Open the Console URL in your browser and create a test Mission.
 
 ## Environment variable summary
 
-| Variable | forge-web | forge-tick | Description |
-|---|---|---|---|
-| `DATABASE_URL` | required | required | Turso connection string |
-| `DATABASE_AUTH_TOKEN` | required | required | Turso auth token |
-| `BETTER_AUTH_SECRET` | required | -- | Session signing secret |
-| `BETTER_AUTH_URL` | required | -- | Public URL of forge-web |
-| `FORGE_BACKEND` | required | -- | `managed-agents` or `gateway` |
-| `ANTHROPIC_API_KEY` | conditional | conditional | Required for `managed-agents` backend |
-| `FORGE_MA_ENVIRONMENT_ID` | -- | conditional | Required for `managed-agents` backend |
-| `GATEWAY_URL` | conditional | conditional | Required for `gateway` backend |
-| `GATEWAY_API_KEY` | -- | conditional | Required for `gateway` backend |
-| `GITHUB_APP_TOKEN` | -- | required | For repo cloning and Checks API polling |
-| `TICK_EXPECTED_AUDIENCE` | -- | recommended | OIDC audience verification |
-| `TICK_EXPECTED_ISSUER_EMAIL` | -- | optional | OIDC issuer verification |
+| Variable | Required for | Description |
+|---|---|---|
+| `DATABASE_URL` | always | Turso connection string |
+| `DATABASE_AUTH_TOKEN` | always | Turso auth token |
+| `BETTER_AUTH_SECRET` | always | Session signing secret |
+| `BETTER_AUTH_URL` | always | Public URL of forge-web |
+| `FORGE_BACKEND` | always | `managed-agents` or `gateway` |
+| `ANTHROPIC_API_KEY` | `managed-agents` backend | Anthropic API key |
+| `FORGE_MA_ENVIRONMENT_ID` | `managed-agents` backend | Managed Agents environment ID |
+| `GATEWAY_URL` | `gateway` backend | AgentStep Gateway URL |
+| `GATEWAY_API_KEY` | `gateway` backend | AgentStep Gateway API key |
+| `GITHUB_APP_TOKEN` | always | For repo cloning and Checks API polling |
+| `TICK_EXPECTED_AUDIENCE` | recommended | OIDC audience verification for `/api/tick` |
+| `TICK_EXPECTED_ISSUER_EMAIL` | optional | OIDC issuer verification for `/api/tick` |
+| `TICK_ALLOW_UNAUTHENTICATED` | local dev only | Bypasses OIDC verification for curl testing — never set in production |
+| `FORGE_SKILLS_DIR` | optional | Overrides the on-disk skills library path synced at boot |
 
 ## Deploying updates
 
-On merge to `main`, rebuild and redeploy both images:
+On merge to `main`, rebuild and redeploy the image:
 
 ```bash
 docker build -t gcr.io/$PROJECT_ID/forge-web -f apps/web/Dockerfile .
-docker build -t gcr.io/$PROJECT_ID/forge-tick -f apps/tick/Dockerfile .
 docker push gcr.io/$PROJECT_ID/forge-web
-docker push gcr.io/$PROJECT_ID/forge-tick
 
 gcloud run deploy forge-web --image gcr.io/$PROJECT_ID/forge-web --region $REGION
-gcloud run deploy forge-tick --image gcr.io/$PROJECT_ID/forge-tick --region $REGION
 ```
 
-Cloud Run performs zero-downtime rolling deploys. The Ledger's append-only design means no data is lost across deploys.
+Cloud Run performs zero-downtime rolling deploys. The Ledger's append-only design means no data is lost across deploys. `.github/workflows/deploy.yml` runs this same build-push-deploy sequence for `forge-web` on merge to `main`.
 
 ## Alternative platforms
 
-While Cloud Run is the reference deployment target, the same Docker images run on any container platform:
+While Cloud Run is the reference deployment target, the same Docker image runs on any container platform:
 
-- **Fly.io** — deploy both services, use a cron machine for the tick.
-- **Railway** — deploy from the repo, configure a cron job for tick.
-- **Kubernetes** — deploy as two Deployments with a CronJob for tick.
+- **Fly.io** — deploy the app, use a cron trigger (or Fly's built-in scheduled machines) to hit `/api/tick`.
+- **Railway** — deploy from the repo, configure a cron job to hit `/api/tick`.
+- **Kubernetes** — deploy as a Deployment with a CronJob that curls `/api/tick`.
 - **Embedded libSQL** — for local or single-machine deployments, use `file:./forge.db` instead of Turso. No remote database needed.
 
 ## Next steps

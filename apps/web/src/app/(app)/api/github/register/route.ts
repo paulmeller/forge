@@ -16,13 +16,23 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const callbackUrl = `${url.origin}/api/github/register/callback`;
 
+  // GitHub rejects manifests whose hook URL isn't publicly reachable, so
+  // skip the webhook entirely when running on localhost.
+  const isLocal = url.hostname === 'localhost' || url.hostname === '127.0.0.1';
+
   const manifest = {
-    name: 'Forge',
-    url: url.origin,
-    hook_attributes: {
-      url: `${url.origin}/api/forge/github/webhook`,
-      active: true,
-    },
+    name: isLocal ? `forge-local-${Math.random().toString(36).slice(2, 8)}` : 'Forge',
+    url: isLocal ? 'https://github.com/paulmeller/forge' : url.origin,
+    hook_attributes: isLocal
+      ? {
+          // Placeholder: localhost isn't accepted, and an inactive hook is never called.
+          url: 'https://example.com/forge-local-webhook',
+          active: false,
+        }
+      : {
+          url: `${url.origin}/api/forge/github/webhook`,
+          active: true,
+        },
     redirect_url: callbackUrl,
     callback_urls: [`${url.origin}/api/auth/callback/github`],
     setup_url: `${url.origin}/api/github/callback`,
@@ -30,10 +40,13 @@ export async function GET(request: Request) {
     public: true,
     default_permissions: {
       contents: 'write',
-      issues: 'read',
+      issues: 'write',
       pull_requests: 'write',
       checks: 'read',
       metadata: 'read',
+      // GitHub Apps ignore OAuth scopes — sign-in needs this to read the
+      // user's email via /user/emails, or better-auth fails with email_not_found.
+      email_addresses: 'read',
     },
     default_events: [
       'issue_comment',

@@ -19,33 +19,21 @@ Both adapters implement the same `BackendAdapter` interface. Callers (dispatcher
 
 ### forge-web
 
-Set two environment variables:
+All configuration — including the tick engine's — lives in one `.env.local`. Set:
 
 ```dotenv
 FORGE_BACKEND=gateway
-GATEWAY_URL=https://gateway.internal
-```
-
-| Variable | Description |
-|---|---|
-| `FORGE_BACKEND` | Set to `gateway` to use the gateway as the default backend for new Missions. |
-| `GATEWAY_URL` | The base URL of your AgentStep Gateway instance. |
-
-### forge-tick
-
-The tick service needs the gateway URL and an API key:
-
-```dotenv
 GATEWAY_URL=https://gateway.internal
 GATEWAY_API_KEY=your-gateway-api-key
 ```
 
 | Variable | Description |
 |---|---|
-| `GATEWAY_URL` | Must match the URL set in forge-web. |
+| `FORGE_BACKEND` | Set to `gateway` to use the gateway as the default backend for new Missions. |
+| `GATEWAY_URL` | The base URL of your AgentStep Gateway instance. |
 | `GATEWAY_API_KEY` | API key for authenticating with the gateway. Sent as an `x-api-key` header on every request. |
 
-When the tick service initializes the gateway adapter, it validates that both `GATEWAY_URL` and `GATEWAY_API_KEY` are present. Missing either will throw at startup.
+When the tick engine initializes the gateway adapter (lazily, via `apps/web/src/lib/env.ts`), it validates that both `GATEWAY_URL` and `GATEWAY_API_KEY` are present. Missing either will throw at first use.
 
 ## Per-Mission backend selection
 
@@ -68,7 +56,7 @@ The `FORGE_BACKEND` env var only sets the default — each Mission's `backend` f
 
 ## Adapter interface
 
-Both adapters implement the `BackendAdapter` interface defined in `apps/tick/src/adapters/types.ts`:
+Both adapters implement the `BackendAdapter` interface defined in `apps/web/src/server/tick/adapters/types.ts`:
 
 ```typescript
 interface BackendAdapter {
@@ -120,7 +108,7 @@ Forge supports two event ingestion paths, and both land in the same Ledger:
 
 ## Contract tests
 
-Forge includes contract tests that verify both adapters implement the full `BackendAdapter` interface with identical behavior. These tests live at `apps/tick/src/adapters/adapter-contract.test.ts`.
+Forge includes contract tests that verify both adapters implement the full `BackendAdapter` interface with identical behavior. These tests live at `apps/web/src/server/tick/adapters/adapter-contract.test.ts`.
 
 The contract tests verify:
 
@@ -131,7 +119,7 @@ The contract tests verify:
 Run the contract tests:
 
 ```bash
-pnpm --filter @forge/tick test
+pnpm --filter @forge/web test
 ```
 
 For integration tests against a live gateway instance, set the gateway env vars and run the integration test suite (gated by environment variables to avoid running in CI without a real endpoint).
@@ -141,13 +129,13 @@ For integration tests against a live gateway instance, set the gateway env vars 
 To migrate an existing Forge deployment from Managed Agents to the gateway:
 
 1. Stand up your AgentStep Gateway instance.
-2. Update the environment variables on both services:
+2. Update the environment variables on `forge-web`:
    ```bash
    FORGE_BACKEND=gateway
    GATEWAY_URL=https://gateway.internal
    GATEWAY_API_KEY=your-api-key
    ```
-3. Redeploy both `forge-web` and `forge-tick`.
+3. Redeploy `forge-web`.
 4. Existing running Missions continue against Managed Agents (their `backend` field is already set). New Missions will use the gateway by default.
 5. The Ledger remains intact — old records reference the original backend, new records reference the gateway.
 

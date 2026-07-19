@@ -19,15 +19,8 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning className={`${geist.variable} ${geistMono.variable}`}>
-      <head>
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `try{const t=localStorage.getItem('forge-theme');if(t==='dark'||(!t&&matchMedia('(prefers-color-scheme:dark)').matches))document.documentElement.classList.add('dark')}catch(e){}`,
-          }}
-        />
-      </head>
       <body className="min-h-screen bg-background font-sans antialiased">
-        <RootProvider>{children}</RootProvider>
+        <RootProvider theme={{ storageKey: 'forge-theme' }}>{children}</RootProvider>
       </body>
     </html>
   );

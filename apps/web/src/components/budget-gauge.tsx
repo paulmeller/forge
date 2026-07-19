@@ -2,11 +2,11 @@ import { cn } from '@/lib/utils';
 
 function formatUsd(n: number | null): string {
   if (n === null) return '—';
-  return new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' }).format(n);
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);
 }
 function formatTokens(n: number | null): string {
   if (n === null) return '—';
-  return new Intl.NumberFormat().format(n);
+  return new Intl.NumberFormat('en-US').format(n);
 }
 
 function Bar({ pct, threshold, tone }: { pct: number; threshold: number; tone: 'normal' | 'warn' | 'over' }) {
@@ -15,8 +15,8 @@ function Bar({ pct, threshold, tone }: { pct: number; threshold: number; tone: '
       <div
         className={cn(
           'absolute inset-y-0 left-0 rounded-full',
-          tone === 'normal' && 'bg-foreground',
-          tone === 'warn' && 'bg-amber-500',
+          tone === 'normal' && 'bg-primary',
+          tone === 'warn' && 'bg-warning',
           tone === 'over' && 'bg-destructive',
         )}
         style={{ width: `${Math.min(100, Math.max(0, pct))}%` }}
@@ -50,27 +50,41 @@ export function BudgetGauge({
   const tone = (pct: number): 'normal' | 'warn' | 'over' =>
     pct >= 100 ? 'over' : pct >= thresholdPct ? 'warn' : 'normal';
 
+  const uncapped = budgetUsd === null && budgetTokens === null;
+  if (uncapped) {
+    return (
+      <p className="text-xs text-muted-foreground">
+        No cap · <span className="font-mono tabular-nums">{formatUsd(spentUsd)}</span> spent ·{' '}
+        <span className="font-mono tabular-nums">{formatTokens(spentTokens)}</span> tokens
+      </p>
+    );
+  }
+
   return (
-    <div className="space-y-3">
-      <div>
-        <div className="mb-1 flex items-baseline justify-between text-xs">
-          <span className="text-muted-foreground">USD</span>
-          <span className="font-mono tabular-nums">
-            {formatUsd(spentUsd)} <span className="text-muted-foreground">/ {formatUsd(budgetUsd)}</span>
-          </span>
+    <div className="flex flex-col gap-3">
+      {budgetUsd !== null && (
+        <div>
+          <div className="mb-1 flex items-baseline justify-between text-xs">
+            <span className="text-muted-foreground">USD</span>
+            <span className="font-mono tabular-nums">
+              {formatUsd(spentUsd)} <span className="text-muted-foreground">/ {formatUsd(budgetUsd)}</span>
+            </span>
+          </div>
+          <Bar pct={usdPct} threshold={thresholdPct} tone={tone(usdPct)} />
         </div>
-        <Bar pct={usdPct} threshold={thresholdPct} tone={tone(usdPct)} />
-      </div>
-      <div>
-        <div className="mb-1 flex items-baseline justify-between text-xs">
-          <span className="text-muted-foreground">Tokens</span>
-          <span className="font-mono tabular-nums">
-            {formatTokens(spentTokens)}{' '}
-            <span className="text-muted-foreground">/ {formatTokens(budgetTokens)}</span>
-          </span>
+      )}
+      {budgetTokens !== null && (
+        <div>
+          <div className="mb-1 flex items-baseline justify-between text-xs">
+            <span className="text-muted-foreground">Tokens</span>
+            <span className="font-mono tabular-nums">
+              {formatTokens(spentTokens)}{' '}
+              <span className="text-muted-foreground">/ {formatTokens(budgetTokens)}</span>
+            </span>
+          </div>
+          <Bar pct={tokenPct} threshold={thresholdPct} tone={tone(tokenPct)} />
         </div>
-        <Bar pct={tokenPct} threshold={thresholdPct} tone={tone(tokenPct)} />
-      </div>
+      )}
       <p className="text-[10px] text-muted-foreground">Auto-pause at {thresholdPct}%.</p>
     </div>
   );

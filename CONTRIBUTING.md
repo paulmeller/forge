@@ -15,13 +15,12 @@ pnpm install
 
 # Env files (fill in secrets afterwards)
 cp apps/web/.env.example apps/web/.env.local
-cp apps/tick/.env.example apps/tick/.env.local
 
-# Generate and apply the initial DB migration (tick crashes without this)
+# Generate and apply the initial DB migration (the app crashes without this)
 pnpm --filter @forge/db db:generate
 pnpm --filter @forge/db db:migrate
 
-pnpm dev   # forge-web on :3100, forge-tick on :8080
+pnpm dev   # forge-web on :3100 (Console, API, and tick engine)
 ```
 
 See the README's quickstart for more detail.

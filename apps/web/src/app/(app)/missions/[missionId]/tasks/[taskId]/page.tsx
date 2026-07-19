@@ -1,12 +1,17 @@
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { PageHeader, PageShell } from '@/components/page-shell';
+import { SessionLogView } from '@/components/session-log-view';
+import { SteerInput } from '@/components/steer-input';
+import { formatDateTime } from '@/lib/format';
 import { getMission } from '@/lib/missions';
 import { getTask } from '@/lib/tasks';
 import { listLedgerForTask } from '@/lib/ledger';
+
+import { TaskFileTabs } from './file-tabs';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,16 +38,6 @@ function Row({ label, value, mono }: { label: string; value: React.ReactNode; mo
   );
 }
 
-function formatDate(date: Date): string {
-  return new Intl.DateTimeFormat(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: 'numeric',
-    second: 'numeric',
-  }).format(date);
-}
-
 export default async function TaskDetailPage({
   params,
 }: {
@@ -55,27 +50,27 @@ export default async function TaskDetailPage({
   const ledger = await listLedgerForTask(task.id, 200);
 
   return (
-    <main className="container max-w-4xl py-10">
-      <Button asChild variant="ghost" size="sm" className="-ml-2 mb-4">
-        <Link href={`/missions/${mission.id}`}>← {mission.name}</Link>
-      </Button>
-
-      <div className="mb-8 flex items-start justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-3">
-            <h1 className="font-mono text-2xl font-semibold">{task.repo}</h1>
-            <Badge variant={taskStatusVariant[task.status] ?? 'outline'}>{task.status}</Badge>
-          </div>
-          <p className="mt-1 font-mono text-xs text-muted-foreground">{task.id}</p>
-        </div>
-        {task.prUrl ? (
-          <Button asChild variant="outline">
-            <a href={task.prUrl} target="_blank" rel="noopener noreferrer">
-              View PR #{task.prNumber ?? ''}
-            </a>
-          </Button>
-        ) : null}
-      </div>
+    <PageShell className="max-w-4xl">
+      <PageHeader
+        title={
+          <span className="flex items-center gap-3">
+            {task.repo}
+            <span className="normal-case">
+              <Badge variant={taskStatusVariant[task.status] ?? 'outline'}>{task.status}</Badge>
+            </span>
+          </span>
+        }
+        subtitle={<span className="font-mono text-xs">{task.id}</span>}
+        actions={
+          task.prUrl ? (
+            <Button asChild variant="outline">
+              <a href={task.prUrl} target="_blank" rel="noopener noreferrer">
+                View PR #{task.prNumber ?? ''}
+              </a>
+            </Button>
+          ) : undefined
+        }
+      />
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
         <Card>
@@ -88,7 +83,7 @@ export default async function TaskDetailPage({
               <Row label="Base branch" value={task.baseBranch} mono />
               <Row label="Session" value={task.sessionId ?? '—'} mono={!!task.sessionId} />
               <Row label="Retry count" value={task.retryCount} />
-              <Row label="Cost (tokens)" value={new Intl.NumberFormat().format(task.costTokens)} />
+              <Row label="Cost (tokens)" value={new Intl.NumberFormat('en-US').format(task.costTokens)} />
               {task.lastError ? (
                 <Row
                   label="Last error"
@@ -105,20 +100,48 @@ export default async function TaskDetailPage({
           </CardHeader>
           <CardContent>
             <dl>
-              <Row label="Created" value={formatDate(task.createdAt)} />
+              <Row label="Created" value={formatDateTime(task.createdAt, { seconds: true })} />
               <Row
                 label="Dispatched"
-                value={task.dispatchedAt ? formatDate(task.dispatchedAt) : '—'}
+                value={task.dispatchedAt ? formatDateTime(task.dispatchedAt, { seconds: true }) : '—'}
               />
               <Row
                 label="Completed"
-                value={task.completedAt ? formatDate(task.completedAt) : '—'}
+                value={task.completedAt ? formatDateTime(task.completedAt, { seconds: true }) : '—'}
               />
-              <Row label="Updated" value={formatDate(task.updatedAt)} />
+              <Row label="Updated" value={formatDateTime(task.updatedAt, { seconds: true })} />
             </dl>
           </CardContent>
         </Card>
       </div>
+
+      <Card className="mt-6">
+        <CardHeader>
+          <CardTitle>Run</CardTitle>
+          <CardDescription>
+            prompt.txt, agent.log, and status.json are Forge-captured data presented as
+            files — not a view of the actual sandbox filesystem.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          <TaskFileTabs
+            promptVars={task.promptVars as Record<string, unknown> | null}
+            status={task.status}
+            verdict={task.verdict}
+            ledger={ledger}
+          />
+          <SessionLogView
+            taskId={task.id}
+            isLive={['queued', 'dispatching', 'running'].includes(task.status)}
+            initialEvents={[...ledger].reverse()}
+            className="h-[400px]"
+          />
+          {task.sessionId &&
+          ['dispatching', 'running', 'turn_ended', 'opening_pr'].includes(task.status) ? (
+            <SteerInput taskId={task.id} />
+          ) : null}
+        </CardContent>
+      </Card>
 
       <Card className="mt-6">
         <CardHeader>
@@ -132,12 +155,12 @@ export default async function TaskDetailPage({
           {ledger.length === 0 ? (
             <p className="text-sm text-muted-foreground">No events yet.</p>
           ) : (
-            <ol className="space-y-3">
+            <ol className="flex flex-col gap-3">
               {ledger.map((event) => (
                 <li key={event.id} className="rounded-md border p-3">
                   <div className="flex items-baseline justify-between gap-4">
                     <div className="font-mono text-xs font-semibold">{event.eventType}</div>
-                    <div className="text-xs text-muted-foreground">{formatDate(event.createdAt)}</div>
+                    <div className="text-xs text-muted-foreground">{formatDateTime(event.createdAt, { seconds: true })}</div>
                   </div>
                   {event.sourceEventId ? (
                     <p className="mt-1 font-mono text-[10px] text-muted-foreground">
@@ -155,6 +178,6 @@ export default async function TaskDetailPage({
           )}
         </CardContent>
       </Card>
-    </main>
+    </PageShell>
   );
 }

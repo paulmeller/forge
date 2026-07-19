@@ -1,9 +1,8 @@
-import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 
-import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { MissionStatusBadge } from '@/components/mission-status-badge';
+import { PageHeader, PageShell } from '@/components/page-shell';
 import { TemplateText } from '@/components/template-text';
 import { getMission } from '@/lib/missions';
 import { listTasksForMission } from '@/lib/tasks';
@@ -30,32 +29,32 @@ export default async function PlanPreviewPage({
   const tasks = await listTasksForMission(missionId);
 
   return (
-    <main className="container max-w-4xl py-8">
-      <div className="mb-6">
-        <Button asChild variant="ghost" size="sm" className="-ml-2 mb-3">
-          <Link href={`/missions/${mission.id}`}>← {mission.name}</Link>
-        </Button>
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-semibold tracking-tight">Plan preview</h1>
+    <PageShell className="max-w-4xl">
+      <PageHeader
+        title={
+          <span className="flex items-center gap-3">
+            Plan preview
+            <span className="normal-case">
               <MissionStatusBadge status={mission.status} />
-            </div>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Review and edit the {tasks.length} {tasks.length === 1 ? 'Task' : 'Tasks'} the
-              Planner emitted. Nothing will dispatch until you click <span className="font-semibold">Start Mission</span>.
-            </p>
-          </div>
+            </span>
+          </span>
+        }
+        subtitle={
+          <>
+            Review and edit the {tasks.length} {tasks.length === 1 ? 'Task' : 'Tasks'} the
+            Planner emitted. Nothing will dispatch until you click <span className="font-semibold">Start Mission</span>.
+          </>
+        }
+        actions={
           <MissionActionButton
             missionId={mission.id}
             op="start"
             label="Start Mission"
-            pendingLabel="Starting…"
             disabled={tasks.length === 0}
             disabledReason={tasks.length === 0 ? 'Add at least one Task' : undefined}
           />
-        </div>
-      </div>
+        }
+      />
 
       <Card className="mb-4">
         <CardHeader className="pb-2">
@@ -68,6 +67,6 @@ export default async function PlanPreviewPage({
       </Card>
 
       <PlanEditor missionId={mission.id} initialTasks={tasks} goalTemplate={mission.goal} />
-    </main>
+    </PageShell>
   );
 }
