@@ -170,7 +170,7 @@ Fleet-fix their own repos (dependency bumps, CI migrations). Sensitive to cost �
 ### 7.11 Non-functional
 
 - **Onboarding:** first Mission running within 10 minutes of install, given an Anthropic API key and a GitHub token.
-- **Tick cadence:** the tick runs every 60 seconds (Cloud Scheduler-driven; see §15). A single tick completes in under 2 seconds of wall time at 500 live Tasks. If sub-minute cadence becomes necessary, `forge-tick` flips to `min-instances=1` with an in-process loop — no architectural change.
+- **Tick cadence:** the tick runs every 60 seconds (Cloud Scheduler-driven; see §15). A single tick completes in under 2 seconds of wall time at 500 live Tasks. If sub-minute cadence becomes necessary, `forge-web` flips to `min-instances=1` and the same `runTick()` pass runs on an in-process interval instead of per-request — no architectural change.
 - **Durability:** no Ledger entry is lost across container restart, rolling deploy, or scheduler failure.
 - **Observability:** every external call (backend, GitHub) emits an OTel span; Forge is a single service in the trace.
 - **Security:** all mission-scoped secrets encrypted at rest; webhooks HMAC-verified; no secret in logs.
@@ -181,7 +181,7 @@ Skills are the **declarative playbook** a Mission runs under. They answer "how s
 
 - A Mission has an optional `skill_id`. When set, Forge uploads the skill to Managed Agents via the Skills API at Mission start and attaches it to the agent config used for every Task in that Mission.
 - **Per-kind attachment.** Most Missions attach one skill to every Task. Triage Missions are the exception: they attach a skill *by Task kind* — `bug-reproduce` to reproduce Tasks, `bug-fix` to fix Tasks — because the two stages need different playbooks and toolsets than a single `skill_id` can express. `bug-reproduce` emits the machine-readable `forge-verdict` block the gate keys on and carries no PR tools; `bug-fix` starts from that verdict (and the reproduce stage's regression-test branch) and opens the PR.
-- **Library + BYO:** Forge ships a `skills/` directory of curated skills for common Mission classes (dependency bump, codemod rollout, CI fix, bug reproduce/fix). Operators can select from the library or paste their own SKILL.md in the Create Mission form. Library skills are versioned with the repo; BYO skills are stored in the Forge database alongside the Mission. The on-disk library is synced into the DB at `forge-tick` startup.
+- **Library + BYO:** Forge ships a `skills/` directory of curated skills for common Mission classes (dependency bump, codemod rollout, CI fix, bug reproduce/fix). Operators can select from the library or paste their own SKILL.md in the Create Mission form. Library skills are versioned with the repo; BYO skills are stored in the Forge database alongside the Mission. The on-disk library is synced into the DB once per boot of `forge-web`.
 - **Scope:** skills are per-Mission-class, not per-operator — they encode knowledge that travels across fleets (e.g. "push to `origin`, never to an alternate remote" is true for every MA-backed Mission, not just yours).
 - **Authoring:** v1 is manual (operator writes Markdown). The **Retrospective** process (§7.13) produces reviewed diffs against skills — Forge never auto-mutates a skill.
 - **Tool discipline:** a skill may declare a minimum toolset. The dispatcher narrows the agent's effective tool list to that minimum when a skill is attached, reducing prompt-cache surface and removing "temptation to wander."
@@ -321,19 +321,19 @@ Memory is the **empirical knowledge base** — facts Forge has learned about a s
 
 ## 15. Stack
 
-Locked for v1. Chosen to keep Forge deployable as two small Cloud Run services against one remote libSQL database, with no durable-execution vendor dep.
+Locked for v1. Chosen to keep Forge deployable as a single small Cloud Run service against one remote libSQL database, with no durable-execution vendor dep. (v1 originally shipped as two Cloud Run services — a `forge-web` app and a separate `forge-tick` Node service; the tick engine was consolidated into `forge-web` post-launch, and the description below reflects the consolidated architecture.)
 
 ### Services
 
-- **`forge-web`** — Next.js (App Router). Hosts the Console, the public API, and the webhook receiver. Deployed as a Cloud Run service, autoscaling, scale-to-zero allowed. Handles traffic bursts from backend webhooks.
-- **`forge-tick`** — small Node service exposing `POST /tick`. Deployed as a Cloud Run service, invoked by Cloud Scheduler every 60s. Does one tick of work (claim queued Tasks, run Gate, check budgets) and returns. Scale-to-zero between invocations.
-- If sub-minute cadence is ever needed, `forge-tick` flips to `min-instances=1` and runs an in-process loop. No other code changes.
+- **`forge-web`** — Next.js (App Router). Hosts the Console, the public API, the webhook receiver, and the tick engine itself (`apps/web/src/server/tick/`). Deployed as a single Cloud Run service, autoscaling, scale-to-zero allowed. Handles traffic bursts from backend webhooks and the scheduled tick alike.
+- **`POST /api/tick`** — a route on `forge-web`, invoked by Cloud Scheduler every 60s with an OIDC-verified request. Runs one full tick pass (claim queued Tasks, run Gate, check budgets) in-process and returns.
+- If sub-minute cadence is ever needed, `forge-web` flips to `min-instances=1` and runs the tick pass on an in-process interval instead of per-request. No other code changes.
 
 ### Platform
 
 - **Runtime:** Node 22 (LTS). TypeScript everywhere.
-- **Deploy:** Google Cloud Run, both services in the same project, same region.
-- **Scheduler:** Cloud Scheduler → HTTPS invocation of `forge-tick` with OIDC auth.
+- **Deploy:** Google Cloud Run, one service (`forge-web`), one project, one region.
+- **Scheduler:** Cloud Scheduler → HTTPS invocation of `forge-web`'s `/api/tick` route with OIDC auth.
 - **Secrets:** Google Secret Manager, mounted as env at deploy.
 - **Logs:** pino → stdout → Cloud Logging.
 - **Tracing:** OpenTelemetry SDK → Cloud Trace. OSS self-hosters can point at any OTLP collector.
@@ -361,13 +361,13 @@ Locked for v1. Chosen to keep Forge deployable as two small Cloud Run services a
 
 - **Testing:** Vitest (unit + integration), Playwright (Console smoke). Contract tests for adapters consumed as a shared package from the gateway repo and run in Forge CI.
 - **CI:** GitHub Actions. Lint, typecheck, tests on every PR. Deploy to Cloud Run via `gcloud run deploy` on merge to `main`.
-- **Local dev:** Docker Compose brings up libSQL locally; `pnpm dev` runs both services with live reload.
+- **Local dev:** `pnpm dev` runs the single `forge-web` app with live reload, against a local libSQL file (no Docker Compose required).
 
 ### What this buys us
 
-- Two-service split separates latency-sensitive (webhooks) from batch (tick), but each service is small enough that one engineer can hold it in their head.
+- A single small service is easy enough that one engineer can hold the whole thing in their head — no cross-service deploy coordination, no split between latency-sensitive (webhooks) and batch (tick) paths.
 - Cloud Run + libSQL is roughly "a Postgres-shaped app without the Postgres." No infra to operate; scale-to-zero keeps cost near zero for OSS users who run it for their own fleet.
-- Nothing on this list is vendor-exclusive. Self-hosters can deploy the same containers on Fly.io, Railway, or plain Kubernetes without code changes; libSQL runs embedded if they don't want Turso.
+- Nothing on this list is vendor-exclusive. Self-hosters can deploy the same container on Fly.io, Railway, or plain Kubernetes without code changes; libSQL runs embedded if they don't want Turso.
 
 ---
 

@@ -1,44 +1,42 @@
 ---
 title: System Overview
-description: Forge's two-service architecture, tick subsystems, data layer, and deployment model.
+description: Forge's single-app architecture, tick subsystems, data layer, and deployment model.
 ---
 
-Forge runs as two stateless services talking to a single database. Every container is disposable — all durable state lives in libSQL/Turso.
+Forge runs as a single stateless Next.js app (`forge-web`) talking to a single database. Every container is disposable — all durable state lives in libSQL/Turso. The tick engine is not a separate service; it's a set of framework-agnostic modules at `apps/web/src/server/tick/`, orchestrated by `runTick()`, that the app invokes in-process.
 
 ## Architecture
 
 ```
                           Cloud Scheduler (60s cron)
                                   |
-                                  v
-  ┌──────────────────┐    ┌──────────────────┐
-  │    forge-web     │    │    forge-tick     │
-  │   (Next.js App   │    │  (Fastify, POST  │
-  │    Router)       │    │   /tick endpoint) │
-  ├──────────────────┤    ├──────────────────┤
-  │ Console UI       │    │ Poller           │
-  │ REST API         │    │ CI Poller        │
-  │ Webhook receiver │    │ AI Review        │
-  │ SSE streams      │    │ Auto-Merge       │
-  │ Auth (better-    │    │ Budgets          │
-  │   auth)          │    │ Reconciler       │
-  └────────┬─────────┘    │ Dispatcher       │
-           │              │ Memory Expiry    │
-           │              └────────┬─────────┘
-           │                       │
-           └───────┬───────────────┘
-                   │
-                   v
-           ┌──────────────┐       ┌───────────────────┐
-           │  libSQL /    │       │  Backend Adapter   │
-           │  Turso       │       │  (Managed Agents   │
-           │  (database)  │       │   or Gateway)      │
-           └──────────────┘       └───────────────────┘
+                                  v  OIDC-verified POST
+  ┌────────────────────────────────────────────────────┐
+  │                     forge-web                       │
+  │              (Next.js App Router, single app)        │
+  ├──────────────────────────────────────────────────────┤
+  │ Console UI          │  Tick engine (src/server/tick/) │
+  │ REST API             │    Poller                       │
+  │ Webhook receiver     │    CI Poller                    │
+  │ SSE streams          │    AI Review                    │
+  │ Auth (better-auth)   │    Auto-Merge                   │
+  │ POST /api/tick       │    Budgets                      │
+  │ (Cloud Scheduler's   │    Reconciler                   │
+  │  cron target)        │    Dispatcher                   │
+  │                      │    Memory Expiry                │
+  └───────────┬──────────┴─────────────────────────────────┘
+              │
+              v
+      ┌──────────────┐       ┌───────────────────┐
+      │  libSQL /    │       │  Backend Adapter   │
+      │  Turso       │       │  (Managed Agents   │
+      │  (database)  │       │   or Gateway)      │
+      └──────────────┘       └───────────────────┘
 ```
 
 ## forge-web
 
-Next.js App Router service. Handles everything user-facing and inbound:
+The single Next.js App Router service. Handles everything user-facing, inbound, and the tick engine:
 
 - **Console** — operator dashboard at `/missions`, `/missions/[id]`, plan preview, task drill-down.
 - **REST API** — CRUD for Missions and Tasks under `/api/missions/`.
@@ -46,8 +44,10 @@ Next.js App Router service. Handles everything user-facing and inbound:
 - **GitHub webhook** — `POST /api/forge/github/webhook` for GitHub event ingestion.
 - **Auth** — better-auth at `/api/auth/[...all]`.
 - **Mission transitions** — `start`, `pause`, `resume`, `cancel` are explicit state transitions with optimistic `WHERE status = ?` guards.
+- **Tick trigger** — `POST /api/tick`, OIDC-verified, invoked by Cloud Scheduler every 60s in production; runs one `runTick()` pass in-process. The Console's manual "Run tick now" button also calls `runTick()` in-process, as a server action, with no HTTP hop.
+- **Skills sync** — `apps/web/src/instrumentation.ts` syncs the `skills/` directory into the DB once per boot (`FORGE_SKILLS_DIR` overrides the path; the Docker image sets it to `/app/skills`).
 
-Deployed as a Cloud Run service. Autoscales, scale-to-zero allowed.
+Deployed as a single Cloud Run service. Autoscales, scale-to-zero allowed.
 
 ### API route structure
 
@@ -65,11 +65,11 @@ Deployed as a Cloud Run service. Autoscales, scale-to-zero allowed.
 /api/proposals/[proposalId]            PATCH
 ```
 
-## forge-tick
+## Tick engine
 
-Small Fastify service exposing `POST /tick`. Cloud Scheduler invokes it every 60 seconds with OIDC auth. Each invocation runs one tick — a serial pipeline of subsystems — then returns. Scale-to-zero between invocations.
+`POST /api/tick` is a route on `forge-web` (`apps/web/src/app/api/tick/route.ts`). Cloud Scheduler invokes it every 60 seconds with OIDC auth (verified against `TICK_EXPECTED_AUDIENCE` and, optionally, `TICK_EXPECTED_ISSUER_EMAIL`). Each invocation runs one tick — a serial pipeline of subsystems in `apps/web/src/server/tick/` orchestrated by `runTick()` — then returns. Locally, `TICK_ALLOW_UNAUTHENTICATED=true` bypasses OIDC for curl testing, and there's no scheduled tick at all — only the Console's manual button or a direct curl.
 
-If sub-minute cadence is ever needed, `forge-tick` flips to `min-instances=1` with an in-process loop. No architectural change required.
+If sub-minute cadence is ever needed, `forge-web` flips to `min-instances=1` and runs `runTick()` on an in-process interval instead of per-request. No architectural change required.
 
 ### Tick pipeline
 
@@ -136,19 +136,19 @@ Adapter choice is per-Mission (`backend` field) with an env-level default. The d
 
 ## Deployment model
 
-Both services deploy to Google Cloud Run in the same project and region:
+One Cloud Run service (`forge-web`), one Dockerfile (`apps/web/Dockerfile`, standalone Next.js output, ships the `skills/` directory):
 
 - **Runtime:** Node 22 (LTS), TypeScript everywhere.
-- **Scheduler:** Cloud Scheduler hits `forge-tick` via HTTPS with OIDC auth every 60 seconds.
+- **Scheduler:** Cloud Scheduler's `forge-tick` job hits `forge-web`'s `POST /api/tick` via HTTPS with OIDC auth every 60 seconds.
 - **Secrets:** Google Secret Manager, mounted as env vars at deploy time.
 - **Logs:** pino to stdout, picked up by Cloud Logging.
-- **Database:** Turso (remote libSQL). Stateless containers, DB over HTTP.
+- **Database:** Turso (remote libSQL). Stateless container, DB over HTTP.
 
-Self-hosters can deploy the same containers on Fly.io, Railway, or plain Kubernetes. libSQL runs embedded if Turso is not desired.
+Self-hosters can deploy the same container on Fly.io, Railway, or plain Kubernetes. libSQL runs embedded if Turso is not desired.
 
 ## Stateless design
 
-Both services are fully stateless. No in-memory caches, no local disk state, no sticky sessions. This means:
+The service is fully stateless. No in-memory caches, no local disk state, no sticky sessions. This means:
 
 - Containers can be replaced at any time (rolling deploys, preemption, scale-to-zero).
 - The tick is idempotent — if a tick is interrupted, the next tick picks up where it left off. Ledger deduplication via `(task_id, source_event_id)` unique index prevents double-ingestion.

@@ -194,10 +194,10 @@ pnpm dev
 
 2. **Create a Mission in the Console** at `http://localhost:3100` with your skill attached. Use a single target repo and a concurrency cap of 1 for easier debugging.
 
-3. **Trigger a tick manually** to dispatch the Task:
+3. **Trigger a tick manually** to dispatch the Task — use the Console's "Run tick now" button, or curl the route directly (requires `TICK_ALLOW_UNAUTHENTICATED=true` in `apps/web/.env.local`):
 
 ```bash
-curl -X POST http://localhost:8080/tick
+curl -X POST http://localhost:3100/api/tick
 ```
 
 4. **Watch the Ledger** on the Mission detail page to see the agent's session events. Look for:

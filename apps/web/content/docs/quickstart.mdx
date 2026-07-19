@@ -20,11 +20,10 @@ pnpm install
 
 ## 2. Configure environment
 
-Copy the example env files and fill in your keys:
+Copy the example env file and fill in your keys:
 
 ```bash
 cp apps/web/.env.example apps/web/.env.local
-cp apps/tick/.env.example apps/tick/.env.local
 ```
 
 At a minimum, set these in `apps/web/.env.local`:
@@ -37,7 +36,7 @@ FORGE_BACKEND=managed-agents
 ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-The tick service (`apps/tick/.env.local`) ships with working defaults for local dev. No changes needed unless you're customizing ports or log levels.
+The tick engine reads from the same file and ships with working defaults for local dev. No changes needed unless you're customizing log levels or want to curl `/api/tick` directly (see step 7).
 
 ## 3. Set up the database
 
@@ -56,12 +55,11 @@ This creates a local SQLite database. No external database server required for d
 pnpm dev
 ```
 
-This starts both services in parallel with live reload:
+This starts the single `forge-web` app with live reload:
 
 | Service | URL | Description |
 |---|---|---|
-| `forge-web` | [http://localhost:3100](http://localhost:3100) | Console, API, and webhook receiver |
-| `forge-tick` | [http://localhost:8080](http://localhost:8080) | Tick loop (claims Tasks, runs the Gate) |
+| `forge-web` | [http://localhost:3100](http://localhost:3100) | Console, API, webhook receiver, and the tick engine |
 
 ## 5. Create your first Mission
 
@@ -89,10 +87,10 @@ Once running, you can:
 
 ## 7. Trigger a tick manually
 
-The tick service runs automatically, but you can trigger it on demand:
+Locally there's no scheduled tick — Cloud Scheduler only exists in production. Use the Console's manual "Run tick now" button, or curl the route directly by setting `TICK_ALLOW_UNAUTHENTICATED=true` in `apps/web/.env.local` first:
 
 ```bash
-curl -X POST http://localhost:8080/tick
+curl -X POST http://localhost:3100/api/tick
 ```
 
 This claims queued Tasks, polls for session events, runs the Gate (open PRs, check CI, retry/merge), and checks budgets — all in one pass.

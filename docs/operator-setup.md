@@ -25,7 +25,6 @@ Copy the checked-in examples, then edit the copies only:
 
 ```bash
 cp apps/web/.env.example apps/web/.env.local
-cp apps/tick/.env.example apps/tick/.env.local
 ```
 
 For local web, set `BETTER_AUTH_URL` to the dev port used by `@forge/web`:
@@ -43,12 +42,6 @@ In `apps/web/.env.local`:
 ```bash
 FORGE_BACKEND=managed-agents
 ANTHROPIC_API_KEY=sk-ant-...
-```
-
-In `apps/tick/.env.local`:
-
-```bash
-ANTHROPIC_API_KEY=sk-ant-...
 FORGE_MA_ENVIRONMENT_ID=env_...
 ```
 
@@ -60,12 +53,6 @@ In `apps/web/.env.local`:
 
 ```bash
 FORGE_BACKEND=gateway
-GATEWAY_URL=https://www.agentstep.com
-```
-
-In `apps/tick/.env.local`:
-
-```bash
 GATEWAY_URL=https://www.agentstep.com
 GATEWAY_API_KEY=agst_...
 ```
@@ -119,14 +106,13 @@ pnpm --filter @forge/db db:migrate
 
 ## 5. Start Forge
 
-Run both services from the repo root:
+Run the app from the repo root:
 
 ```bash
 pnpm dev
 ```
 
 - Console: `http://localhost:3100`
-- Tick service: `http://localhost:8080`
 
 ## 6. Sign Up
 
@@ -146,14 +132,14 @@ Submit the form. The Mission starts as `draft`; use the Mission page to plan and
 
 ## 8. Trigger a Tick
 
-With `pnpm dev` still running, invoke the local tick loop:
+With `pnpm dev` still running, there's no scheduled tick locally. Use the Console's manual "Run tick now" button on the Mission page, or invoke the route directly:
 
 ```bash
-curl -X POST http://localhost:8080/tick
+curl -X POST http://localhost:3100/api/tick
 ```
 
-Local unauthenticated ticks are allowed by `TICK_ALLOW_UNAUTHENTICATED=true` in `apps/tick/.env.example`.
+Local unauthenticated requests to `/api/tick` are allowed by setting `TICK_ALLOW_UNAUTHENTICATED=true` in `apps/web/.env.local` — for local curl testing only.
 
 ## 9. Watch Mission Control
 
-Open the Mission from `http://localhost:3100/missions`. Mission Control shows task status, ledger activity, budget state, and links to deeper task or ledger views. Keep the tick service running or invoke `/tick` again to advance queued work.
+Open the Mission from `http://localhost:3100/missions`. Mission Control shows task status, ledger activity, budget state, and links to deeper task or ledger views. Trigger the manual tick again (or curl `/api/tick`) to advance queued work.

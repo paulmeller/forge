@@ -10,8 +10,8 @@ apps/web/src/app/api/missions/[missionId]/  Per-mission routes (start/, plan/, t
 apps/web/src/app/missions/                  Console pages
 apps/web/src/lib/                           Business logic (missions.ts, planner.ts, tasks.ts, ledger.ts, mission-transitions.ts)
 apps/web/src/components/                    UI components (shadcn + custom)
-apps/tick/src/                              Tick service (dispatcher.ts, poller.ts, ci.ts, auto-merge.ts, budgets.ts, reconciler.ts, state.ts)
-apps/tick/src/adapters/                     Backend adapters (types.ts, managed-agents.ts, gateway.ts)
+apps/web/src/server/tick/                   Tick engine (dispatcher.ts, poller.ts, ci.ts, auto-merge.ts, budgets.ts, reconciler.ts, state.ts, tick.ts)
+apps/web/src/server/tick/adapters/          Backend adapters (types.ts, managed-agents.ts, gateway.ts)
 packages/db/src/schema.ts                   Database schema (ALL tables, enums, types)
 packages/db/src/client.ts                   DB client factory
 ```
@@ -25,9 +25,9 @@ packages/db/src/client.ts                   DB client factory
 
 ## How to add a tick subsystem
 
-1. Read `apps/tick/src/auto-merge.ts` — that's the pattern.
-2. Create `apps/tick/src/<name>.ts` with a `run<Name>(log)` function.
-3. Wire it into `apps/tick/src/tick.ts` in the right order.
+1. Read `apps/web/src/server/tick/auto-merge.ts` — that's the pattern.
+2. Create `apps/web/src/server/tick/<name>.ts` with a `run<Name>(log)` function.
+3. Wire it into `apps/web/src/server/tick/tick.ts` in the right order.
 
 ## How to add a DB column
 

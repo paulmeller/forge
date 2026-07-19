@@ -3,7 +3,7 @@ title: Configuration
 description: Environment variables and setup reference.
 ---
 
-Forge uses environment variables for configuration. The two services (`forge-web` and `forge-tick`) each have their own `.env.local` file, copied from the corresponding `.env.example`.
+Forge uses environment variables for configuration. There is one service (`forge-web`) and one `.env.local` file, copied from `.env.example`. All variables — including the ones that drive the tick engine — are read through lazy getters in `apps/web/src/lib/env.ts`.
 
 ## forge-web (apps/web/.env.local)
 
@@ -29,32 +29,26 @@ Forge uses environment variables for configuration. The two services (`forge-web
 |---|---|---|
 | `DATABASE_AUTH_TOKEN` | Auth token for remote Turso databases. Omit for local libSQL. | _(none)_ |
 
-## forge-tick (apps/tick/.env.local)
+## Tick engine variables (apps/web/.env.local)
 
-### Required
-
-| Variable | Description | Example |
-|---|---|---|
-| `DATABASE_URL` | libSQL / Turso connection string. For local dev, point to the shared DB. | `file:../../packages/db/local.db` |
+The tick engine runs inside `forge-web`, so its variables live in the same `.env.local`.
 
 ### Optional
 
 | Variable | Description | Default |
 |---|---|---|
-| `PORT` | Port the tick service listens on. | `8080` |
 | `LOG_LEVEL` | Pino log level (`trace`, `debug`, `info`, `warn`, `error`, `fatal`). | `info` |
-| `DATABASE_AUTH_TOKEN` | Auth token for remote Turso databases. | _(none)_ |
 
 ### OIDC (production only)
 
-In production, the tick endpoint is protected by OIDC tokens issued by Cloud Scheduler. These variables are not needed for local development.
+In production, `POST /api/tick` is protected by OIDC tokens issued by Cloud Scheduler. These variables are not needed for local development.
 
 | Variable | Description |
 |---|---|
-| `TICK_EXPECTED_AUDIENCE` | The Cloud Run service URL (e.g. `https://forge-tick-xyz.a.run.app`). |
+| `TICK_EXPECTED_AUDIENCE` | The Cloud Run service URL (e.g. `https://forge-web-xyz.a.run.app`). |
 | `TICK_EXPECTED_ISSUER_EMAIL` | The service account email used by Cloud Scheduler. |
 
-For local dev, OIDC verification is bypassed automatically:
+For local dev, OIDC verification can be bypassed for curl testing:
 
 ```dotenv
 TICK_ALLOW_UNAUTHENTICATED=true
@@ -76,7 +70,7 @@ pnpm --filter @forge/db db:generate
 pnpm --filter @forge/db db:migrate
 ```
 
-Both services must point at the same database file. The defaults in `.env.example` are configured for this.
+The default in `.env.example` is configured for this.
 
 ### Production (Turso)
 
@@ -87,7 +81,7 @@ DATABASE_URL=libsql://your-db-name-your-org.turso.io
 DATABASE_AUTH_TOKEN=your-token
 ```
 
-Set these in both services' environment configuration.
+Set these in `forge-web`'s environment configuration.
 
 ## Next steps
 

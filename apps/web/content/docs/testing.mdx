@@ -5,7 +5,7 @@ description: How to run tests, the no-mocking philosophy, and how to write new t
 
 ## Test runner
 
-Forge uses [Vitest](https://vitest.dev/) with explicit imports (no globals). Both `apps/web` and `apps/tick` have identical Vitest configs:
+Forge uses [Vitest](https://vitest.dev/) with explicit imports (no globals). `apps/web` has one Vitest config, covering both the Console/API code and the tick engine at `src/server/tick/`:
 
 ```ts
 // vitest.config.ts
@@ -33,11 +33,10 @@ import { describe, expect, it } from 'vitest';
 pnpm test
 
 # Single package
-pnpm --filter @forge/tick test
 pnpm --filter @forge/web test
 
 # Single file (from the package directory)
-cd apps/tick && npx vitest run src/state.test.ts
+cd apps/web && npx vitest run src/server/tick/state.test.ts
 ```
 
 Always run `pnpm -r test` before pushing.
@@ -52,7 +51,7 @@ Forge tests avoid mocks, stubs, and spies. Instead, the codebase is structured s
 
 ### Example: state machine
 
-The `transition` function in `apps/tick/src/state.ts` is a pure function. Tests pass a status string and a synthetic event, then assert the returned state patch:
+The `transition` function in `apps/web/src/server/tick/state.ts` is a pure function. Tests pass a status string and a synthetic event, then assert the returned state patch:
 
 ```ts
 import { describe, expect, it } from 'vitest';
@@ -76,7 +75,7 @@ No HTTP client to mock, no database to seed, no adapter to stub.
 
 ### Example: budget computation
 
-`computeBudgetPct` in `apps/tick/src/budgets.ts` takes a plain object and returns percentages:
+`computeBudgetPct` in `apps/web/src/server/tick/budgets.ts` takes a plain object and returns percentages:
 
 ```ts
 it('computes token percentage correctly', () => {
@@ -92,7 +91,7 @@ it('computes token percentage correctly', () => {
 
 ### Example: adapter contracts
 
-`apps/tick/src/adapters/adapter-contract.test.ts` verifies that both `ManagedAgentsAdapter` and `GatewayAdapter` implement the full `BackendAdapter` interface. It instantiates each adapter with dummy config (no real API calls) and asserts every required method exists:
+`apps/web/src/server/tick/adapters/adapter-contract.test.ts` verifies that both `ManagedAgentsAdapter` and `GatewayAdapter` implement the full `BackendAdapter` interface. It instantiates each adapter with dummy config (no real API calls) and asserts every required method exists:
 
 ```ts
 function adapterSuite(name: string, create: () => BackendAdapter) {
@@ -112,7 +111,7 @@ function adapterSuite(name: string, create: () => BackendAdapter) {
 Test files live **next to the source file** they test, using the `.test.ts` suffix:
 
 ```
-apps/tick/src/
+apps/web/src/server/tick/
 ├── state.ts
 ├── state.test.ts
 ├── budgets.ts
@@ -143,19 +142,19 @@ apps/tick/src/
 
 | File | What it tests |
 |---|---|
-| `apps/tick/src/state.test.ts` | Task state machine transitions |
-| `apps/tick/src/budgets.test.ts` | Budget percentage computation |
-| `apps/tick/src/ci.test.ts` | CI status logic |
-| `apps/tick/src/auto-merge.test.ts` | Auto-merge decision logic |
-| `apps/tick/src/poller.test.ts` | Event polling logic |
-| `apps/tick/src/dispatcher.test.ts` | Task dispatch logic |
-| `apps/tick/src/reconciler.test.ts` | State reconciliation |
-| `apps/tick/src/prompt.test.ts` | Prompt construction |
-| `apps/tick/src/memory.test.ts` | Memory/context handling |
-| `apps/tick/src/dag.test.ts` | DAG (dependency graph) logic |
-| `apps/tick/src/agents-md.test.ts` | AGENTS.md generation |
-| `apps/tick/src/ai-review.test.ts` | AI review logic |
-| `apps/tick/src/adapters/adapter-contract.test.ts` | Adapter interface contract |
+| `apps/web/src/server/tick/state.test.ts` | Task state machine transitions |
+| `apps/web/src/server/tick/budgets.test.ts` | Budget percentage computation |
+| `apps/web/src/server/tick/ci.test.ts` | CI status logic |
+| `apps/web/src/server/tick/auto-merge.test.ts` | Auto-merge decision logic |
+| `apps/web/src/server/tick/poller.test.ts` | Event polling logic |
+| `apps/web/src/server/tick/dispatcher.test.ts` | Task dispatch logic |
+| `apps/web/src/server/tick/reconciler.test.ts` | State reconciliation |
+| `apps/web/src/server/tick/prompt.test.ts` | Prompt construction |
+| `apps/web/src/server/tick/memory.test.ts` | Memory/context handling |
+| `apps/web/src/server/tick/dag.test.ts` | DAG (dependency graph) logic |
+| `apps/web/src/server/tick/agents-md.test.ts` | AGENTS.md generation |
+| `apps/web/src/server/tick/ai-review.test.ts` | AI review logic |
+| `apps/web/src/server/tick/adapters/adapter-contract.test.ts` | Adapter interface contract |
 | `apps/web/src/lib/event-roles.test.ts` | Event classification and labeling |
 | `apps/web/src/lib/api-auth.test.ts` | API authentication |
 | `apps/web/src/lib/dispatch-from-github.test.ts` | GitHub webhook dispatch |
