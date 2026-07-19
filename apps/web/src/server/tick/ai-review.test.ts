@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildReviewPrompt, parseReviewResponse } from './ai-review';
+import { buildReviewPrompt } from './ai-review';
 
 describe('buildReviewPrompt', () => {
   it('includes the mission goal', () => {
@@ -14,25 +14,57 @@ describe('buildReviewPrompt', () => {
   });
 });
 
-describe('parseReviewResponse', () => {
-  it('parses an approve response', () => {
-    const result = parseReviewResponse('{"decision":"approve","feedback":"looks good"}');
-    expect(result).toEqual({ decision: 'approve', feedback: 'looks good' });
+import { NoObjectGeneratedError } from 'ai';
+import { beforeEach, vi } from 'vitest';
+
+const mocks = vi.hoisted(() => ({ generateObject: vi.fn() }));
+vi.mock('ai', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('ai')>();
+  return { ...actual, generateObject: mocks.generateObject };
+});
+
+describe('requestReview', () => {
+  beforeEach(() => {
+    mocks.generateObject.mockReset();
   });
 
-  it('parses a reject response', () => {
-    const result = parseReviewResponse('{"decision":"reject","feedback":"missing tests"}');
-    expect(result).toEqual({ decision: 'reject', feedback: 'missing tests' });
+  it('returns the schema-shaped review and token usage on success', async () => {
+    mocks.generateObject.mockResolvedValueOnce({
+      object: { decision: 'approve', feedback: 'looks good' },
+      usage: { inputTokens: 100, outputTokens: 20 },
+    });
+
+    const { requestReview } = await import('./ai-review');
+    const { review, tokensUsed } = await requestReview({
+      goal: 'bump lodash',
+      diff: '+foo',
+      summary: '',
+    });
+
+    expect(review).toEqual({ decision: 'approve', feedback: 'looks good' });
+    expect(tokensUsed).toBe(120);
   });
 
-  it('returns reject for unparseable response', () => {
-    const result = parseReviewResponse('not json');
-    expect(result.decision).toBe('reject');
-    expect(result.feedback).toContain('unparseable');
-  });
+  it('falls back to a safe reject when the model returns an unparseable object', async () => {
+    mocks.generateObject.mockRejectedValueOnce(
+      new NoObjectGeneratedError({
+        text: 'not valid json',
+        response: {} as never,
+        usage: { inputTokens: 50, outputTokens: 5 } as never,
+        finishReason: 'stop',
+      }),
+    );
 
-  it('returns reject for missing decision field', () => {
-    const result = parseReviewResponse('{"feedback":"hi"}');
-    expect(result.decision).toBe('reject');
+    const { requestReview } = await import('./ai-review');
+    const { review, tokensUsed } = await requestReview({
+      goal: 'bump lodash',
+      diff: '+foo',
+      summary: '',
+    });
+
+    expect(review.decision).toBe('reject');
+    expect(review.feedback).toContain('unparseable response from AI reviewer');
+    expect(review.feedback).toContain('not valid json');
+    expect(tokensUsed).toBe(55);
   });
 });

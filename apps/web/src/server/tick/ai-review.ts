@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto';
 
-import Anthropic from '@anthropic-ai/sdk';
+import { anthropic } from '@ai-sdk/anthropic';
 import { Octokit } from '@octokit/rest';
 import { and, eq, isNotNull } from 'drizzle-orm';
+import { generateObject, NoObjectGeneratedError } from 'ai';
+import { z } from 'zod';
 
 import { ledgerEvents, missions, tasks, type Task } from '@forge/db';
 
@@ -43,15 +45,6 @@ function ghClient(): Octokit {
   return octokit;
 }
 
-let anthropic: Anthropic | undefined;
-function aiClient(): Anthropic {
-  if (!anthropic) {
-    if (!env.ANTHROPIC_API_KEY) throw new Error('ANTHROPIC_API_KEY not configured');
-    anthropic = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
-  }
-  return anthropic;
-}
-
 /**
  * Build the review prompt for Claude. Pure function, exported for testing.
  */
@@ -85,35 +78,46 @@ Evaluate the diff against the mission goal using these criteria:
 1. **Achieves the goal** — the change actually accomplishes what was asked
 2. **No bugs or security issues** — no obvious regressions, vulnerabilities, or broken logic
 3. **No scope creep** — the change is focused; it doesn't include unrelated modifications
-4. **Pragmatic on style** — don't reject for minor style nits; only flag real problems
-
-## Instructions
-
-Respond with a JSON object (no markdown, no code fences) in exactly this format:
-{"decision":"approve","feedback":"<reason>"}
-or
-{"decision":"reject","feedback":"<specific actionable feedback for the agent>"}
-
-Use "approve" if the PR meets the criteria. Use "reject" if there are real problems that must be fixed before merging.`;
+4. **Pragmatic on style** — don't reject for minor style nits; only flag real problems`;
 }
 
+const ReviewSchema = z.object({
+  decision: z.enum(['approve', 'reject']),
+  feedback: z.string(),
+});
+
 /**
- * Parse Claude's JSON response into a structured review result. Pure function, exported for testing.
+ * Ask the model to review a diff against a mission goal. Never throws for a
+ * malformed model response — falls back to a safe reject, matching the
+ * "never silently pass" invariant the old text-parsing path had.
  */
-export function parseReviewResponse(text: string): ParsedReview {
+export async function requestReview(opts: {
+  goal: string;
+  diff: string;
+  summary: string;
+}): Promise<{ review: ParsedReview; tokensUsed: number }> {
+  const prompt = buildReviewPrompt(opts);
   try {
-    // Strip markdown code fences if present
-    const cleaned = text.trim().replace(/^```[^\n]*\n?/, '').replace(/\n?```$/, '').trim();
-    const parsed = JSON.parse(cleaned) as Record<string, unknown>;
-    if (parsed.decision !== 'approve' && parsed.decision !== 'reject') {
-      return { decision: 'reject', feedback: `invalid decision field: ${String(parsed.decision ?? '(missing)')}` };
-    }
+    const { object, usage } = await generateObject({
+      model: anthropic('claude-sonnet-4-6'),
+      schema: ReviewSchema,
+      prompt,
+    });
     return {
-      decision: parsed.decision as ReviewDecision,
-      feedback: typeof parsed.feedback === 'string' ? parsed.feedback : '',
+      review: object,
+      tokensUsed: (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0),
     };
-  } catch {
-    return { decision: 'reject', feedback: `unparseable response from AI reviewer: ${text.slice(0, 200)}` };
+  } catch (error) {
+    if (NoObjectGeneratedError.isInstance(error)) {
+      return {
+        review: {
+          decision: 'reject',
+          feedback: `unparseable response from AI reviewer: ${(error.text ?? '').slice(0, 200)}`,
+        },
+        tokensUsed: (error.usage?.inputTokens ?? 0) + (error.usage?.outputTokens ?? 0),
+      };
+    }
+    throw error;
   }
 }
 
@@ -185,25 +189,10 @@ async function reviewOne(task: Task, log: Logger): Promise<ReviewOutcome> {
     .limit(1);
   if (!mission) throw new Error(`mission ${task.missionId} not found`);
 
-  // 3. Call Claude directly
-  const prompt = buildReviewPrompt({ goal: mission.goal, diff, summary: '' });
-  const ai = aiClient();
-  const message = await ai.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 1024,
-    messages: [{ role: 'user', content: prompt }],
-  });
+  // 3. Ask the model to review the diff.
+  const { review, tokensUsed } = await requestReview({ goal: mission.goal, diff, summary: '' });
 
-  // 4. Parse the response
-  const rawText = message.content
-    .filter((b) => b.type === 'text')
-    .map((b) => (b as { type: 'text'; text: string }).text)
-    .join('');
-
-  const review = parseReviewResponse(rawText);
-
-  // 5. Track token costs
-  const tokensUsed = (message.usage?.input_tokens ?? 0) + (message.usage?.output_tokens ?? 0);
+  // 4. Track token costs
   const newCostTokens = task.costTokens + tokensUsed;
 
   log.info(
