@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
 
-import Anthropic from '@anthropic-ai/sdk';
+import { anthropic } from '@ai-sdk/anthropic';
 import { eq } from 'drizzle-orm';
+import { generateObject, NoObjectGeneratedError } from 'ai';
+import { z } from 'zod';
 
 import { ledgerEvents, missions, tasks, type NewTask } from '@forge/db';
 
@@ -81,17 +83,29 @@ function validateDag(nodes: TaskNode[]): DagResult {
 // LLM response shape
 // ---------------------------------------------------------------------------
 
-type LlmTask = {
+export type LlmTask = {
   repo: string;
   label: string;
   prompt: string;
   dependsOnIndices: number[];
 };
 
-type LlmPlanResponse = {
+export type LlmPlanResponse = {
   reasoning: string;
   tasks: LlmTask[];
 };
+
+const LlmPlanSchema = z.object({
+  reasoning: z.string(),
+  tasks: z.array(
+    z.object({
+      repo: z.string(),
+      label: z.string(),
+      prompt: z.string(),
+      dependsOnIndices: z.array(z.number()),
+    }),
+  ),
+});
 
 // ---------------------------------------------------------------------------
 // System prompt
@@ -125,6 +139,45 @@ Rules:
 - Do not add repos that are not in the allowed list.`;
 
 // ---------------------------------------------------------------------------
+// Exported function: requestPlan
+// ---------------------------------------------------------------------------
+
+/**
+ * Ask the model to decompose a goal into per-repo tasks. Re-throws the same
+ * error message shape as before on a malformed response — deliberately not
+ * relying on generateObject's internal retry, so a bad response stays a
+ * visible, immediate failure rather than a silent retry.
+ */
+export async function requestPlan(opts: {
+  goal: string;
+  repos: string[];
+}): Promise<LlmPlanResponse> {
+  const userMessage = `Goal: ${opts.goal || '(no goal provided)'}
+
+Allowed repositories (you must only use repos from this list):
+${opts.repos.map((r) => `  - ${r}`).join('\n')}
+
+Decompose this goal into agent tasks.`;
+
+  try {
+    const { object } = await generateObject({
+      model: anthropic('claude-sonnet-4-6'),
+      schema: LlmPlanSchema,
+      instructions: SYSTEM_PROMPT,
+      prompt: userMessage,
+    });
+    return object;
+  } catch (error) {
+    if (NoObjectGeneratedError.isInstance(error)) {
+      throw new Error(
+        `LLM planner: failed to parse Claude response as JSON: ${(error.text ?? '').slice(0, 200)}`,
+      );
+    }
+    throw error;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Main export
 // ---------------------------------------------------------------------------
 
@@ -150,42 +203,12 @@ export async function runLlmPlanner(missionId: string): Promise<PlanResult> {
     throw new PlannerError('mission has no target repos', 'NO_TARGET_REPOS');
   }
 
-  // 2. Call Claude — OUTSIDE any DB transaction.
-  const apiKey = env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
+  // 2. Ask the model to decompose the goal into tasks.
+  if (!env.ANTHROPIC_API_KEY) {
     throw new Error('ANTHROPIC_API_KEY is not set; cannot run LLM planner');
   }
 
-  const client = new Anthropic({ apiKey });
-
-  const userMessage = `Goal: ${mission.goal ?? '(no goal provided)'}
-
-Allowed repositories (you must only use repos from this list):
-${repos.map((r) => `  - ${r}`).join('\n')}
-
-Decompose this goal into agent tasks. Remember: respond with JSON only.`;
-
-  const response = await client.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 4096,
-    system: SYSTEM_PROMPT,
-    messages: [{ role: 'user', content: userMessage }],
-  });
-
-  const rawText =
-    response.content[0]?.type === 'text' ? response.content[0].text.trim() : '';
-
-  if (!rawText) {
-    throw new Error('LLM planner: empty response from Claude');
-  }
-
-  // 3. Parse JSON response.
-  let plan: LlmPlanResponse;
-  try {
-    plan = JSON.parse(rawText) as LlmPlanResponse;
-  } catch {
-    throw new Error(`LLM planner: failed to parse Claude response as JSON: ${rawText.slice(0, 200)}`);
-  }
+  const plan = await requestPlan({ goal: mission.goal ?? '', repos });
 
   if (!Array.isArray(plan.tasks) || plan.tasks.length === 0) {
     throw new Error('LLM planner: Claude returned no tasks');
