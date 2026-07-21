@@ -21,25 +21,36 @@ New module: `apps/web/src/lib/fleet-report.ts`, structured like the existing `ro
 
 Repo grouping uses `tasks.repo` (not `missions.targetRepos` — a mission can span multiple repos via campaign missions, so task-level `repo` is the only reliable grouping key).
 
-Gate-outcome categories are hardcoded against the existing fixed `eventType` vocabulary (~38 literals, confirmed via codebase survey — not data-driven):
+Gate-outcome categories are hardcoded against the existing fixed `eventType` vocabulary (~28 literals, confirmed via codebase survey — not data-driven):
 
 - CI: `ci.passed` / `ci.failed` (`ci.retry_dispatched` counted as an attempt, not a separate outcome)
 - Self-verify: `verify.passed` / `verify.retry_dispatched` / `verify.escalated`
 - AI-review: `ai_review.approved` / `ai_review.rejected` / `ai_review.escalated`
-- Abandon reasons: `task.abandoned` events, grouped by the exact `payload.reason` string (free text today, but the reconciler only ever writes a small fixed set of literal strings — grouping by exact text match needs no schema change; if the wording in `reconciler.ts` changes later, that bucket will silently split into two, which is an accepted trade-off for staying in scope)
 - Spend: reuses `rollups.ts`'s existing `$5/1M token` pricing convention
+
+**Abandon reasons** — only two of the several code paths that set `tasks.status = 'abandoned'` emit a `task.abandoned` ledger event with a `payload.reason` (`reconciler.ts:172` and `reconciler.ts:256`, both free text; the reconciler only ever writes these two literal strings today, so exact-text grouping needs no schema change and wording drift is a negligible risk). The other abandon paths leave no per-task reason: `reconciler.ts:205`'s negative-reproduce gating emits `triage.fix_skipped` instead, `budgets.ts:237`'s hard-stop abandon emits only a mission-level `budget.hard_stopped` with no per-task event, `state.ts:50`'s session-terminated mapping emits nothing, and the chat route's `cancel_mission` (`route.ts:243`) emits no ledger event at all.
+
+To make the breakdown reconcile with the abandoned count instead of silently under-explaining most of it, `topAbandonReasons` unions all of these signals into synthesized buckets:
+- `task.abandoned`'s `payload.reason`, verbatim, for the two reconciler paths that have it
+- `"budget hard-stop"` for tasks abandoned via a mission-level `budget.hard_stopped` event in the window
+- `"session terminated"` for `state.ts`'s reason-less termination path (falls back to `tasks.haltReason` if set, else the literal label)
+- `"cancelled"` for tasks abandoned via `cancel_mission`, inferred from the task having no matching ledger event but its mission having a `mission.cancelled`-equivalent state (falls back to `tasks.lastError` if set, else the literal label)
+
+Every task counted in a repo's `abandoned` total appears in exactly one of these buckets, so `topAbandonReasons` sums to `taskCounts.abandoned`.
 
 Two exported functions:
 
 ```ts
 export async function getFleetOverview(windowDays: 7 | 30 | 90): Promise<Array<{
   repo: string
-  taskCounts: { merged: number; resolved: number; abandoned: number; failed: number; inFlight: number }
+  // inFlight is a derived remainder (total - merged - resolved - abandoned - failed), not
+  // enumerated per non-terminal status, so every queued/awaiting_*/running task is still counted.
+  taskCounts: { total: number; merged: number; resolved: number; abandoned: number; failed: number; inFlight: number }
   ciPassRate: number | null   // null = no CI-relevant events in window
   verify: { passRate: number | null; retries: number; escalated: number }
   aiReview: { approveRate: number | null; rejected: number; escalated: number }
   spentUsd: number
-  topAbandonReasons: Array<{ reason: string; count: number }>  // top 3
+  topAbandonReasons: Array<{ reason: string; count: number }>  // top 3; sums to taskCounts.abandoned
 }>>
 
 export async function getRepoTrend(repo: string, windowDays: 7 | 30 | 90): Promise<Array<{
@@ -64,9 +75,9 @@ GET /api/reports/fleet/[repo]?window=30
 ```
 
 - `window` is `7 | 30 | 90`, default `30`; any other value 400s.
-- Both routes call the existing `withAuth` pattern (401 if unauthenticated).
-- The overview route filters results to repos the authenticated user has connected (same ownership check used by the chat route's `list_repos` tool).
-- The per-repo route 404s if the requested repo isn't one of the user's connected repos — it does not trust the `[repo]` path param blindly.
+- Both routes use the existing `apiAuth()` helper (`lib/api-auth.ts`), which returns 401 for an unauthenticated request — this is the route-handler auth pattern already used by `missions/route.ts`, not `withAuth` (that helper is for server components/actions and redirects rather than 401s). Note `apiAuth()` falls back to a `DEV_USER` in `NODE_ENV=development`; tests for the 401/404 paths must run outside that mode.
+- The overview route filters results to repos the authenticated user has connected, via the existing `listUserRepos(userId)` helper (`lib/mission-defaults-db.ts`) rather than re-deriving the join inline.
+- The per-repo route 404s if the requested repo isn't in `listUserRepos(userId)` for the authenticated user — it does not trust the `[repo]` path param blindly. (This is stricter than the existing `missions/[missionId]/route.ts`, which does not ownership-check at all — an intentional deviation for this feature, not an oversight to "fix" back.)
 - A repo can appear in the overview even if it was later disconnected in `/setup` — historical data is still shown, matching how `rollupMissions` already treats past data.
 
 ## Frontend
@@ -87,9 +98,10 @@ Uses the app's existing UI kit/table components (whatever the missions list alre
 
 - No gate-relevant events yet for a repo/bucket → rate shown as "—", not `0%`/`NaN`.
 - Repo disconnected from `/setup` but has historical tasks → still shown.
-- Unauthenticated request → 401 (existing `withAuth`).
+- Unauthenticated request → 401 (via `apiAuth()`).
 - Requested repo not owned by the user → 404.
 - Invalid `window` query param → 400.
+- An abandoned task that matches none of the known abandon signals (a future code path not covered above) → falls into a final `"unattributed"` bucket rather than being silently dropped from `topAbandonReasons`.
 
 ## Testing
 
@@ -101,5 +113,5 @@ Uses the app's existing UI kit/table components (whatever the missions list alre
 
 - Scheduled digest delivery (email/Slack) — a future feature; this spec only ensures `fleet-report.ts`'s functions return plain data reusable by that future job, not JSX or HTTP-shaped responses.
 - Any automatic action (e.g. auto-suggesting or auto-flipping `aiReviewEnabled`/`selfVerifyEnabled`) — this feature is read-only reporting.
-- A structured `reasonCode` column for abandon reasons — deferred; exact-text grouping over the reconciler's existing small fixed string set is sufficient for now.
+- A structured `reasonCode` column for abandon reasons — deferred; unioning the existing free-text/event/column signals in `fleet-report.ts` is sufficient for now, without a schema change or touching the write paths themselves.
 - Custom date-range picker — only the fixed 7/30/90-day presets are supported.
