@@ -100,6 +100,7 @@ Fleet-fix their own repos (dependency bumps, CI migrations). Sensitive to cost �
 - Task lifecycle: `queued → dispatching → running → turn_ended → opening_pr → awaiting_ci → (awaiting_review) → merging → merged` (terminal) with failure branches `abandoned` and `failed`.
 - Tasks carry input (repo, base branch, prompt template variables, optional issue reference) and output (session ID, PR URL, diff stats, CI status, cost).
 - Tasks support retry-with-feedback: on CI failure, Forge sends a follow-up turn to the same session with the failing log; up to `retry_count_max` (default 3).
+- **Steering (shipped).** An operator can send a free-text message into a running Task's live session at any point while it's in `dispatching`, `running`, `turn_ended`, or `opening_pr` — appended as a `user.message` event over the same session channel the Dispatcher uses for the opening turn. Recorded in the Ledger (`task.steered`). No pause/acknowledgment semantics — the agent picks it up on its own cadence, same as any other turn. See [`docs/superpowers/specs/2026-07-17-home-queue-steering-budgets-design.md`](./superpowers/specs/2026-07-17-home-queue-steering-budgets-design.md).
 - Tasks support DAG dependencies: a Task can declare `depends_on` another Task; it stays `queued` until the predecessor is *satisfied*. Satisfaction is `merged` for a standard Task, or — for a triage `reproduce` Task, which opens no PR — `resolved` with a positive verdict (see below).
 - **Task kinds.** A Task has a `kind`: `standard` (the default — open a PR, gate on CI) or the triage pair `reproduce` / `fix`. A `reproduce` Task confirms a bug and terminates in `resolved` carrying a `verdict` (`reproduced`, affected versions, evidence, a handoff branch) instead of opening a PR. A `fix` Task `depends_on` its `reproduce` Task and is dispatched only when the verdict is positive; on a negative verdict Forge abandons it ("bug did not reproduce"). Implemented — see §7.3 triage strategy.
 
@@ -301,7 +302,7 @@ Memory is the **empirical knowledge base** — facts Forge has learned about a s
 - Hosted Forge SaaS (planned for after v1).
 - SSO, RBAC, audit log export (enterprise tier, post-v1).
 - IDE integration.
-- Human-in-the-loop mid-Task intervention beyond retry/abandon.
+- Human-in-the-loop mid-Task intervention beyond retry/abandon/steering — plan-approval gates, best-of-N attempts, pause-for-approval before every action. (Basic mid-Task steering — a free-text message into a running session — shipped 2026-07-17; see §7.2.)
 - Non-coding Missions (doc writes, data jobs) — focus is code.
 - Cost optimization across Mission classes (routing easy Tasks to cheaper models) — Phase 5+.
 
