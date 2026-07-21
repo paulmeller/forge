@@ -1,3 +1,5 @@
+import Anthropic from '@anthropic-ai/sdk';
+
 import { env } from '@/lib/env';
 
 import { GatewayAdapter } from './gateway';
@@ -27,6 +29,13 @@ export function getAdapter(kind: BackendKind): BackendAdapter {
         apiKey: env.ANTHROPIC_API_KEY,
         environmentId: env.FORGE_MA_ENVIRONMENT_ID,
         defaultVaultId: env.FORGE_MA_DEFAULT_VAULT_ID,
+        // ANTHROPIC_BASE_URL already exists as a documented override (see .env.example) but was
+        // never actually threaded into the client this adapter uses — every managed-agents call
+        // silently went to api.anthropic.com regardless of the env var. Constructing the client
+        // explicitly here (rather than leaving ManagedAgentsAdapter's own default
+        // `new Anthropic({ apiKey })`) is what makes a self-hosted engine at a non-default baseURL
+        // actually reachable.
+        client: new Anthropic({ apiKey: env.ANTHROPIC_API_KEY, baseURL: env.ANTHROPIC_BASE_URL }),
       });
       break;
     }
