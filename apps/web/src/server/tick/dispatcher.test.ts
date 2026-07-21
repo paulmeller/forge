@@ -29,7 +29,11 @@ const mocks = vi.hoisted(() => {
     maxSlotsOverride: undefined as number | undefined,
     selectAllStatuses: false,
     lastLimitArg: undefined as number | undefined,
-    env: { GITHUB_APP_TOKEN: undefined as string | undefined },
+    env: {
+      GITHUB_APP_TOKEN: undefined as string | undefined,
+      FORGE_GIT_AUTHOR_NAME: 'Forge Agent',
+      FORGE_GIT_AUTHOR_EMAIL: 'forge-agent@users.noreply.github.com',
+    },
   };
 
   const reset = () => {
@@ -42,6 +46,8 @@ const mocks = vi.hoisted(() => {
     state.selectAllStatuses = false;
     state.lastLimitArg = undefined;
     state.env.GITHUB_APP_TOKEN = undefined;
+    state.env.FORGE_GIT_AUTHOR_NAME = 'Forge Agent';
+    state.env.FORGE_GIT_AUTHOR_EMAIL = 'forge-agent@users.noreply.github.com';
   };
 
   const adapter = {
@@ -442,6 +448,23 @@ describe('dispatchOne', () => {
       'GITHUB_APP_TOKEN not configured',
     );
     expect(mocks.adapter.createSession).not.toHaveBeenCalled();
+  });
+
+  it('prepends the configured git identity setup ahead of everything else in the prompt', async () => {
+    mocks.state.env.GITHUB_APP_TOKEN = 'ghp_test';
+    mocks.state.env.FORGE_GIT_AUTHOR_NAME = 'Custom Bot';
+    mocks.state.env.FORGE_GIT_AUTHOR_EMAIL = 'custom-bot@example.com';
+    mocks.adapter.createSession.mockResolvedValue({ sessionId: 'ses_1' });
+
+    await dispatchOne(mission(), task('t1'));
+
+    expect(mocks.adapter.createSession).toHaveBeenCalledTimes(1);
+    const { prompt } = mocks.adapter.createSession.mock.calls[0]![0];
+    expect(prompt).toContain('git config --global user.name "Custom Bot"');
+    expect(prompt).toContain('git config --global user.email "custom-bot@example.com"');
+    expect(prompt.indexOf('git config --global user.name')).toBeLessThan(
+      prompt.indexOf('Work on'),
+    );
   });
 });
 

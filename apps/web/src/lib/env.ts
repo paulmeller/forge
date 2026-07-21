@@ -87,6 +87,15 @@ export const env = {
   get FORGE_MA_DEFAULT_VAULT_ID(): string | undefined {
     return optional('FORGE_MA_DEFAULT_VAULT_ID');
   },
+  // Git identity dispatched agents commit as. Without these pre-set, the sandbox has no git
+  // identity and the agent's first commit fails, forcing it to discover the error and
+  // self-recover mid-turn — on every single task.
+  get FORGE_GIT_AUTHOR_NAME(): string {
+    return optional('FORGE_GIT_AUTHOR_NAME') ?? 'Forge Agent';
+  },
+  get FORGE_GIT_AUTHOR_EMAIL(): string {
+    return optional('FORGE_GIT_AUTHOR_EMAIL') ?? 'forge-agent@users.noreply.github.com';
+  },
   get TASK_RETRY_MAX(): number {
     return Number(optional('TASK_RETRY_MAX') ?? 3);
   },
