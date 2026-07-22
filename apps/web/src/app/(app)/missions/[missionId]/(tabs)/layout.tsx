@@ -9,7 +9,7 @@ import { MissionTabs } from '@/components/mission-tabs';
 import { getMission } from '@/lib/missions';
 import { listTasksForMission } from '@/lib/tasks';
 
-import { MissionActionButton } from './mission-actions';
+import { MissionActionButton } from '../mission-actions';
 
 export const dynamic = 'force-dynamic';
 

@@ -12,7 +12,7 @@ import { getSkill, getSkillBySlug } from '@/lib/skills';
 import { rollupTasks, tokensToUsd } from '@/lib/rollups';
 import { listTasksForMission } from '@/lib/tasks';
 
-import { TimelineClient } from './timeline-client';
+import { TimelineClient } from '../timeline-client';
 
 export const dynamic = 'force-dynamic';
 
