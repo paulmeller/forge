@@ -31,6 +31,14 @@ export type DispatchResult = {
   failed: number;
 };
 
+function gitIdentitySetup(): string {
+  return (
+    'Before making any git commits, run:\n' +
+    `  git config --global user.name "${env.FORGE_GIT_AUTHOR_NAME}"\n` +
+    `  git config --global user.email "${env.FORGE_GIT_AUTHOR_EMAIL}"`
+  );
+}
+
 export async function runDispatcher(log: {
   info: (o: object, m?: string) => void;
   warn: (o: object, m?: string) => void;
@@ -267,8 +275,8 @@ export async function dispatchOne(mission: Mission, task: Task): Promise<void> {
   // Fetch AGENTS.md / CLAUDE.md for this repo
   const agentsMd = await fetchAgentsMd(task.repo, mission.id);
 
-  // Assemble prompt: AGENTS.md → Skill → Goal → Memories
-  const parts: string[] = [];
+  // Assemble prompt: Git setup → AGENTS.md → Skill → Goal → Memories
+  const parts: string[] = [gitIdentitySetup()];
   if (agentsMd.content) {
     parts.push(agentsMd.content);
   }

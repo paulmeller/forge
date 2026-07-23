@@ -30,4 +30,18 @@ describe('tick env getters', () => {
     expect(env.ANTHROPIC_BASE_URL).toBe('https://api.anthropic.com');
     expect(env.VERIFY_MODEL).toBe('claude-haiku-4-5');
   });
+
+  it('defaults the git identity dispatched agents commit as', () => {
+    expect(env.FORGE_GIT_AUTHOR_NAME).toBe('Forge Agent');
+    expect(env.FORGE_GIT_AUTHOR_EMAIL).toBe('forge-agent@users.noreply.github.com');
+  });
+
+  it('reads git identity overrides from process.env at access time', () => {
+    process.env.FORGE_GIT_AUTHOR_NAME = 'Custom Bot';
+    process.env.FORGE_GIT_AUTHOR_EMAIL = 'custom-bot@example.com';
+    expect(env.FORGE_GIT_AUTHOR_NAME).toBe('Custom Bot');
+    expect(env.FORGE_GIT_AUTHOR_EMAIL).toBe('custom-bot@example.com');
+    delete process.env.FORGE_GIT_AUTHOR_NAME;
+    delete process.env.FORGE_GIT_AUTHOR_EMAIL;
+  });
 });

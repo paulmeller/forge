@@ -97,6 +97,34 @@ describe('transition', () => {
     expect(t?.prNumber).toBe(7);
   });
 
+  it('ignores a PR URL from a pull_request_read result — only create_pull_request drives the transition', () => {
+    // pull_request_read also returns a PR URL in its result, but it's a read, not a
+    // creation — must not be mistaken for a newly opened PR.
+    const t = transition(
+      'running',
+      event('agent.mcp_tool_result', {
+        mcp_tool_use_name: 'pull_request_read',
+        content: [{ type: 'text', text: 'https://github.com/acme/api/pull/42' }],
+      }),
+    );
+    expect(t).toBeNull();
+  });
+
+  it('captures the PR URL when mcp_tool_use_name is explicitly create_pull_request', () => {
+    const t = transition(
+      'running',
+      event('agent.mcp_tool_result', {
+        mcp_tool_use_name: 'create_pull_request',
+        content: [{ type: 'text', text: 'https://github.com/acme/api/pull/99' }],
+      }),
+    );
+    expect(t).toEqual({
+      status: 'awaiting_ci',
+      prUrl: 'https://github.com/acme/api/pull/99',
+      prNumber: 99,
+    });
+  });
+
   it('accumulates cost tokens from span.model_request_end', () => {
     const t = transition(
       'running',
