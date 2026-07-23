@@ -2,25 +2,72 @@
 
 ## Motivation
 
-`/repos` (`apps/web/src/app/(app)/repos/page.tsx`) is currently a bare list of connected repo names with no mission or status information — you have to click into a repo's own workspace page to see anything about what's happening there. The user wants this page to instead surface mission activity directly, grouped per repo, using the same table and columns already used on `/missions`.
+`/repos` (`apps/web/src/app/(app)/repos/page.tsx`) is currently a bare list of connected repo names with no mission or status information — you have to click into a repo's own workspace page to see anything about what's happening there. The user wants this page to instead surface mission activity per repo, styled like `/missions`.
 
-Explored via the visual companion (three mockups: a simplified status-rollup row, the real `MissionsTable` sectioned by repo, and a card grid) — the user picked the real-`MissionsTable`-sectioned-by-repo option, then confirmed: only repos with active missions, same columns as `/missions`, nothing more.
+Explored via the visual companion (three mockups: a simplified status-rollup row, the real `MissionsTable` sectioned by repo, and a card grid). The user's final direction, reached after two rounds of refinement past the initial mockup pick, is **one row per repo** (not one row per mission, and not the real `MissionsTable` component reused as-is) — a table styled like `/missions`, where each row aggregates that repo's missions into a summary.
 
 ## Scope
 
 - Redesign `/repos/page.tsx` only. `/repos/[owner]/[repo]/page.tsx` (the single-repo workspace page) is unchanged.
-- Group a user's missions by target repo, rendering the real `MissionsTable` component once per repo section.
-- Only repos with at least one mission appear. Repos with zero missions are omitted entirely (confirmed: `/setup` remains the place to see/manage all connected repos regardless of activity).
-- No filter bar (`MissionFilters`) on this page — not part of what was approved, left out rather than silently added.
-- Fully real, data-wired from the start (not a throwaway mockup) — confirmed by the user.
+- A new table with one row per repo (not per mission), columns: **Name, Status, Progress, Activity (24h), Created**.
+- Only repos with at least one mission appear. Repos with zero missions are omitted entirely (`/setup` remains the place to see/manage all connected repos regardless of activity).
+- No filter bar (`MissionFilters`) on this page.
+- Fully real, data-wired from the start.
+
+## Columns — Exact Semantics
+
+- **Name** — the repo string (`owner/name`), links to `/repos/{owner}/{repo}`.
+- **Status** — a single derived label, `'running' | 'completed'`: **"Running"** if any mission in that repo has a non-terminal `mission.status` (`draft`, `planning`, `running`, or `paused` — i.e. there's still work happening or yet to start); **"Completed"** only when every mission in that repo is terminal (`completed` or `cancelled`). This is a new 2-value label, not the real 6-value `MissionStatus` enum, so it can't be passed directly into the existing `MissionStatusBadge` (whose variant map actually assigns `running` and `completed` the *same* visual variant, `'default'` — reusing it as-is would make the two repo-level states visually indistinguishable, which defeats the point of this column). Render with a plain `Badge` using distinct variants per label instead (e.g. `default` for running, `secondary` for completed) — exact variant choice is a small implementation detail for the plan.
+- **Progress** — the detailed breakdown behind the Status label: mission counts grouped by `mission.status`, rendered as chips, e.g. **"3 running · 12 completed"**. This counts *missions*, not tasks — no task-level rollup (`rollupMissions`) is involved.
+- **Activity (24h)** — the same 30-bucket sparkline concept `/missions` already uses (`sparklinesForMissions`), but aggregated: sum the per-bucket event counts across every mission in that repo, element-wise, into one combined 30-length array per repo.
+- **Created** — the `createdAt` of the most recently created mission in that repo (`max(mission.createdAt)` across the group), not the repo's own creation date (repos don't have one in this data model — only missions do).
 
 ## Data & Grouping
 
-Reuse `listMissions()` (`apps/web/src/lib/missions.ts:137`) exactly as-is — no changes to the data layer. It already scopes to the authenticated user (`withAuth()` internally) and already excludes internal container missions (its existing `WHERE` clause requires `workspaceRepo IS NULL OR issueRef IS NOT NULL OR parentMissionId IS NOT NULL`), so it returns exactly the same "real, user-visible" missions `/missions` shows today.
+Reuse `listMissions()` (`apps/web/src/lib/missions.ts:137`) exactly as-is — no changes to the data layer. It already scopes to the authenticated user (`withAuth()` internally) and already excludes internal container missions, so it returns exactly the same "real, user-visible" missions `/missions` shows today.
 
-Grouping happens in the page component: iterate every mission's `targetRepos: string[]` and add the mission to a `Map<string, Mission[]>` keyed by repo. **Deliberate behavior, not a bug:** a mission can target multiple repos at once (a "campaign" mission), so a multi-repo mission appears in every repo section it targets — it genuinely is active work for each of those repos. The same mission row can therefore appear more than once on the page, once per repo it touches.
+New pure, exported helper functions in a new file `apps/web/src/lib/group-missions-by-repo.ts`:
 
-For each repo key in the resulting map (sorted alphabetically), compute `rollupMissions(ids)` and `sparklinesForMissions(ids)` (`apps/web/src/lib/rollups.ts`) scoped to just that repo's mission IDs — the exact same functions `/missions` already calls for its single flat list, just invoked once per repo group instead of once for everything. All groups are computed via one `Promise.all` before rendering (each group's rollup/sparkline computation is independent and async).
+```ts
+export function groupMissionsByRepo(missions: Mission[]): Map<string, Mission[]> {
+  const map = new Map<string, Mission[]>();
+  for (const mission of missions) {
+    for (const repo of mission.targetRepos ?? []) {
+      const list = map.get(repo) ?? [];
+      list.push(mission);
+      map.set(repo, list);
+    }
+  }
+  return map;
+}
+
+const TERMINAL_MISSION_STATUSES = new Set<MissionStatus>(['completed', 'cancelled']);
+
+export function summarizeRepoMissions(missions: Mission[]): {
+  status: 'running' | 'completed';
+  breakdown: Array<{ status: MissionStatus; count: number }>;
+  mostRecentCreatedAt: Date;
+} {
+  const status = missions.some((m) => !TERMINAL_MISSION_STATUSES.has(m.status))
+    ? 'running'
+    : 'completed';
+
+  const counts = new Map<MissionStatus, number>();
+  for (const m of missions) counts.set(m.status, (counts.get(m.status) ?? 0) + 1);
+  const breakdown = [...counts.entries()].map(([status, count]) => ({ status, count }));
+
+  const mostRecentCreatedAt = missions.reduce(
+    (latest, m) => (m.createdAt > latest ? m.createdAt : latest),
+    missions[0].createdAt,
+  );
+
+  return { status, breakdown, mostRecentCreatedAt };
+}
+```
+
+**Deliberate behavior, not a bug:** a mission can target multiple repos at once (a "campaign" mission), so it's counted in every repo group it targets — it genuinely is active/completed work for each of those repos.
+
+Sparkline aggregation: `sparklinesForMissions(ids)` already returns `Map<string, number[]>` (30-length arrays) keyed by mission id — for each repo group, sum the arrays for that group's mission IDs element-wise into one combined array. This is small enough to inline in the page component rather than its own helper, but must handle the edge case of a repo whose missions collectively have zero sparkline data (all-zero array, not an error).
 
 ## Page Structure
 
@@ -28,57 +75,46 @@ For each repo key in the resulting map (sorted alphabetically), compute `rollupM
 export default async function ReposPage() {
   const user = await withAuth();
   const missions = await listMissions();
+  const missionsByRepo = groupMissionsByRepo(missions);
+  const repoNames = [...missionsByRepo.keys()].sort();
 
-  const missionsByRepo = new Map<string, Mission[]>();
-  for (const mission of missions) {
-    for (const repo of mission.targetRepos ?? []) {
-      const list = missionsByRepo.get(repo) ?? [];
-      list.push(mission);
-      missionsByRepo.set(repo, list);
-    }
-  }
-
-  const repos = [...missionsByRepo.keys()].sort();
-
-  if (repos.length === 0) {
+  if (repoNames.length === 0) {
     // single top-level empty state — see Empty States below
   }
 
-  const sections = await Promise.all(
-    repos.map(async (repo) => {
-      const repoMissions = missionsByRepo.get(repo)!;
-      const ids = repoMissions.map((m) => m.id);
-      const [rollups, sparklines] = await Promise.all([
-        rollupMissions(ids),
-        sparklinesForMissions(ids),
-      ]);
-      return { repo, missions: repoMissions, rollups, sparklines };
-    }),
-  );
+  const allIds = missions.map((m) => m.id);
+  const sparklines = await sparklinesForMissions(allIds); // computed once for everything, sliced per group below
 
-  // render: PageShell > PageHeader + one <section> per entry in `sections`,
-  // each with a repo-name heading and <MissionsTable ... bare /> underneath.
+  const rows = repoNames.map((repo) => {
+    const repoMissions = missionsByRepo.get(repo)!;
+    const summary = summarizeRepoMissions(repoMissions);
+    const combinedSparkline = repoMissions.reduce((acc, m) => {
+      const s = sparklines.get(m.id) ?? [];
+      return acc.map((v, i) => v + (s[i] ?? 0));
+    }, new Array(30).fill(0));
+    return { repo, summary, sparkline: combinedSparkline };
+  });
+
+  // render: PageShell > PageHeader + a new table component, one row per entry in `rows`.
 }
 ```
 
-Each section renders `<MissionsTable missions={m.missions} rollups={m.rollups} sparklines={m.sparklines} hasFilters={false} bare />` — reusing the already-existing `bare` prop ("skip the outer rounded-border wrapper — for embedding inside a parent panel that already provides one"), so no changes to `missions-table.tsx` are needed at all. The columns (Name, Status, Progress, Activity (24h), Backend, Created) are exactly what `/missions` shows today, unchanged.
-
-`hasFilters={false}` is always correct here since this page has no filter bar and every rendered section is guaranteed to have at least one mission (empty groups are never added to the map in the first place).
+A new component, `apps/web/src/components/repos-table.tsx`, renders the table (`Name | Status | Progress | Activity (24h) | Created`), following the same shadcn `Table`/`TableHeader`/`TableRow`/`TableCell` primitives `missions-table.tsx` already uses, reusing `Sparkline` (for Activity) and `formatDateTime`/`formatRelative` (for Created) from the existing `lib/format.ts`. The Progress breakdown chips reuse the `Chip` visual pattern from `components/progress-pill.tsx` (a new small export there, or a sibling component — implementation detail for the plan) rather than inventing new chip styling. `missions-table.tsx` itself is untouched; this is a new, separate component for a genuinely different row shape.
 
 ## Empty States
 
-- **A repo section**: never actually empty by construction (a repo only gets a section if it has ≥1 mission), so `MissionsTable`'s own "No missions yet" empty state is unreachable here — not a concern to design around further.
-- **Zero repos have any mission activity at all**: the whole page shows one top-level empty state (using the existing `Empty`/`EmptyHeader`/`EmptyTitle`/`EmptyDescription` components already imported in the current `page.tsx`), pointing at `/missions/new` to create one, or `/setup` if the user has no connected repos at all yet (distinguish via `listUserRepos(user.id)` — if that's also empty, point at `/setup`; if repos are connected but have zero missions, point at `/missions/new`).
+- **Zero repos have any mission activity at all**: the whole page shows one top-level empty state (reusing `Empty`/`EmptyHeader`/`EmptyTitle`/`EmptyDescription`, already imported in the current `page.tsx`), pointing at `/missions/new` to create one, or `/setup` if the user has no connected repos at all yet (check `listUserRepos(user.id)` — if that's also empty, point at `/setup`; if repos are connected but have zero missions, point at `/missions/new`).
 
 ## Testing
 
-- No existing test file covers `repos/page.tsx` today (it's a server component page, consistent with this app's general pattern of not unit-testing page-level components — confirmed earlier this session there are zero `.test.tsx` files anywhere in `apps/web`).
-- The one piece of genuinely new logic worth unit-testing is the repo-grouping itself (iterating `targetRepos`, building the `Map`, sorting keys) — this should be extracted into a small, pure, exported helper function, `groupMissionsByRepo(missions: Mission[]): Map<string, Mission[]>`, in a new file `apps/web/src/lib/group-missions-by-repo.ts` (matching the existing naming convention of `lib/mission-list-filters.ts`), so it can be tested directly with plain objects — including the multi-repo-mission duplication case — without needing a live database.
-- No changes to `missions-table.tsx`, `rollups.ts`, or `missions.ts` — all reused as-is, so their existing test coverage continues to apply unchanged.
+- `group-missions-by-repo.ts`'s two exported functions (`groupMissionsByRepo`, `summarizeRepoMissions`) are pure and get a dedicated test file with plain mission objects — covering: the multi-repo-mission duplication case, the running/completed status derivation across all six `MissionStatus` values (verifying `draft`/`planning`/`running`/`paused` all count as "running" and only `completed`/`cancelled` count as "completed"), the breakdown counts, and `mostRecentCreatedAt` picking the right mission.
+- No existing test file covers `repos/page.tsx` or would cover the new `repos-table.tsx` (consistent with this app's established pattern of not unit-testing page/component rendering — zero `.test.tsx` files exist anywhere in `apps/web`).
+- No changes to `missions-table.tsx`, `rollups.ts`, or `missions.ts` — `rollupMissions` (task-level rollup) is not used by this feature at all; only `listMissions()` and `sparklinesForMissions()` are reused, both unchanged.
 
 ## Explicitly Out of Scope
 
 - `/repos/[owner]/[repo]/page.tsx` (the single-repo workspace page) — completely unchanged.
 - A filter bar (`MissionFilters`) on this page.
-- Showing repos with zero missions (deferred to `/setup`, which already lists all connected repos regardless of activity).
+- Showing repos with zero missions (deferred to `/setup`).
+- Task-level rollup detail (spend, tool calls, etc.) on this page — that stays on the per-mission `/missions` table and each mission's own detail page.
 - Any change to how `targetRepos`/multi-repo campaign missions are modeled or dispatched — this is a read-only display grouping, not a data model change.
