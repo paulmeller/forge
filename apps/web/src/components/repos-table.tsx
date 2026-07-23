@@ -12,17 +12,23 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { formatDateTime } from '@/lib/format';
 import { statusLabel } from '@/lib/status-labels';
 
 import type { MissionStatus } from '@forge/db';
 
+// 'live' is reserved for statuses actively in progress (planning/running) —
+// 'good' would share the same underlying color as 'live' at lower opacity,
+// making a completed repo read as too similar to an actively-running one.
+// Everything else that doesn't need attention right now (including
+// completed) uses the neutral 'muted' tone.
 const STATUS_TONE: Record<MissionStatus, 'muted' | 'live' | 'good' | 'bad'> = {
   draft: 'muted',
   planning: 'live',
   running: 'live',
   paused: 'muted',
-  completed: 'good',
+  completed: 'muted',
   cancelled: 'muted',
 };
 
@@ -36,7 +42,19 @@ export type RepoRow = {
   sparkline: number[];
 };
 
-export function ReposTable({ rows }: { rows: RepoRow[] }) {
+export function ReposTable({ rows, hasFilters }: { rows: RepoRow[]; hasFilters?: boolean }) {
+  if (rows.length === 0) {
+    return (
+      <Empty className="border bg-card">
+        <EmptyHeader>
+          <EmptyTitle>
+            {hasFilters ? 'No repos match the current filters.' : 'No mission activity to show.'}
+          </EmptyTitle>
+        </EmptyHeader>
+      </Empty>
+    );
+  }
+
   const table = (
     <Table className="min-w-[900px]">
       <TableHeader>
