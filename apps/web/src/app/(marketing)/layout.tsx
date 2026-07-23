@@ -30,13 +30,13 @@ export default function MarketingLayout({
             GitHub
           </Link>
           <Link
-            href="/login"
+            href="/home"
             className="text-sm text-muted-foreground transition-colors hover:text-foreground"
           >
             Log in
           </Link>
           <Link
-            href="/signup"
+            href="/home"
             className="inline-flex h-9 items-center justify-center rounded-lg bg-primary px-5 text-sm font-medium text-primary-foreground transition-all hover:brightness-90"
           >
             Get Started

@@ -160,7 +160,7 @@ export default function LandingPage() {
           </p>
           <div className="flex flex-col items-center justify-center gap-3 sm:flex-row">
             <Link
-              href="/signup"
+              href="/home"
               className="inline-flex h-12 w-full items-center justify-center rounded-xl bg-primary px-6 text-base font-medium text-primary-foreground transition-all hover:brightness-90 sm:w-auto"
             >
               Get Started Free
@@ -430,7 +430,7 @@ export default function LandingPage() {
           </p>
           <div className="flex w-full flex-col items-center justify-center gap-3 sm:flex-row">
             <Link
-              href="/signup"
+              href="/home"
               className="inline-flex h-12 w-full items-center justify-center rounded-xl bg-black px-6 text-base font-medium text-white transition-all hover:bg-black/85 sm:w-auto"
             >
               Get Started Free
