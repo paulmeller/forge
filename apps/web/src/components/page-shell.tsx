@@ -1,7 +1,7 @@
 import { cn } from '@/lib/utils';
 
 export function PageShell({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <main className={cn('container max-w-[1400px] py-8', className)}>{children}</main>;
+  return <main className={cn('w-full px-6 py-8', className)}>{children}</main>;
 }
 
 export function PageHeader({ title, subtitle, actions }: { title: React.ReactNode; subtitle?: React.ReactNode; actions?: React.ReactNode }) {
