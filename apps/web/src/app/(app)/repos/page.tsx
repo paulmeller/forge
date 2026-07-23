@@ -1,52 +1,61 @@
 import Link from 'next/link';
 
-import { Button } from '@/components/ui/button';
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { PageHeader, PageShell } from '@/components/page-shell';
+import { ReposTable } from '@/components/repos-table';
+import { groupMissionsByRepo, summarizeRepoMissions } from '@/lib/group-missions-by-repo';
 import { listUserRepos } from '@/lib/mission-defaults-db';
+import { listMissions } from '@/lib/missions';
+import { sparklinesForMissions } from '@/lib/rollups';
 import { withAuth } from '@/lib/with-auth';
 
 export const dynamic = 'force-dynamic';
 
 export default async function ReposPage() {
   const user = await withAuth();
-  const repos = await listUserRepos(user.id);
+  const missions = await listMissions();
+  const missionsByRepo = groupMissionsByRepo(missions);
+  const repoNames = [...missionsByRepo.keys()].sort();
 
-  return (
-    <PageShell className="max-w-3xl">
-      <PageHeader
-        title="Repos"
-        subtitle="Pick a repo to see its open issues and work on them one at a time."
-      />
-
-      {repos.length === 0 ? (
+  if (repoNames.length === 0) {
+    const connectedRepos = await listUserRepos(user.id);
+    return (
+      <PageShell className="max-w-3xl">
+        <PageHeader title="Repos" subtitle="Mission activity across your connected repos." />
         <Empty className="border">
           <EmptyHeader>
-            <EmptyTitle>No repos connected yet.</EmptyTitle>
+            <EmptyTitle>No mission activity yet.</EmptyTitle>
             <EmptyDescription>
-              <Link href="/setup">Connect repos in Setup</Link>.
+              {connectedRepos.length === 0 ? (
+                <Link href="/setup">Connect repos in Setup</Link>
+              ) : (
+                <Link href="/missions/new">Start a new mission</Link>
+              )}
+              .
             </EmptyDescription>
           </EmptyHeader>
         </Empty>
-      ) : (
-        <div className="flex flex-col gap-2">
-          {repos.map((repo) => {
-            const [owner, name] = repo.split('/');
-            return (
-              <Link
-                key={repo}
-                href={`/repos/${owner}/${name}`}
-                className="block rounded-lg border bg-card p-4 font-mono text-sm transition-colors hover:bg-accent"
-              >
-                {repo}
-              </Link>
-            );
-          })}
-          <Button asChild variant="ghost" size="sm" className="mt-2">
-            <Link href="/setup">Connect more repos</Link>
-          </Button>
-        </div>
-      )}
+      </PageShell>
+    );
+  }
+
+  const allIds = missions.map((m) => m.id);
+  const sparklines = await sparklinesForMissions(allIds);
+
+  const rows = repoNames.map((repo) => {
+    const repoMissions = missionsByRepo.get(repo)!;
+    const summary = summarizeRepoMissions(repoMissions);
+    const sparkline = repoMissions.reduce<number[]>((acc, m) => {
+      const s = sparklines.get(m.id) ?? [];
+      return acc.map((v, i) => v + (s[i] ?? 0));
+    }, new Array(30).fill(0));
+    return { repo, summary, sparkline };
+  });
+
+  return (
+    <PageShell>
+      <PageHeader title="Repos" subtitle="Mission activity across your connected repos." />
+      <ReposTable rows={rows} />
     </PageShell>
   );
 }

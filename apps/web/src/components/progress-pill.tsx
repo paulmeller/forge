@@ -10,7 +10,7 @@ function formatElapsed(ms: number): string {
   return `${h}h ${m % 60}m`;
 }
 
-function Chip({
+export function Chip({
   children,
   tone,
   timeSensitive,
