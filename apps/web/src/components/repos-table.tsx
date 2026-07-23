@@ -13,6 +13,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { formatDateTime } from '@/lib/format';
+import { statusLabel } from '@/lib/status-labels';
 
 import type { MissionStatus } from '@forge/db';
 
@@ -69,7 +70,7 @@ export function ReposTable({ rows }: { rows: RepoRow[] }) {
                 <div className="flex flex-wrap items-center gap-1.5">
                   {summary.breakdown.map(({ status, count }) => (
                     <Chip key={status} tone={STATUS_TONE[status]}>
-                      {count} {status}
+                      {count} {statusLabel(status)}
                     </Chip>
                   ))}
                 </div>

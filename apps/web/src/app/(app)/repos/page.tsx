@@ -22,7 +22,7 @@ export default async function ReposPage() {
     return (
       <PageShell className="max-w-3xl">
         <PageHeader title="Repos" subtitle="Mission activity across your connected repos." />
-        <Empty className="border">
+        <Empty className="border bg-card">
           <EmptyHeader>
             <EmptyTitle>No mission activity yet.</EmptyTitle>
             <EmptyDescription>
