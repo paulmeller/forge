@@ -14,7 +14,7 @@ export function NavTabs({
   ariaLabel,
   className,
 }: {
-  items: ReadonlyArray<{ key: string; label: string; href: string }>;
+  items: ReadonlyArray<{ key: string; label: string; href: string; disabled?: boolean }>;
   activeKey: string;
   ariaLabel?: string;
   className?: string;
@@ -27,19 +27,36 @@ export function NavTabs({
         className,
       )}
     >
-      {items.map((item) => (
-        <Link
-          key={item.key}
-          href={item.href}
-          aria-current={item.key === activeKey ? 'page' : undefined}
-          className={cn(
-            'inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
-            item.key === activeKey && 'bg-background text-foreground shadow',
-          )}
-        >
-          {item.label}
-        </Link>
-      ))}
+      {items.map((item) => {
+        const isActive = item.key === activeKey;
+        const triggerClassName = cn(
+          'inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+          isActive && 'bg-background text-foreground shadow',
+        );
+
+        if (item.disabled) {
+          return (
+            <span
+              key={item.key}
+              aria-disabled="true"
+              className={cn(triggerClassName, 'cursor-not-allowed opacity-50')}
+            >
+              {item.label}
+            </span>
+          );
+        }
+
+        return (
+          <Link
+            key={item.key}
+            href={item.href}
+            aria-current={isActive ? 'page' : undefined}
+            className={triggerClassName}
+          >
+            {item.label}
+          </Link>
+        );
+      })}
     </nav>
   );
 }

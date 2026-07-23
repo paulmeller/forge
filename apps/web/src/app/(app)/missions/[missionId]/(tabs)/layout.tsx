@@ -2,10 +2,11 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import { Button } from '@/components/ui/button';
-import { ConsoleShell } from '@/components/console-shell';
+import { HeaderPortal } from '@/components/header-portal';
 import { LiveRefresh } from '@/components/live-refresh';
 import { MissionStatusBadge } from '@/components/mission-status-badge';
 import { MissionTabs } from '@/components/mission-tabs';
+import { PageHeader, PageShell } from '@/components/page-shell';
 import { getMission } from '@/lib/missions';
 import { listTasksForMission } from '@/lib/tasks';
 
@@ -31,54 +32,51 @@ export default async function MissionLayout({
   // existing conventions. This is a small, accepted duplicate query.
   const tasks = await listTasksForMission(missionId);
   const targetRepos = mission.targetRepos ?? [];
+  const isTriage = mission.plannerStrategy === 'triage';
+  const missingSource = isTriage ? !mission.issueQuery?.trim() : targetRepos.length === 0;
 
   return (
-    <ConsoleShell>
-      <div className="title-glow mb-6 shrink-0">
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-3">
-              <h1 className="truncate font-title text-3xl uppercase tracking-tight">
-                {mission.name}
-              </h1>
-              <MissionStatusBadge status={mission.status} />
-            </div>
-            <div className="mt-1 flex items-center gap-2">
-              <p className="font-mono text-[11px] text-muted-foreground">{mission.id}</p>
-              {mission.status === 'running' || mission.status === 'planning' ? (
-                <LiveRefresh intervalMs={5000} />
-              ) : null}
-            </div>
-          </div>
-          <div className="flex items-start gap-2">
-            {mission.plannerStrategy === 'triage' ? (
+    <PageShell>
+      <HeaderPortal>
+        <MissionTabs missionId={mission.id} />
+      </HeaderPortal>
+      <PageHeader
+        title={
+          <span className="flex items-center gap-3">
+            <span className="truncate">{mission.name}</span>
+            <MissionStatusBadge status={mission.status} />
+          </span>
+        }
+        subtitle={
+          <span className="flex items-center gap-2">
+            <span className="font-mono text-[11px]">{mission.id}</span>
+            {mission.status === 'running' || mission.status === 'planning' ? (
+              <LiveRefresh intervalMs={5000} />
+            ) : null}
+          </span>
+        }
+        actions={
+          <>
+            {isTriage ? (
               <Button asChild variant="outline">
                 <Link href={`/missions/${mission.id}/issues`}>View by issue →</Link>
               </Button>
             ) : null}
-            {mission.status === 'draft'
-              ? (() => {
-                  const isTriage = mission.plannerStrategy === 'triage';
-                  const missingSource = isTriage
-                    ? !mission.issueQuery?.trim()
-                    : targetRepos.length === 0;
-                  return (
-                    <MissionActionButton
-                      missionId={mission.id}
-                      op="plan"
-                      label="Plan Mission"
-                      disabled={missingSource}
-                      disabledReason={
-                        missingSource
-                          ? isTriage
-                            ? 'Add an issue search query first'
-                            : 'Add target repos first'
-                          : undefined
-                      }
-                    />
-                  );
-                })()
-              : null}
+            {mission.status === 'draft' ? (
+              <MissionActionButton
+                missionId={mission.id}
+                op="plan"
+                label="Plan Mission"
+                disabled={missingSource}
+                disabledReason={
+                  missingSource
+                    ? isTriage
+                      ? 'Add an issue search query first'
+                      : 'Add target repos first'
+                    : undefined
+                }
+              />
+            ) : null}
             {mission.status === 'planning' ? (
               <>
                 <Button asChild variant="outline">
@@ -104,11 +102,10 @@ export default async function MissionLayout({
             {mission.status === 'paused' ? (
               <MissionActionButton missionId={mission.id} op="resume" label="Resume" />
             ) : null}
-          </div>
-        </div>
-      </div>
-      <MissionTabs missionId={mission.id} />
-      <div className="mt-6 flex min-h-0 flex-1 flex-col">{children}</div>
-    </ConsoleShell>
+          </>
+        }
+      />
+      <div className="mt-6">{children}</div>
+    </PageShell>
   );
 }

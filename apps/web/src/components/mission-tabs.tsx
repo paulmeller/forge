@@ -1,9 +1,8 @@
 'use client';
 
-import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
-import { cn } from '@/lib/utils';
+import { NavTabs } from '@/components/nav-tabs';
 
 type TabKey = 'overview' | 'pipeline' | 'tools' | 'tasks';
 
@@ -40,32 +39,15 @@ export function MissionTabs({ missionId }: { missionId: string }) {
   const active = activeMissionTab(pathname, missionId);
 
   return (
-    <nav className="inline-flex h-9 items-center justify-center rounded-lg bg-muted p-1 text-muted-foreground">
-      {TABS.map((tab) => {
-        const isActive = active === tab.key;
-        const triggerClassName = cn(
-          'inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1 text-sm font-medium transition-all',
-          isActive && 'bg-background text-foreground shadow',
-        );
-
-        if (tab.disabled) {
-          return (
-            <span
-              key={tab.key}
-              aria-disabled="true"
-              className={cn(triggerClassName, 'cursor-not-allowed opacity-50')}
-            >
-              {tab.label}
-            </span>
-          );
-        }
-
-        return (
-          <Link key={tab.key} href={tabHref(missionId, tab.key)} className={triggerClassName}>
-            {tab.label}
-          </Link>
-        );
-      })}
-    </nav>
+    <NavTabs
+      ariaLabel="Mission sections"
+      activeKey={active ?? ''}
+      items={TABS.map((tab) => ({
+        key: tab.key,
+        label: tab.label,
+        href: tabHref(missionId, tab.key),
+        disabled: tab.disabled,
+      }))}
+    />
   );
 }

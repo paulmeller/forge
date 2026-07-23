@@ -47,8 +47,8 @@ export default async function MissionDetailPage({
   const totalSpentUsd = tokensToUsd(mission.spentTokens || 0);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-6">
-      <div className="min-h-0 min-w-0 flex-[2] overflow-y-auto">
+    <div className="flex flex-col gap-6">
+      <div className="min-w-0">
         <div className="grid min-w-0 grid-cols-12 gap-6">
           {/* Left: Tasks */}
           <section className="rise rise-1 col-span-12 min-w-0 lg:col-span-8">
@@ -223,8 +223,8 @@ export default async function MissionDetailPage({
         </div>
       </div>
 
-      {/* Timeline — tailed console, bottom third */}
-      <section className="rise rise-3 flex min-h-0 min-w-0 flex-1 flex-col">
+      {/* Timeline — tailed console, own bounded scroll region */}
+      <section className="rise rise-3 flex h-[500px] min-w-0 flex-col">
         <div className="mb-2 flex shrink-0 items-center justify-between">
           <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             Timeline{' '}
@@ -237,12 +237,14 @@ export default async function MissionDetailPage({
             Full ledger &rarr;
           </Link>
         </div>
-        <TimelineClient
-          events={ledger}
-          tasks={tasks}
-          selectedTaskId={selectedTaskId}
-          missionId={mission.id}
-        />
+        <div className="min-h-0 flex-1">
+          <TimelineClient
+            events={ledger}
+            tasks={tasks}
+            selectedTaskId={selectedTaskId}
+            missionId={mission.id}
+          />
+        </div>
       </section>
     </div>
   );
