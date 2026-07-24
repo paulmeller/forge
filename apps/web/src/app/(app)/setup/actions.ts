@@ -9,13 +9,12 @@ import { githubInstallationRepos, githubInstallations } from '@forge/db';
 import { db } from '@/lib/db';
 import { withAuth } from '@/lib/with-auth';
 
-export async function connectRepos(
+export async function syncRepos(
   installationId: string,
-  repos: string[],
+  selectedRepos: string[],
 ): Promise<{ error?: string } | undefined> {
   const user = await withAuth();
 
-  // Verify this installation belongs to the user
   const [installation] = await db
     .select()
     .from(githubInstallations)
@@ -26,13 +25,22 @@ export async function connectRepos(
     return { error: 'Installation not found' };
   }
 
-  // Insert repos (ignore duplicates)
-  for (const repo of repos) {
+  const existing = await db
+    .select()
+    .from(githubInstallationRepos)
+    .where(eq(githubInstallationRepos.installationId, installationId));
+  const existingRepoNames = new Set(existing.map((r) => r.repo));
+  const selectedSet = new Set(selectedRepos);
+
+  const toAdd = selectedRepos.filter((r) => !existingRepoNames.has(r));
+  const toRemove = existing.filter((r) => !selectedSet.has(r.repo));
+
+  for (const repo of toAdd) {
     const id = `ghr_${randomUUID().replaceAll('-', '').slice(0, 20)}`;
-    await db
-      .insert(githubInstallationRepos)
-      .values({ id, installationId, repo })
-      .onConflictDoNothing();
+    await db.insert(githubInstallationRepos).values({ id, installationId, repo }).onConflictDoNothing();
+  }
+  for (const row of toRemove) {
+    await db.delete(githubInstallationRepos).where(eq(githubInstallationRepos.id, row.id));
   }
 
   return undefined;
