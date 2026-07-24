@@ -36,7 +36,7 @@ export default async function HomePage() {
   const runningRollups = await rollupTasks(nowRunning.map((r) => r.task.id));
 
   return (
-    <PageShell className="py-10">
+    <PageShell>
       <PageHeader
         title={
           <span className="flex items-center gap-2">
