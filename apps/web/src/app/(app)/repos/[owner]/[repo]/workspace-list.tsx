@@ -258,7 +258,7 @@ export function WorkspaceList({
                     View on GitHub
                   </a>
                 </div>
-                <div className="min-h-0 min-w-0 flex-1">
+                <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
                   {selected.group && missionId ? (
                     <IssueRunPanel
                       key={selected.issue.number}
