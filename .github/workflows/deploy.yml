@@ -49,6 +49,22 @@ jobs:
 
       - uses: google-github-actions/setup-gcloud@v2
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable corepack + install
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.33.0 --activate
+          pnpm install --frozen-lockfile
+
+      - name: Run database migrations
+        run: |
+          export DATABASE_URL=$(gcloud secrets versions access latest --secret=forge-database-url --project=${{ env.GCP_PROJECT }})
+          export DATABASE_AUTH_TOKEN=$(gcloud secrets versions access latest --secret=forge-database-auth-token --project=${{ env.GCP_PROJECT }})
+          pnpm --filter @forge/db db:migrate
+
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
 
