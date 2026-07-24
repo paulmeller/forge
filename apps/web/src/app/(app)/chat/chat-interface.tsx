@@ -60,7 +60,7 @@ export function ChatInterface() {
       <div className="flex-1 overflow-y-auto" ref={scrollRef}>
         {!hasMessages ? (
           <div className="flex h-full flex-col items-center justify-center">
-            <h1 className="mb-2 text-4xl font-bold tracking-tight text-muted-foreground/20">
+            <h1 className="mb-2 font-title text-4xl uppercase tracking-tight text-muted-foreground/20">
               FORGE
             </h1>
             <p className="mb-1 text-sm text-muted-foreground">
