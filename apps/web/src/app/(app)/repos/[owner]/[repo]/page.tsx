@@ -107,7 +107,7 @@ export default async function RepoWorkspacePage({
         <RepoTabs active={activeTab} repo={repo} />
       </HeaderPortal>
       <div className="shrink-0">
-        <div className="title-glow mb-4 flex items-start justify-between gap-4">
+        <div className="mb-4 flex items-start justify-between gap-4">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <h1 title={repo} className="truncate font-mono text-2xl font-semibold tracking-tight">

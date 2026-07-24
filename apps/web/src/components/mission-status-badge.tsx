@@ -7,7 +7,7 @@ const VARIANT: Record<MissionStatus, 'default' | 'secondary' | 'outline' | 'dest
   planning: 'secondary',
   running: 'default',
   paused: 'secondary',
-  completed: 'default',
+  completed: 'secondary',
   cancelled: 'destructive',
 };
 

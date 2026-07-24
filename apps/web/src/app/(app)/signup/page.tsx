@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -13,8 +13,18 @@ import { authClient } from '@/lib/auth-client';
 
 export default function SignupPage() {
   const router = useRouter();
+  const { data: session, isPending: sessionPending } = authClient.useSession();
   const [error, setError] = useState('');
   const [pending, setPending] = useState(false);
+
+  // (app)/layout.tsx only renders the plain (sidebar-free) header for
+  // unauthenticated visitors — an already-signed-in user landing here would
+  // otherwise see the signup form wrapped in the full sidebar app shell.
+  useEffect(() => {
+    if (!sessionPending && session) {
+      router.replace('/home');
+    }
+  }, [sessionPending, session, router]);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();

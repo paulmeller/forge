@@ -36,14 +36,18 @@ export function RepoPicker({
   async function handleSave() {
     setError('');
     setPending(true);
-    const result = await syncRepos(installationId, [...checked]);
-    if (result?.error) {
-      setError(result.error);
+    try {
+      const result = await syncRepos(installationId, [...checked]);
+      if (result?.error) {
+        setError(result.error);
+        return;
+      }
+      router.refresh();
+    } catch {
+      setError('Something went wrong. Try again.');
+    } finally {
       setPending(false);
-      return;
     }
-    router.refresh();
-    setPending(false);
   }
 
   return (
