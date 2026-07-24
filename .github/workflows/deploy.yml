@@ -83,8 +83,11 @@ jobs:
             NODE_ENV=production
             FORGE_BACKEND=gateway
             FORGE_CHAT_MODEL=anthropic:claude-sonnet-4-6
+            BETTER_AUTH_URL=https://forge-web-btbwhux5ya-ew.a.run.app
             TICK_EXPECTED_AUDIENCE=https://forge-web-btbwhux5ya-ew.a.run.app
             TICK_EXPECTED_ISSUER_EMAIL=forge-deployer@agentstep.iam.gserviceaccount.com
+            GITHUB_APP_ID=4303599
+            GITHUB_APP_SLUG=forge-local-udd8ld
           secrets: |
             DATABASE_URL=forge-database-url:latest
             DATABASE_AUTH_TOKEN=forge-database-auth-token:latest
@@ -92,6 +95,9 @@ jobs:
             ANTHROPIC_API_KEY=forge-anthropic-api-key:latest
             GITHUB_APP_TOKEN=forge-github-app-token:latest
             GITHUB_WEBHOOK_SECRET=forge-github-webhook-secret:latest
+            GITHUB_CLIENT_ID=forge-github-client-id:latest
+            GITHUB_CLIENT_SECRET=forge-github-client-secret:latest
+            GITHUB_APP_PRIVATE_KEY=forge-github-app-private-key:latest
             FORGE_DEFAULT_AGENT_ID=forge-default-agent-id:latest
             FORGE_DEFAULT_GITHUB_VAULT_ID=forge-default-github-vault-id:latest
             OPENAI_API_KEY=forge-openai-api-key:latest
