@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 
 import { anthropic } from '@ai-sdk/anthropic';
 import { google } from '@ai-sdk/google';
-import { openai } from '@ai-sdk/openai';
+import { createOpenAI, openai } from '@ai-sdk/openai';
 import { convertToModelMessages, isStepCount, streamText } from 'ai';
 // Import drizzle helpers from @forge/db's own drizzle-orm instance to avoid
 // duplicate-package type mismatches with the ai-sdk's transitive drizzle copy.
@@ -35,12 +35,18 @@ When a user asks you to do something to their codebase, create a mission for it.
 
 If the user hasn't connected any repos yet, suggest they visit /setup first.`;
 
+const ollama = createOpenAI({
+  baseURL: process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434/v1',
+  apiKey: 'ollama',
+});
+
 function getChatModel() {
   const id = process.env.FORGE_CHAT_MODEL ?? 'anthropic:claude-sonnet-4-6';
   const [provider, ...rest] = id.split(':');
   const model = rest.join(':');
   if (provider === 'openai') return openai(model || 'gpt-5.5');
   if (provider === 'google') return google(model || 'gemini-2.5-pro-preview-05-06');
+  if (provider === 'ollama') return ollama(model || 'gemma4:12b');
   return anthropic(model || 'claude-sonnet-4-6');
 }
 
