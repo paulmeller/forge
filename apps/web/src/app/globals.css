@@ -172,21 +172,6 @@
   50.01%, 100% { opacity: 0; }
 }
 
-/* ---- Title glow (spec §5) — the one signature; dark mode only ---- */
 .title-glow {
   position: relative;
-}
-.dark .title-glow::before {
-  content: '';
-  position: absolute;
-  left: -80px;
-  right: -80px;
-  top: -60px;
-  height: 220px;
-  background: radial-gradient(
-    600px circle at 20% 20%,
-    color-mix(in oklab, var(--primary) 5%, transparent),
-    transparent 70%
-  );
-  pointer-events: none;
 }
