@@ -167,7 +167,7 @@ export function WorkspaceList({
   }
 
   return (
-    <div className="grid h-full min-h-0 grid-cols-[320px_minmax(0,1fr)_260px] gap-4">
+    <div className="grid h-full min-h-0 grid-cols-[320px_minmax(0,1fr)_380px] gap-4">
       <div className="flex h-full min-h-0 flex-col rounded-lg border bg-card">
         <div className="shrink-0 border-b p-2">
           <Input
@@ -223,6 +223,21 @@ export function WorkspaceList({
               {showInactive ? inactiveRows.map(renderRow) : null}
             </div>
           ) : null}
+        </div>
+      </div>
+
+      <div className="flex h-full min-h-0 flex-col rounded-lg border bg-card">
+        <div className="shrink-0 border-b p-2">
+          <SectionLabel>Files</SectionLabel>
+        </div>
+        <div className="min-h-0 flex-1">
+          {activeConsole ? (
+            <AttemptFileBrowser task={activeConsole.task} ledger={activeConsole.ledger} />
+          ) : (
+            <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+              No task selected.
+            </div>
+          )}
         </div>
       </div>
 
@@ -294,21 +309,6 @@ export function WorkspaceList({
             )}
           </div>
         </div>
-
-      <div className="flex h-full min-h-0 flex-col rounded-lg border bg-card">
-        <div className="shrink-0 border-b p-2">
-          <SectionLabel>Files</SectionLabel>
-        </div>
-        <div className="min-h-0 flex-1">
-          {activeConsole ? (
-            <AttemptFileBrowser task={activeConsole.task} ledger={activeConsole.ledger} />
-          ) : (
-            <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-              No task selected.
-            </div>
-          )}
-        </div>
-      </div>
     </div>
   );
 }
