@@ -10,9 +10,9 @@ CREATE TABLE IF NOT EXISTS `user` (
   `createdAt` integer NOT NULL DEFAULT (unixepoch() * 1000),
   `updatedAt` integer NOT NULL DEFAULT (unixepoch() * 1000)
 );
-
+--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS `user_email_unique` ON `user` (`email`);
-
+--> statement-breakpoint
 CREATE TABLE IF NOT EXISTS `session` (
   `id` text PRIMARY KEY NOT NULL,
   `expiresAt` integer NOT NULL,
@@ -23,9 +23,9 @@ CREATE TABLE IF NOT EXISTS `session` (
   `createdAt` integer NOT NULL DEFAULT (unixepoch() * 1000),
   `updatedAt` integer NOT NULL DEFAULT (unixepoch() * 1000)
 );
-
+--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS `session_token_unique` ON `session` (`token`);
-
+--> statement-breakpoint
 CREATE TABLE IF NOT EXISTS `account` (
   `id` text PRIMARY KEY NOT NULL,
   `accountId` text NOT NULL,
@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS `account` (
   `createdAt` integer NOT NULL DEFAULT (unixepoch() * 1000),
   `updatedAt` integer NOT NULL DEFAULT (unixepoch() * 1000)
 );
-
+--> statement-breakpoint
 CREATE TABLE IF NOT EXISTS `verification` (
   `id` text PRIMARY KEY NOT NULL,
   `identifier` text NOT NULL,
