@@ -170,7 +170,7 @@ export function WorkspaceList({
   }
 
   return (
-    <div className="grid h-full min-h-0 grid-cols-[320px_minmax(0,1fr)] gap-4">
+    <div className="grid h-full min-h-0 grid-cols-[320px_minmax(0,1fr)_380px] gap-4">
       <div className="flex h-full min-h-0 flex-col rounded-lg border bg-card">
         <div className="shrink-0 border-b p-2">
           <Input
@@ -229,85 +229,83 @@ export function WorkspaceList({
         </div>
       </div>
 
-      <div className="flex h-full min-h-0 flex-col gap-3">
-          <div className="min-h-0 min-w-0 flex-[2]">
-            {selected ? (
-              <div className="flex h-full min-h-0 flex-col">
-                <div className="mb-3 flex shrink-0 items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <h2 className="text-lg font-medium">
-                      #{selected.issue.number} {selected.issue.title}
-                    </h2>
-                    <a
-                      href={selected.issue.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-xs text-muted-foreground underline underline-offset-2"
-                    >
-                      View on GitHub
-                    </a>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="shrink-0"
-                    onClick={() => setFilesOpen(true)}
-                  >
-                    Files
-                  </Button>
-                </div>
-                <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-                  {selected.group && missionId ? (
-                    <IssueRunPanel
-                      key={selected.issue.number}
-                      group={selected.group}
-                      missionId={missionId}
-                      ledgersByTaskId={ledgersByTaskId}
-                      taskRollupsByTaskId={taskRollupsByTaskId}
-                      onActiveTaskChange={setActiveConsole}
-                    />
-                  ) : (
-                    <p className="whitespace-pre-wrap text-sm text-muted-foreground">
-                      {selected.issue.body || 'No description.'}
-                    </p>
-                  )}
-                </div>
-                <div className="mt-3 shrink-0">
-                  <WorkOnItButton
-                    repo={repo}
-                    issue={selected.issue}
-                    headline={selected.group?.headline ?? null}
-                  />
-                </div>
+      <div className="flex h-full min-h-0 flex-col rounded-lg border bg-card">
+        {selected ? (
+          <>
+            <div className="flex shrink-0 items-start justify-between gap-3 border-b p-3">
+              <div className="min-w-0">
+                <h2 className="text-lg font-medium">
+                  #{selected.issue.number} {selected.issue.title}
+                </h2>
+                <a
+                  href={selected.issue.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs text-muted-foreground underline underline-offset-2"
+                >
+                  View on GitHub
+                </a>
               </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">No issue matches your search.</p>
-            )}
-          </div>
-
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border">
-            <div className="shrink-0 border-b bg-muted/40 px-3 py-1.5">
-              <SectionLabel>Run output</SectionLabel>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="shrink-0"
+                onClick={() => setFilesOpen(true)}
+              >
+                Files
+              </Button>
             </div>
-            {activeConsole ? (
-              <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-                <SessionLogView
-                  key={activeConsole.task.id}
-                  taskId={activeConsole.task.id}
-                  isLive={activeConsole.isLive}
-                  initialEvents={activeConsole.ledger}
-                  maxLines={300}
-                  className="h-full rounded-none border-0"
+            <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-3">
+              {selected.group && missionId ? (
+                <IssueRunPanel
+                  key={selected.issue.number}
+                  group={selected.group}
+                  missionId={missionId}
+                  ledgersByTaskId={ledgersByTaskId}
+                  taskRollupsByTaskId={taskRollupsByTaskId}
+                  onActiveTaskChange={setActiveConsole}
                 />
-              </div>
-            ) : (
-              <div className="flex flex-1 items-center justify-center text-xs text-muted-foreground">
-                No task selected.
-              </div>
-            )}
-          </div>
+              ) : (
+                <p className="whitespace-pre-wrap text-sm text-muted-foreground">
+                  {selected.issue.body || 'No description.'}
+                </p>
+              )}
+            </div>
+            <div className="shrink-0 border-t p-3">
+              <WorkOnItButton
+                repo={repo}
+                issue={selected.issue}
+                headline={selected.group?.headline ?? null}
+              />
+            </div>
+          </>
+        ) : (
+          <p className="p-3 text-sm text-muted-foreground">No issue matches your search.</p>
+        )}
+      </div>
+
+      <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border bg-card">
+        <div className="shrink-0 border-b bg-muted/40 px-3 py-1.5">
+          <SectionLabel>Run output</SectionLabel>
         </div>
+        {activeConsole ? (
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <SessionLogView
+              key={activeConsole.task.id}
+              taskId={activeConsole.task.id}
+              isLive={activeConsole.isLive}
+              initialEvents={activeConsole.ledger}
+              maxLines={300}
+              className="h-full rounded-none border-0"
+            />
+          </div>
+        ) : (
+          <div className="flex flex-1 items-center justify-center text-xs text-muted-foreground">
+            No task selected.
+          </div>
+        )}
+      </div>
 
       <Sheet open={filesOpen} onOpenChange={setFilesOpen}>
         <SheetContent side="right" className="flex w-full flex-col gap-0 p-0 sm:max-w-xl">
