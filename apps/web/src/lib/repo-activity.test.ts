@@ -17,6 +17,7 @@ let db: LibSQLDatabase<Record<string, unknown>>;
 let client: { close: () => void };
 let schema: typeof import('@forge/db');
 let listTasksTouchingRepo: typeof import('./repo-activity').listTasksTouchingRepo;
+let countMissionsThisMonth: typeof import('./repo-activity').countMissionsThisMonth;
 
 beforeAll(async () => {
   const dbMod = await import('./db');
@@ -26,7 +27,7 @@ beforeAll(async () => {
     migrationsFolder: resolve(__dirname, '../../../../packages/db/migrations'),
   });
   schema = await import('@forge/db');
-  ({ listTasksTouchingRepo } = await import('./repo-activity'));
+  ({ listTasksTouchingRepo, countMissionsThisMonth } = await import('./repo-activity'));
 });
 
 afterAll(() => {
@@ -94,5 +95,28 @@ describe('listTasksTouchingRepo', () => {
     const issueRow = rows.find((r) => r.task.id === 'tsk_issue')!;
     expect(campaignRow.isIssueMission).toBe(false);
     expect(issueRow.isIssueMission).toBe(true);
+  });
+});
+
+describe('countMissionsThisMonth', () => {
+  it('counts missions targeting this repo created this calendar month', async () => {
+    const thisMonthId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const lastMonthId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const otherRepoId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+
+    await insertMission(thisMonthId, { targetRepos: ['owner/repo'] });
+    await insertMission(lastMonthId, {
+      targetRepos: ['owner/repo'],
+      createdAt: new Date(new Date().getFullYear(), new Date().getMonth() - 1, 15),
+    });
+    await insertMission(otherRepoId, { targetRepos: ['owner/other'] });
+
+    const count = await countMissionsThisMonth('user_1', 'owner/repo');
+    expect(count).toBe(1);
+  });
+
+  it('returns 0 for a repo with no missions this month', async () => {
+    const count = await countMissionsThisMonth('user_1', 'owner/nonexistent');
+    expect(count).toBe(0);
   });
 });

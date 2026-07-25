@@ -7,7 +7,7 @@ import { RepoBudgetLine } from '@/components/repo-budget-line';
 import { env } from '@/lib/env';
 import { listLedgerForTask } from '@/lib/ledger';
 import { getRepoBudget } from '@/lib/repo-budget';
-import { listTasksTouchingRepo } from '@/lib/repo-activity';
+import { countMissionsThisMonth, listTasksTouchingRepo } from '@/lib/repo-activity';
 import { rollupTasks } from '@/lib/rollups';
 import { listTasksForWorkspace } from '@/lib/tasks';
 import { githubSearchIssues } from '@/lib/triage-planner';
@@ -72,6 +72,7 @@ export default async function RepoWorkspacePage({
 
   const mission = await findWorkspaceMission(user.id, repo);
   const repoBudget = await getRepoBudget(user.id, repo);
+  const missionsThisMonth = await countMissionsThisMonth(user.id, repo);
   const tasks = mission ? await listTasksForWorkspace(mission.id) : [];
   const groups = groupTasksByIssue(tasks);
   const rows = mergeIssuesWithGroups(search.issues, groups);
@@ -107,31 +108,39 @@ export default async function RepoWorkspacePage({
         <RepoTabs active={activeTab} repo={repo} />
       </HeaderPortal>
       <div className="shrink-0">
-        <div className="mb-4 flex items-start justify-between gap-4">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h1 title={repo} className="truncate font-mono text-2xl font-semibold tracking-tight">
-                {repo}
-              </h1>
-              {hasActiveWork ? <LiveRefresh intervalMs={5000} /> : null}
+        <div className="mb-4 flex items-center justify-between gap-4 rounded-lg border bg-card px-4 py-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <h1 title={repo} className="truncate font-mono text-lg font-semibold tracking-tight">
+              {repo}
+            </h1>
+            <span className="flex shrink-0 items-center gap-1 text-xs text-live">
+              <span className="inline-block size-1.5 rounded-full bg-live" />
+              Connected
+            </span>
+            {hasActiveWork ? <LiveRefresh intervalMs={5000} /> : null}
+          </div>
+          <div className="flex shrink-0 items-center gap-6">
+            <div className="text-right">
+              <p className="font-mono text-sm font-semibold">{rows.length}</p>
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Open issues</p>
             </div>
-            <div className="mt-1 flex items-center gap-3">
-              <p className="text-sm text-muted-foreground">
-                {rows.length} open issue{rows.length === 1 ? '' : 's'}
-              </p>
+            <div className="text-right">
               <RepoBudgetLine budget={repoBudget} />
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Spend</p>
+            </div>
+            <div className="text-right">
+              <p className="font-mono text-sm font-semibold">{missionsThisMonth}</p>
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Missions this month</p>
             </div>
           </div>
-          <div className="flex shrink-0 items-start gap-2">
-            <NewIssueDialog owner={owner} repo={repoName} />
-            <RepoToolbar
-              repo={repo}
-              containerStatus={
-                mission ? (mission.status === 'paused' ? 'paused' : 'running') : null
-              }
-              missionsHref={mission ? `/missions?repo=${encodeURIComponent(repo)}` : null}
-            />
-          </div>
+        </div>
+        <div className="mb-4 flex items-start justify-end gap-2">
+          <NewIssueDialog owner={owner} repo={repoName} />
+          <RepoToolbar
+            repo={repo}
+            containerStatus={mission ? (mission.status === 'paused' ? 'paused' : 'running') : null}
+            missionsHref={mission ? `/missions?repo=${encodeURIComponent(repo)}` : null}
+          />
         </div>
       </div>
 

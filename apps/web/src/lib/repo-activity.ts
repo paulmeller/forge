@@ -1,4 +1,4 @@
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 
 import { missions, tasks, type Task } from '@forge/db';
 
@@ -36,4 +36,20 @@ export async function listTasksTouchingRepo(userId: string, repo: string): Promi
     missionName: r.missionName,
     isIssueMission: isIssueMission({ issueRef: r.issueRef }),
   }));
+}
+
+/** Missions targeting this repo created since the start of the current
+ *  calendar month — the repo workspace identity zone's "missions this
+ *  month" stat. Follows the same plain-Date-timestamp comparison style
+ *  as getDashboardStats's `weekAgo` in home.ts, not a date library. */
+export async function countMissionsThisMonth(userId: string, repo: string): Promise<number> {
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+
+  const rows = await db
+    .select({ id: missions.id, targetRepos: missions.targetRepos })
+    .from(missions)
+    .where(and(eq(missions.userId, userId), sql`${missions.createdAt} >= ${monthStart}`));
+
+  return rows.filter((m) => (m.targetRepos ?? []).includes(repo)).length;
 }
