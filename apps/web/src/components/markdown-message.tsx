@@ -2,6 +2,24 @@ import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 const MARKDOWN_COMPONENTS: Components = {
+  h1: ({ children }) => (
+    <h1 className="mt-3 text-[1.5em] font-semibold text-foreground first:mt-0">{children}</h1>
+  ),
+  h2: ({ children }) => (
+    <h2 className="mt-3 text-[1.3em] font-semibold text-foreground first:mt-0">{children}</h2>
+  ),
+  h3: ({ children }) => (
+    <h3 className="mt-2.5 text-[1.15em] font-semibold text-foreground first:mt-0">{children}</h3>
+  ),
+  h4: ({ children }) => (
+    <h4 className="mt-2 text-[1.05em] font-semibold text-foreground first:mt-0">{children}</h4>
+  ),
+  h5: ({ children }) => (
+    <h5 className="mt-2 font-semibold text-foreground first:mt-0">{children}</h5>
+  ),
+  h6: ({ children }) => (
+    <h6 className="mt-2 font-semibold text-foreground first:mt-0">{children}</h6>
+  ),
   p: ({ children }) => <p className="mt-1.5 first:mt-0">{children}</p>,
   ul: ({ children }) => <ul className="mt-1.5 list-disc pl-5 first:mt-0">{children}</ul>,
   ol: ({ children }) => <ol className="mt-1.5 list-decimal pl-5 first:mt-0">{children}</ol>,
