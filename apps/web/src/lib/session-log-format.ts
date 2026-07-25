@@ -32,6 +32,18 @@ function truncate(s: string, n: number): string {
   return s.length > n ? `${s.slice(0, n)}…` : s;
 }
 
+/** Full (untruncated) text of the most recent `agent.message` event in a
+ *  chronological (oldest→newest) ledger, or null if there isn't one yet. */
+export function lastAssistantMessage(ledger: LogEventLike[]): string | null {
+  for (let i = ledger.length - 1; i >= 0; i--) {
+    const event = ledger[i];
+    if (!event || event.eventType !== 'agent.message') continue;
+    const text = firstText(event.payload);
+    if (text) return text;
+  }
+  return null;
+}
+
 export function formatLogLine(event: LogEventLike): string {
   const p = asRecord(event.payload);
 

@@ -7,9 +7,11 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PrChip } from '@/components/pr-chip';
 import { TaskProgressPill, type TaskRollup } from '@/components/progress-pill';
+import { MarkdownMessage } from '@/components/markdown-message';
 import { SteerInput } from '@/components/steer-input';
 import { Spinner } from '@/components/ui/spinner';
 import { formatDateTime } from '@/lib/format';
+import { lastAssistantMessage } from '@/lib/session-log-format';
 import type { IssueGroup } from '@/lib/triage-view';
 import type { Task } from '@forge/db';
 
@@ -59,7 +61,7 @@ export function IssueRunPanel({
   const ledger = task ? (ledgersByTaskId[task.id] ?? []) : [];
   const rollup = task ? taskRollupsByTaskId[task.id] : undefined;
   const isLive = task ? RUNNING_STATUSES.has(task.status) : false;
-  const verdict = attempt?.reproduce?.verdict ?? null;
+  const assistantMessage = lastAssistantMessage(ledger);
   const started = formatStarted(task);
   const canAbort = !!task && ABORTABLE_STATUSES.has(task.status);
   const canSteer = !!task && !!task.sessionId && ABORTABLE_STATUSES.has(task.status);
@@ -97,10 +99,10 @@ export function IssueRunPanel({
           </div>
         ) : null}
 
-        {verdict?.summary ? (
-          <p className="rounded-md border bg-muted/40 p-2 text-xs text-muted-foreground">
-            {verdict.summary}
-          </p>
+        {assistantMessage ? (
+          <div className="rounded-md border bg-muted/40 p-2 text-xs text-muted-foreground">
+            <MarkdownMessage>{assistantMessage}</MarkdownMessage>
+          </div>
         ) : null}
 
         {group.attempts.length > 1 ? (
