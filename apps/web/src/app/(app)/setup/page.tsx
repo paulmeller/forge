@@ -47,9 +47,38 @@ export default async function SetupPage() {
     }
   }
 
+  const step = !installation ? 1 : connectedRepos.length === 0 ? 2 : 3;
+
   return (
     <PageShell>
       <PageHeader title="Get set up" subtitle="Connect GitHub and choose which repos Forge can work on." />
+
+      <div className="mb-6 flex items-center">
+        {[
+          { n: 1, label: 'Install' },
+          { n: 2, label: 'Select repos' },
+          { n: 3, label: 'Try it' },
+        ].map((s, i, arr) => (
+          <div key={s.n} className="flex flex-1 items-center last:flex-none">
+            <div className="flex items-center gap-2">
+              <span
+                className={
+                  'flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold ' +
+                  (step > s.n
+                    ? 'bg-live/15 text-live'
+                    : step === s.n
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-muted text-muted-foreground')
+                }
+              >
+                {step > s.n ? '✓' : s.n}
+              </span>
+              <span className="text-xs text-muted-foreground">{s.label}</span>
+            </div>
+            {i < arr.length - 1 ? <div className="mx-3 h-px flex-1 bg-border" /> : null}
+          </div>
+        ))}
+      </div>
 
       <div className="flex flex-col gap-4">
         <div className="rounded-lg border p-4">
