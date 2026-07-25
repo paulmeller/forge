@@ -12,6 +12,8 @@ import { MarkdownMessage } from '@/components/markdown-message';
 import { SectionLabel } from '@/components/section-label';
 import { SessionLogView } from '@/components/session-log-view';
 import type { TaskRollup } from '@/components/progress-pill';
+import { partitionLedgerByAttention } from '@/lib/partition-ledger';
+import { formatLogLine } from '@/lib/session-log-format';
 import { statusLabel } from '@/lib/status-labels';
 import { cn } from '@/lib/utils';
 import type { WorkspaceIssueRow } from '@/lib/workspace-issues';
@@ -291,15 +293,35 @@ export function WorkspaceList({
           <SectionLabel>Run output</SectionLabel>
         </div>
         {activeConsole ? (
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-            <SessionLogView
-              key={activeConsole.task.id}
-              taskId={activeConsole.task.id}
-              isLive={activeConsole.isLive}
-              initialEvents={activeConsole.ledger}
-              maxLines={300}
-              className="h-full rounded-none border-0"
-            />
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
+            {(() => {
+              const { attention, activity } = partitionLedgerByAttention(activeConsole.ledger);
+              return attention.length > 0 ? (
+                <div className="shrink-0 border-b">
+                  {attention.map((e, i) => (
+                    <div key={i} className="flex items-start gap-2 border-b px-3 py-2 text-xs last:border-b-0">
+                      <span className="mt-0.5 shrink-0 rounded bg-destructive/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-destructive">
+                        Blocker
+                      </span>
+                      <span className="text-muted-foreground">{formatLogLine(e)}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : null;
+            })()}
+            <details className="min-h-0 flex-1" open={activeConsole.ledger.length <= 0}>
+              <summary className="cursor-pointer border-b bg-muted/20 px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                Activity ({activeConsole.ledger.length} events)
+              </summary>
+              <SessionLogView
+                key={activeConsole.task.id}
+                taskId={activeConsole.task.id}
+                isLive={activeConsole.isLive}
+                initialEvents={activeConsole.ledger}
+                maxLines={300}
+                className="h-full rounded-none border-0"
+              />
+            </details>
           </div>
         ) : (
           <div className="flex flex-1 items-center justify-center text-xs text-muted-foreground">
