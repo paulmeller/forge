@@ -4,8 +4,10 @@ import { useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { Input } from '@/components/ui/input';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { SectionLabel } from '@/components/section-label';
 import { SessionLogView } from '@/components/session-log-view';
 import type { TaskRollup } from '@/components/progress-pill';
@@ -59,6 +61,7 @@ export function WorkspaceList({
   );
   const [pending, startTransition] = useTransition();
   const [activeConsole, setActiveConsole] = useState<ActiveTaskInfo | null>(null);
+  const [filesOpen, setFilesOpen] = useState(false);
 
   const allLabels = useMemo(() => {
     const labels = new Set<string>();
@@ -167,7 +170,7 @@ export function WorkspaceList({
   }
 
   return (
-    <div className="grid h-full min-h-0 grid-cols-[320px_minmax(0,1fr)_380px] gap-4">
+    <div className="grid h-full min-h-0 grid-cols-[320px_minmax(0,1fr)] gap-4">
       <div className="flex h-full min-h-0 flex-col rounded-lg border bg-card">
         <div className="shrink-0 border-b p-2">
           <Input
@@ -226,37 +229,33 @@ export function WorkspaceList({
         </div>
       </div>
 
-      <div className="flex h-full min-h-0 flex-col rounded-lg border bg-card">
-        <div className="shrink-0 border-b p-2">
-          <SectionLabel>Files</SectionLabel>
-        </div>
-        <div className="min-h-0 flex-1">
-          {activeConsole ? (
-            <AttemptFileBrowser task={activeConsole.task} ledger={activeConsole.ledger} />
-          ) : (
-            <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-              No task selected.
-            </div>
-          )}
-        </div>
-      </div>
-
       <div className="flex h-full min-h-0 flex-col gap-3">
           <div className="min-h-0 min-w-0 flex-[2]">
             {selected ? (
               <div className="flex h-full min-h-0 flex-col">
-                <div className="mb-3 shrink-0">
-                  <h2 className="text-lg font-medium">
-                    #{selected.issue.number} {selected.issue.title}
-                  </h2>
-                  <a
-                    href={selected.issue.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-xs text-muted-foreground underline underline-offset-2"
+                <div className="mb-3 flex shrink-0 items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h2 className="text-lg font-medium">
+                      #{selected.issue.number} {selected.issue.title}
+                    </h2>
+                    <a
+                      href={selected.issue.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-xs text-muted-foreground underline underline-offset-2"
+                    >
+                      View on GitHub
+                    </a>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0"
+                    onClick={() => setFilesOpen(true)}
                   >
-                    View on GitHub
-                  </a>
+                    Files
+                  </Button>
                 </div>
                 <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
                   {selected.group && missionId ? (
@@ -309,6 +308,23 @@ export function WorkspaceList({
             )}
           </div>
         </div>
+
+      <Sheet open={filesOpen} onOpenChange={setFilesOpen}>
+        <SheetContent side="right" className="flex w-full flex-col gap-0 p-0 sm:max-w-xl">
+          <SheetHeader className="shrink-0 border-b p-4">
+            <SheetTitle>Files</SheetTitle>
+          </SheetHeader>
+          <div className="min-h-0 flex-1">
+            {activeConsole ? (
+              <AttemptFileBrowser task={activeConsole.task} ledger={activeConsole.ledger} />
+            ) : (
+              <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+                No task selected.
+              </div>
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
