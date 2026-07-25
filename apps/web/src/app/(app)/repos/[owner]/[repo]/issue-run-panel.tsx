@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useTransition } from 'react';
+import { Check } from 'lucide-react';
 import Link from 'next/link';
 
 import { Badge } from '@/components/ui/badge';
@@ -72,7 +73,10 @@ export function MergeStepper({ state }: { state: MergeStepperState }) {
         {steps.map((step, i) => (
           <div key={step.label} className="flex items-center">
             {i > 0 ? (
-              <div className={cn('h-0.5 w-5', steps[i - 1]!.state === 'done' ? 'bg-live' : 'bg-border')} />
+              <div
+                aria-hidden
+                className={cn('h-0.5 w-5 shrink-0', steps[i - 1]!.state === 'done' ? 'bg-live' : 'bg-border')}
+              />
             ) : null}
             <div className="flex items-center gap-1.5">
               <span
@@ -85,7 +89,7 @@ export function MergeStepper({ state }: { state: MergeStepperState }) {
                       : 'border border-border bg-background text-muted-foreground',
                 )}
               >
-                {step.state === 'done' ? '✓' : i + 1}
+                {step.state === 'done' ? <Check className="size-3" /> : i + 1}
               </span>
               <span className="text-xs font-medium">{step.label}</span>
             </div>
