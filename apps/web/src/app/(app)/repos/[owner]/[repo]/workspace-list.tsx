@@ -235,32 +235,32 @@ export function WorkspaceList({
       <div className="flex h-full min-h-0 flex-col rounded-lg border bg-card">
         {selected ? (
           <>
-            <div className="flex shrink-0 items-start justify-between gap-3 border-b p-3">
-              <div className="min-w-0">
-                <h2 className="text-lg font-medium">
-                  #{selected.issue.number} {selected.issue.title}
-                </h2>
-                <div className="mt-1.5 flex items-center gap-3">
+            <div className="flex shrink-0 flex-col gap-2 border-b p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h2 className="text-lg font-medium">
+                    #{selected.issue.number} {selected.issue.title}
+                  </h2>
                   <a
                     href={selected.issue.url}
                     target="_blank"
                     rel="noreferrer"
-                    className="text-xs text-muted-foreground underline underline-offset-2"
+                    className="mt-1.5 inline-block text-xs text-muted-foreground underline underline-offset-2"
                   >
                     View on GitHub
                   </a>
-                  {activeConsole ? <MergeStepper state={activeConsole.mergeStepper} /> : null}
                 </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0"
+                  onClick={() => setFilesOpen(true)}
+                >
+                  Files
+                </Button>
               </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="shrink-0"
-                onClick={() => setFilesOpen(true)}
-              >
-                Files
-              </Button>
+              {activeConsole ? <MergeStepper state={activeConsole.mergeStepper} /> : null}
             </div>
             <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-3">
               {selected.group && missionId ? (

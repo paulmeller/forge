@@ -62,7 +62,7 @@ export function MergeStepper({ state }: { state: MergeStepperState }) {
   ];
 
   return (
-    <div className="inline-flex items-center gap-2 rounded-md border bg-muted/40 py-1 pl-2 pr-2.5">
+    <div className="flex w-full items-center gap-3 rounded-md border bg-muted/40 px-3 py-2">
       {state.needsAttention ? (
         <Badge variant="destructive" className="text-[10px] uppercase">
           Needs human attention
