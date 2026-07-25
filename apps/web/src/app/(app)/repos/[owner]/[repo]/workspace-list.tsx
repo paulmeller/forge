@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { Input } from '@/components/ui/input';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { MarkdownMessage } from '@/components/markdown-message';
 import { SectionLabel } from '@/components/section-label';
 import { SessionLogView } from '@/components/session-log-view';
 import type { TaskRollup } from '@/components/progress-pill';
@@ -267,9 +268,9 @@ export function WorkspaceList({
                   onActiveTaskChange={setActiveConsole}
                 />
               ) : (
-                <p className="whitespace-pre-wrap text-sm text-muted-foreground">
-                  {selected.issue.body || 'No description.'}
-                </p>
+                <div className="text-sm text-muted-foreground">
+                  <MarkdownMessage>{selected.issue.body || 'No description.'}</MarkdownMessage>
+                </div>
               )}
             </div>
             <div className="shrink-0 border-t p-3">
