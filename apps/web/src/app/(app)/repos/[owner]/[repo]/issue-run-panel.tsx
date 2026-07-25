@@ -3,6 +3,7 @@
 import { useEffect, useState, useTransition } from 'react';
 import Link from 'next/link';
 
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PrChip } from '@/components/pr-chip';
@@ -13,6 +14,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { formatDateTime } from '@/lib/format';
 import { deriveMergeStepper, type MergeStepperState } from '@/lib/merge-stepper';
 import { lastAssistantMessage } from '@/lib/session-log-format';
+import { cn } from '@/lib/utils';
 import type { IssueGroup } from '@/lib/triage-view';
 import type { Task } from '@forge/db';
 
@@ -47,9 +49,9 @@ function formatStarted(task: Task | null): string | null {
 export function MergeStepper({ state }: { state: MergeStepperState }) {
   if (state.kind === 'failed') {
     return (
-      <span className="inline-flex items-center gap-1 rounded-md border border-destructive/40 bg-destructive/5 px-2 py-1 text-[10px] font-semibold uppercase text-destructive">
+      <Badge variant="destructive" className="text-[10px] uppercase">
         Task failed
-      </span>
+      </Badge>
     );
   }
   if (state.kind !== 'steps') return null;
@@ -62,30 +64,26 @@ export function MergeStepper({ state }: { state: MergeStepperState }) {
   return (
     <div className="inline-flex items-center gap-2 rounded-md border bg-muted/40 py-1 pl-2 pr-2.5">
       {state.needsAttention ? (
-        <span className="rounded bg-destructive/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-destructive">
+        <Badge variant="destructive" className="text-[10px] uppercase">
           Needs human attention
-        </span>
+        </Badge>
       ) : null}
       <div className="flex items-center">
         {steps.map((step, i) => (
           <div key={step.label} className="flex items-center">
             {i > 0 ? (
-              <div
-                className={
-                  'h-0.5 w-5 ' + (steps[i - 1]!.state === 'done' ? 'bg-live' : 'bg-border')
-                }
-              />
+              <div className={cn('h-0.5 w-5', steps[i - 1]!.state === 'done' ? 'bg-live' : 'bg-border')} />
             ) : null}
             <div className="flex items-center gap-1.5">
               <span
-                className={
-                  'flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ' +
-                  (step.state === 'done'
+                className={cn(
+                  'flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold',
+                  step.state === 'done'
                     ? 'bg-live text-background'
                     : step.state === 'active'
                       ? 'bg-primary text-primary-foreground'
-                      : 'border border-border bg-background text-muted-foreground')
-                }
+                      : 'border border-border bg-background text-muted-foreground',
+                )}
               >
                 {step.state === 'done' ? '✓' : i + 1}
               </span>
