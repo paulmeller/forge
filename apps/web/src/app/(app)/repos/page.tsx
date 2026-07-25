@@ -11,6 +11,7 @@ import { groupMissionsByRepo, summarizeRepoMissions } from '@/lib/group-missions
 import { filterMissionList, hasActiveMissionListFilters } from '@/lib/mission-list-filters';
 import { listUserRepos } from '@/lib/mission-defaults-db';
 import { listMissions } from '@/lib/missions';
+import { countBlockedTasksByRepo } from '@/lib/repo-activity';
 import { sparklinesForMissions } from '@/lib/rollups';
 import { withAuth } from '@/lib/with-auth';
 
@@ -59,6 +60,8 @@ export default async function ReposPage({
 
   const ids = missions.map((m) => m.id);
   const sparklines = await sparklinesForMissions(ids);
+  const blockersByRepo = await countBlockedTasksByRepo(user.id);
+  const connectedRepos = await listUserRepos(user.id);
 
   const rows = repoNames.map((repo) => {
     const repoMissions = missionsByRepo.get(repo)!;
@@ -67,7 +70,9 @@ export default async function ReposPage({
       const s = sparklines.get(m.id) ?? [];
       return acc.map((v, i) => v + (s[i] ?? 0));
     }, new Array(30).fill(0));
-    return { repo, summary, sparkline };
+    const missionCount = summary.breakdown.reduce((sum, b) => sum + b.count, 0);
+    const blockers = blockersByRepo.get(repo) ?? 0;
+    return { repo, summary, sparkline, missionCount, blockers };
   });
 
   return (
@@ -97,11 +102,26 @@ export default async function ReposPage({
         }
       />
 
-      <div className="rise rise-1 mb-4">
+      <div className="rise rise-1 mb-4 grid grid-cols-3 gap-3">
+        <div className="rounded-lg border bg-card px-4 py-3">
+          <p className="font-mono text-xl font-semibold">{connectedRepos.length}</p>
+          <p className="text-xs text-muted-foreground">Repos connected</p>
+        </div>
+        <div className="rounded-lg border bg-card px-4 py-3">
+          <p className="font-mono text-xl font-semibold">{[...blockersByRepo.keys()].length}</p>
+          <p className="text-xs text-muted-foreground">Repos with open blockers</p>
+        </div>
+        <div className="rounded-lg border bg-card px-4 py-3">
+          <p className="font-mono text-xl font-semibold">${stats.spentUsd.toFixed(2)}</p>
+          <p className="text-xs text-muted-foreground">Total spend</p>
+        </div>
+      </div>
+
+      <div className="rise rise-2 mb-4">
         <MissionFilters basePath="/repos" />
       </div>
 
-      <div className="rise rise-2">
+      <div className="rise rise-3">
         <ReposTable rows={rows} hasFilters={hasFilters} />
       </div>
     </PageShell>

@@ -53,3 +53,18 @@ export async function countMissionsThisMonth(userId: string, repo: string): Prom
 
   return rows.filter((m) => (m.targetRepos ?? []).includes(repo)).length;
 }
+
+/** Maps repo -> count of that repo's tasks currently in `awaiting_review`
+ *  ("escalated to a human for any reason" — see merge-stepper.ts for why
+ *  this is the one real proxy Forge has for "this needs attention today").
+ *  Repos with zero such tasks are omitted from the returned map. */
+export async function countBlockedTasksByRepo(userId: string): Promise<Map<string, number>> {
+  const rows = await db
+    .select({ repo: tasks.repo, count: sql<number>`count(*)` })
+    .from(tasks)
+    .innerJoin(missions, eq(tasks.missionId, missions.id))
+    .where(and(eq(missions.userId, userId), eq(tasks.status, 'awaiting_review')))
+    .groupBy(tasks.repo);
+
+  return new Map(rows.map((r) => [r.repo, Number(r.count)]));
+}

@@ -40,6 +40,8 @@ export type RepoRow = {
     mostRecentCreatedAt: Date;
   };
   sparkline: number[];
+  missionCount: number;
+  blockers: number;
 };
 
 export function ReposTable({ rows, hasFilters }: { rows: RepoRow[]; hasFilters?: boolean }) {
@@ -62,12 +64,14 @@ export function ReposTable({ rows, hasFilters }: { rows: RepoRow[]; hasFilters?:
           <TableHead>Name</TableHead>
           <TableHead>Status</TableHead>
           <TableHead>Progress</TableHead>
+          <TableHead>Missions</TableHead>
+          <TableHead>Blockers</TableHead>
           <TableHead>Activity (24h)</TableHead>
           <TableHead className="text-right">Created</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
-        {rows.map(({ repo, summary, sparkline }) => {
+        {rows.map(({ repo, summary, sparkline, missionCount, blockers }) => {
           const [owner, name] = repo.split('/');
           return (
             <TableRow key={repo} className="relative cursor-pointer">
@@ -92,6 +96,14 @@ export function ReposTable({ rows, hasFilters }: { rows: RepoRow[]; hasFilters?:
                     </Chip>
                   ))}
                 </div>
+              </TableCell>
+              <TableCell className="font-mono text-sm">{missionCount}</TableCell>
+              <TableCell>
+                {blockers > 0 ? (
+                  <Chip tone="bad">{blockers}</Chip>
+                ) : (
+                  <span className="text-xs text-muted-foreground">0</span>
+                )}
               </TableCell>
               <TableCell>
                 <Sparkline values={sparkline} className="text-foreground/70" />

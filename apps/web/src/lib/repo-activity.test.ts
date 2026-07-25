@@ -18,6 +18,7 @@ let client: { close: () => void };
 let schema: typeof import('@forge/db');
 let listTasksTouchingRepo: typeof import('./repo-activity').listTasksTouchingRepo;
 let countMissionsThisMonth: typeof import('./repo-activity').countMissionsThisMonth;
+let countBlockedTasksByRepo: typeof import('./repo-activity').countBlockedTasksByRepo;
 
 beforeAll(async () => {
   const dbMod = await import('./db');
@@ -27,7 +28,7 @@ beforeAll(async () => {
     migrationsFolder: resolve(__dirname, '../../../../packages/db/migrations'),
   });
   schema = await import('@forge/db');
-  ({ listTasksTouchingRepo, countMissionsThisMonth } = await import('./repo-activity'));
+  ({ listTasksTouchingRepo, countMissionsThisMonth, countBlockedTasksByRepo } = await import('./repo-activity'));
 });
 
 afterAll(() => {
@@ -118,5 +119,23 @@ describe('countMissionsThisMonth', () => {
   it('returns 0 for a repo with no missions this month', async () => {
     const count = await countMissionsThisMonth('user_1', 'owner/nonexistent');
     expect(count).toBe(0);
+  });
+});
+
+describe('countBlockedTasksByRepo', () => {
+  it('counts tasks in awaiting_review status, grouped by repo, for a user', async () => {
+    const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    await insertMission(missionId, { targetRepos: ['owner/repo'] });
+    await insertTask('tsk_blocked0000000001', missionId, 'owner/repo', { status: 'awaiting_review' });
+    await insertTask('tsk_blocked0000000002', missionId, 'owner/repo', { status: 'awaiting_review' });
+    await insertTask('tsk_running00000000003', missionId, 'owner/repo', { status: 'running' });
+
+    const result = await countBlockedTasksByRepo('user_1');
+    expect(result.get('owner/repo')).toBe(2);
+  });
+
+  it('omits repos with zero blocked tasks from the map', async () => {
+    const result = await countBlockedTasksByRepo('user_with_no_blockers');
+    expect(result.has('owner/repo')).toBe(false);
   });
 });
