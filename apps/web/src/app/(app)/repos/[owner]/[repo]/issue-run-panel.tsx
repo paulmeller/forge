@@ -11,7 +11,7 @@ import { MarkdownMessage } from '@/components/markdown-message';
 import { SteerInput } from '@/components/steer-input';
 import { Spinner } from '@/components/ui/spinner';
 import { formatDateTime } from '@/lib/format';
-import { deriveMergeStepper, type MergeStepperState, type StepState } from '@/lib/merge-stepper';
+import { deriveMergeStepper, type MergeStepperState } from '@/lib/merge-stepper';
 import { lastAssistantMessage } from '@/lib/session-log-format';
 import type { IssueGroup } from '@/lib/triage-view';
 import type { Task } from '@forge/db';
@@ -40,23 +40,61 @@ function formatStarted(task: Task | null): string | null {
   return formatDateTime(at, { seconds: true });
 }
 
-export function StepDot({ state, label }: { state: StepState; label: string }) {
-  return (
-    <span className="flex items-center gap-1.5 text-xs">
-      <span
-        className={
-          'flex size-4 items-center justify-center rounded-full text-[9px] font-bold ' +
-          (state === 'done'
-            ? 'bg-live/15 text-live'
-            : state === 'active'
-              ? 'bg-primary text-primary-foreground'
-              : 'bg-muted text-muted-foreground')
-        }
-      >
-        {state === 'done' ? '✓' : ''}
+/** Renders the full CI -> Merge stepper (or the failed/hidden fallback) as
+ *  one visually contained widget — a bordered pill with numbered, connected
+ *  steps, rather than loose badges + a hairline the eye has to piece
+ *  together as "a stepper." */
+export function MergeStepper({ state }: { state: MergeStepperState }) {
+  if (state.kind === 'failed') {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-md border border-destructive/40 bg-destructive/5 px-2 py-1 text-[10px] font-semibold uppercase text-destructive">
+        Task failed
       </span>
-      {label}
-    </span>
+    );
+  }
+  if (state.kind !== 'steps') return null;
+
+  const steps: Array<{ label: string; state: (typeof state)['ci'] }> = [
+    { label: 'CI', state: state.ci },
+    { label: 'Merge', state: state.merge },
+  ];
+
+  return (
+    <div className="inline-flex items-center gap-2 rounded-md border bg-muted/40 py-1 pl-2 pr-2.5">
+      {state.needsAttention ? (
+        <span className="rounded bg-destructive/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-destructive">
+          Needs human attention
+        </span>
+      ) : null}
+      <div className="flex items-center">
+        {steps.map((step, i) => (
+          <div key={step.label} className="flex items-center">
+            {i > 0 ? (
+              <div
+                className={
+                  'h-0.5 w-5 ' + (steps[i - 1]!.state === 'done' ? 'bg-live' : 'bg-border')
+                }
+              />
+            ) : null}
+            <div className="flex items-center gap-1.5">
+              <span
+                className={
+                  'flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ' +
+                  (step.state === 'done'
+                    ? 'bg-live text-background'
+                    : step.state === 'active'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'border border-border bg-background text-muted-foreground')
+                }
+              >
+                {step.state === 'done' ? '✓' : i + 1}
+              </span>
+              <span className="text-xs font-medium">{step.label}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
