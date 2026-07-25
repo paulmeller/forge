@@ -62,13 +62,13 @@ export function MergeStepper({ state }: { state: MergeStepperState }) {
   ];
 
   return (
-    <div className="flex w-full items-center gap-3 rounded-md border bg-muted/40 px-3 py-2">
+    <div className="flex w-full flex-col gap-2">
       {state.needsAttention ? (
-        <Badge variant="destructive" className="text-[10px] uppercase">
+        <Badge variant="destructive" className="w-fit text-[10px] uppercase">
           Needs human attention
         </Badge>
       ) : null}
-      <div className="flex items-center">
+      <div className="flex w-full items-center gap-3 rounded-md border bg-muted/40 px-3 py-2">
         {steps.map((step, i) => (
           <div key={step.label} className="flex items-center">
             {i > 0 ? (
