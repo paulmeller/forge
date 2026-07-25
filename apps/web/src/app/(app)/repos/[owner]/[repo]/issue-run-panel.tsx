@@ -11,6 +11,7 @@ import { MarkdownMessage } from '@/components/markdown-message';
 import { SteerInput } from '@/components/steer-input';
 import { Spinner } from '@/components/ui/spinner';
 import { formatDateTime } from '@/lib/format';
+import { deriveMergeStepper, type StepState } from '@/lib/merge-stepper';
 import { lastAssistantMessage } from '@/lib/session-log-format';
 import type { IssueGroup } from '@/lib/triage-view';
 import type { Task } from '@forge/db';
@@ -32,6 +33,26 @@ function formatStarted(task: Task | null): string | null {
   const at = task?.dispatchedAt ?? task?.createdAt ?? null;
   if (!at) return null;
   return formatDateTime(at, { seconds: true });
+}
+
+function StepDot({ state, label }: { state: StepState; label: string }) {
+  return (
+    <span className="flex items-center gap-1.5 text-xs">
+      <span
+        className={
+          'flex size-4 items-center justify-center rounded-full text-[9px] font-bold ' +
+          (state === 'done'
+            ? 'bg-live/15 text-live'
+            : state === 'active'
+              ? 'bg-primary text-primary-foreground'
+              : 'bg-muted text-muted-foreground')
+        }
+      >
+        {state === 'done' ? '✓' : ''}
+      </span>
+      {label}
+    </span>
+  );
 }
 
 export function IssueRunPanel({
@@ -62,6 +83,7 @@ export function IssueRunPanel({
   const rollup = task ? taskRollupsByTaskId[task.id] : undefined;
   const isLive = task ? RUNNING_STATUSES.has(task.status) : false;
   const assistantMessage = lastAssistantMessage(ledger);
+  const mergeStepper = task ? deriveMergeStepper(task.status, task.prUrl) : { kind: 'hidden' as const };
   const started = formatStarted(task);
   const canAbort = !!task && ABORTABLE_STATUSES.has(task.status);
   const canSteer = !!task && !!task.sessionId && ABORTABLE_STATUSES.has(task.status);
@@ -97,6 +119,23 @@ export function IssueRunPanel({
               <PrChip key={f.id} prUrl={f.prUrl!} prNumber={f.prNumber} status={f.status} />
             ))}
           </div>
+        ) : null}
+
+        {mergeStepper.kind === 'steps' ? (
+          <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2">
+            {mergeStepper.needsAttention ? (
+              <span className="mr-1 rounded bg-destructive/15 px-1.5 py-0.5 text-[10px] font-medium text-destructive">
+                Needs human attention
+              </span>
+            ) : null}
+            <StepDot state={mergeStepper.ci} label="CI" />
+            <span className="h-px w-4 bg-border" />
+            <StepDot state={mergeStepper.merge} label="Merge" />
+          </div>
+        ) : mergeStepper.kind === 'failed' ? (
+          <p className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+            Task failed — see run output for details.
+          </p>
         ) : null}
 
         {assistantMessage ? (
