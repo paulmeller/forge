@@ -51,7 +51,7 @@ Replaces the current flat `PrChip` badge (`components/pr-chip.tsx`, a single `"P
 ## 6. Repos Page Rollup Strip + Table Reshape
 
 `apps/web/src/app/(app)/repos/page.tsx` (already grouped-by-repo with sparklines from an earlier redesign this session) gains:
-- A rollup strip above the existing table: **Repos connected** (count from `listUserRepos`), **Repos with a blocker** (count of distinct repos having ≥1 task currently in `awaiting_review` status), **Total spend this week** (reuses whatever spend aggregation `getDashboardStats`/`RepoBudgetLine` already compute, scoped to the user's repos).
+- A rollup strip above the existing table: **Repos connected** (count from `listUserRepos`), **Repos with a blocker** (count of distinct repos having ≥1 task currently in `awaiting_review` status), **Total spend** (reuses `getDashboardStats`'s `spentUsd`, which is an all-time total across the user's missions, not scoped to a time window).
 - Table rows gain two new columns: **Missions** (count of missions touching that repo, reusing the same grouping the page already does via `groupMissionsByRepo`) and **Blockers** (count of that repo's tasks in `awaiting_review`, 0 shown plain, >0 shown in the warn-tone pill). The existing sparkline and status-tone columns are unchanged.
 - "Blocker" is defined identically here and in the Repos page as: **a task currently in `awaiting_review` status** — the one real, already-existing proxy for "this needs a human," consistent with item 4's finding that Forge has no other/better signal for this today.
 
