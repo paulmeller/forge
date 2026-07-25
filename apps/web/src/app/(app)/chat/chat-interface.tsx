@@ -2,11 +2,13 @@
 
 import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport } from 'ai';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { MarkdownMessage } from '@/components/markdown-message';
+import type { RecentMission } from '@/lib/recent-missions';
 import { cn } from '@/lib/utils';
 
 const MCP_TOOLS = [
@@ -15,7 +17,14 @@ const MCP_TOOLS = [
   { name: 'Slack', description: 'Send messages and updates', connected: false },
 ];
 
-export function ChatInterface() {
+const SUGGESTIONS = [
+  { title: 'Fix a failing test', description: 'Point Forge at a red CI run to root-cause and patch it.', prompt: 'Find the currently failing test in ' },
+  { title: 'Triage open issues', description: 'Rank and reproduce every open bug in a repo.', prompt: 'Triage all open issues in ' },
+  { title: 'Bump a dependency, fleet-wide', description: "Apply the same change and open PRs across every connected repo.", prompt: 'Bump ' },
+  { title: 'Add a feature', description: 'Describe the outcome; Forge plans the steps before touching code.', prompt: '' },
+];
+
+export function ChatInterface({ recentMissions = [] }: { recentMissions?: RecentMission[] }) {
   const router = useRouter();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [showMcp, setShowMcp] = useState(false);
@@ -60,16 +69,42 @@ export function ChatInterface() {
       {/* Chat area */}
       <div className="flex-1 overflow-y-auto" ref={scrollRef}>
         {!hasMessages ? (
-          <div className="flex h-full flex-col items-center justify-center">
-            <h1 className="mb-2 font-title text-4xl uppercase tracking-tight text-muted-foreground/20">
-              FORGE
-            </h1>
-            <p className="mb-1 text-sm text-muted-foreground">
+          <div className="mx-auto flex h-full max-w-[560px] flex-col justify-center px-6">
+            <p className="mb-5 text-center text-sm text-muted-foreground">
               What would you like to work on?
             </p>
-            <p className="text-xs text-muted-foreground/60">
-              Describe a task. Forge dispatches an agent to do it.
-            </p>
+            <div className="mb-6 grid grid-cols-2 gap-2">
+              {SUGGESTIONS.map((s) => (
+                <button
+                  key={s.title}
+                  type="button"
+                  onClick={() => setInput(s.prompt)}
+                  className="rounded-lg border p-3 text-left transition-colors hover:bg-accent"
+                >
+                  <p className="text-xs font-semibold">{s.title}</p>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">{s.description}</p>
+                </button>
+              ))}
+            </div>
+            {recentMissions.length > 0 ? (
+              <div>
+                <p className="mb-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
+                  Recent
+                </p>
+                <div className="flex flex-col gap-1">
+                  {recentMissions.map((m) => (
+                    <Link
+                      key={m.id}
+                      href={`/missions/${m.id}`}
+                      className="flex items-center justify-between rounded-md px-2 py-1.5 text-xs hover:bg-accent"
+                    >
+                      <span className="truncate">{m.name}</span>
+                      <span className="ml-2 shrink-0 text-[10px] text-muted-foreground">{m.status}</span>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </div>
         ) : (
           <div className="mx-auto w-full max-w-[720px] px-6 py-8">
