@@ -11,7 +11,7 @@ import { MarkdownMessage } from '@/components/markdown-message';
 import { SteerInput } from '@/components/steer-input';
 import { Spinner } from '@/components/ui/spinner';
 import { formatDateTime } from '@/lib/format';
-import { deriveMergeStepper, type StepState } from '@/lib/merge-stepper';
+import { deriveMergeStepper, type MergeStepperState, type StepState } from '@/lib/merge-stepper';
 import { lastAssistantMessage } from '@/lib/session-log-format';
 import type { IssueGroup } from '@/lib/triage-view';
 import type { Task } from '@forge/db';
@@ -24,7 +24,12 @@ export type LedgerRow = { id: string; eventType: string; payload: unknown; creat
 /** The task currently selected via the attempt/stage tabs, lifted up so
  *  WorkspaceList can render the file browser and log console for it in
  *  their own persistent panels, outside this component. */
-export type ActiveTaskInfo = { task: Task; ledger: LedgerRow[]; isLive: boolean };
+export type ActiveTaskInfo = {
+  task: Task;
+  ledger: LedgerRow[];
+  isLive: boolean;
+  mergeStepper: MergeStepperState;
+};
 
 const RUNNING_STATUSES = new Set(['queued', 'dispatching', 'running']);
 const ABORTABLE_STATUSES = new Set(['dispatching', 'running', 'turn_ended', 'opening_pr']);
@@ -35,7 +40,7 @@ function formatStarted(task: Task | null): string | null {
   return formatDateTime(at, { seconds: true });
 }
 
-function StepDot({ state, label }: { state: StepState; label: string }) {
+export function StepDot({ state, label }: { state: StepState; label: string }) {
   return (
     <span className="flex items-center gap-1.5 text-xs">
       <span
@@ -91,13 +96,14 @@ export function IssueRunPanel({
   const prChips = group.attempts.map((a) => a.fix).filter((f): f is Task => !!f?.prUrl);
 
   useEffect(() => {
-    onActiveTaskChange(task ? { task, ledger, isLive } : null);
+    onActiveTaskChange(task ? { task, ledger, isLive, mergeStepper } : null);
     return () => onActiveTaskChange(null);
-    // Only re-notify when the active task or its live-ness actually changes —
-    // `ledger`/`onActiveTaskChange` are fresh references every render and
-    // would otherwise re-fire this on every poll.
+    // Only re-notify when the active task, its status (which drives the
+    // merge stepper shown in the parent's header), or its live-ness
+    // actually changes — `ledger`/`onActiveTaskChange` are fresh references
+    // every render and would otherwise re-fire this on every poll.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [task?.id, isLive]);
+  }, [task?.id, task?.status, isLive]);
 
   if (!attempt) return <p className="text-xs text-muted-foreground">No attempts yet.</p>;
 
@@ -119,23 +125,6 @@ export function IssueRunPanel({
               <PrChip key={f.id} prUrl={f.prUrl!} prNumber={f.prNumber} status={f.status} />
             ))}
           </div>
-        ) : null}
-
-        {mergeStepper.kind === 'steps' ? (
-          <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2">
-            {mergeStepper.needsAttention ? (
-              <span className="mr-1 rounded bg-destructive/15 px-1.5 py-0.5 text-[10px] font-medium text-destructive">
-                Needs human attention
-              </span>
-            ) : null}
-            <StepDot state={mergeStepper.ci} label="CI" />
-            <span className="h-px w-4 bg-border" />
-            <StepDot state={mergeStepper.merge} label="Merge" />
-          </div>
-        ) : mergeStepper.kind === 'failed' ? (
-          <p className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-            Task failed — see run output for details.
-          </p>
         ) : null}
 
         {assistantMessage ? (

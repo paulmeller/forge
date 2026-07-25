@@ -20,7 +20,7 @@ import type { WorkspaceIssueRow } from '@/lib/workspace-issues';
 
 import { toggleNextMarker } from './actions';
 import { AttemptFileBrowser } from './attempt-file-browser';
-import { IssueRunPanel, type ActiveTaskInfo } from './issue-run-panel';
+import { IssueRunPanel, StepDot, type ActiveTaskInfo } from './issue-run-panel';
 import { WorkOnItButton } from './work-on-it-button';
 
 const TERMINAL_HEADLINES = new Set(['fixed', 'not_reproduced', 'fix_skipped', 'failed']);
@@ -240,14 +240,32 @@ export function WorkspaceList({
                 <h2 className="text-lg font-medium">
                   #{selected.issue.number} {selected.issue.title}
                 </h2>
-                <a
-                  href={selected.issue.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-xs text-muted-foreground underline underline-offset-2"
-                >
-                  View on GitHub
-                </a>
+                <div className="mt-1 flex items-center gap-3">
+                  <a
+                    href={selected.issue.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-xs text-muted-foreground underline underline-offset-2"
+                  >
+                    View on GitHub
+                  </a>
+                  {activeConsole?.mergeStepper.kind === 'steps' ? (
+                    <div className="flex items-center gap-2">
+                      {activeConsole.mergeStepper.needsAttention ? (
+                        <span className="rounded bg-destructive/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-destructive">
+                          Needs human attention
+                        </span>
+                      ) : null}
+                      <StepDot state={activeConsole.mergeStepper.ci} label="CI" />
+                      <span className="h-px w-4 bg-border" />
+                      <StepDot state={activeConsole.mergeStepper.merge} label="Merge" />
+                    </div>
+                  ) : activeConsole?.mergeStepper.kind === 'failed' ? (
+                    <span className="rounded bg-destructive/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-destructive">
+                      Task failed
+                    </span>
+                  ) : null}
+                </div>
               </div>
               <Button
                 type="button"
