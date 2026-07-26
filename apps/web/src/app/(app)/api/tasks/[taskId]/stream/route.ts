@@ -1,9 +1,5 @@
-import { eq } from 'drizzle-orm';
-
-import { tasks } from '@forge/db';
-
-import { db } from '@/lib/db';
 import { env } from '@/lib/env';
+import { getTask } from '@/lib/tasks';
 import { withAuth } from '@/lib/with-auth';
 
 export const runtime = 'nodejs';
@@ -16,15 +12,19 @@ export const dynamic = 'force-dynamic';
  * Agents engine's session event stream. withAuth() is retained: this route is
  * browser-facing and fronts a raw x-api-key call.
  *
- * Task-missing and no-session-yet both map to 503 (not 404): EventSource does
- * not auto-retry non-5xx, and the browser only asks about real task ids — a
- * 404 would strand the client forever even once dispatch creates a session.
+ * Task-missing, no-session-yet, and belonging-to-someone-else all map to 503
+ * (not 404): EventSource does not auto-retry non-5xx, and the browser only
+ * asks about real task ids — a 404 would strand the client forever even once
+ * dispatch creates a session. Ownership must take the same 503 path as
+ * "missing" so a task id's existence (and owner) isn't observable by trying
+ * ids that belong to someone else — getTask() is scoped by userId precisely
+ * so this route can't forget that check.
  */
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ taskId: string }> },
 ) {
-  await withAuth();
+  const user = await withAuth();
   const { taskId } = await params;
 
   const streamUnavailable = (status: number) =>
@@ -33,7 +33,7 @@ export async function GET(
       headers: { 'content-type': 'application/json' },
     });
 
-  const [task] = await db.select().from(tasks).where(eq(tasks.id, taskId)).limit(1);
+  const task = await getTask(taskId, user.id);
   if (!task || !task.sessionId) return streamUnavailable(503);
 
   let upstream: Response;

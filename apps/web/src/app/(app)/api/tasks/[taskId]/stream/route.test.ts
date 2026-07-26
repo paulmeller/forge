@@ -10,7 +10,9 @@ for (const suffix of ['', '-wal', '-shm']) {
 }
 process.env.DATABASE_URL = `file:${DB_FILE}`;
 
-vi.mock('@/lib/with-auth', () => ({ withAuth: vi.fn(async () => ({ user: { id: 'u1' } })) }));
+vi.mock('@/lib/with-auth', () => ({
+  withAuth: vi.fn(async () => ({ id: 'u1', name: 'User One', email: 'u1@forge.local' })),
+}));
 
 let GET: typeof import('./route').GET;
 let client: { close: () => void };
@@ -38,6 +40,18 @@ beforeAll(async () => {
     id: 'tsk_live', missionId: 'm1', repo: 'a/b', baseBranch: 'main',
     kind: 'fix', status: 'running', sessionId: 'sess_1', createdAt: now, updatedAt: now,
   });
+  // Owned by a different user — the caller (mocked as 'u1') must not be able
+  // to stream this even though it has a live session, and it must 503 (not
+  // 404) so ownership isn't distinguishable from "doesn't exist".
+  await dbMod.db.insert(schema.missions).values({
+    id: 'm2', userId: 'u2', name: 'm2', goal: 'g', status: 'running',
+    backend: 'managed-agents', agentId: 'a1', plannerStrategy: 'triage',
+    webhookSecret: 's', createdAt: now, updatedAt: now,
+  });
+  await dbMod.db.insert(schema.tasks).values({
+    id: 'tsk_other_user', missionId: 'm2', repo: 'a/b', baseBranch: 'main',
+    kind: 'fix', status: 'running', sessionId: 'sess_2', createdAt: now, updatedAt: now,
+  });
   ({ GET } = await import('./route'));
 });
 
@@ -61,6 +75,15 @@ describe('GET /api/tasks/[taskId]/stream (in-process)', () => {
   it('503s (retryable) for a task with no session yet', async () => {
     const res = await GET(new Request('http://x'), params('tsk_nosession'));
     expect(res.status).toBe(503);
+  });
+
+  it('503s (not 404, not 200) for a live task owned by another user', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const res = await GET(new Request('http://x'), params('tsk_other_user'));
+    expect(res.status).toBe(503);
+    // Ownership must be enforced before the upstream proxy fetch ever fires.
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
   });
 
   it('relays the engine stream with the managed-agents beta header', async () => {

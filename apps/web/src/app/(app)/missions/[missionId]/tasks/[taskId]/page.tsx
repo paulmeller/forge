@@ -10,6 +10,7 @@ import { formatDateTime } from '@/lib/format';
 import { getMission } from '@/lib/missions';
 import { getTask } from '@/lib/tasks';
 import { listLedgerForTask } from '@/lib/ledger';
+import { withAuth } from '@/lib/with-auth';
 
 import { TaskFileTabs } from './file-tabs';
 
@@ -44,7 +45,11 @@ export default async function TaskDetailPage({
   params: Promise<{ missionId: string; taskId: string }>;
 }) {
   const { missionId, taskId } = await params;
-  const [mission, task] = await Promise.all([getMission(missionId), getTask(taskId)]);
+  const user = await withAuth();
+  const [mission, task] = await Promise.all([
+    getMission(missionId, user.id),
+    getTask(taskId, user.id),
+  ]);
   if (!mission || !task || task.missionId !== mission.id) notFound();
 
   const ledger = await listLedgerForTask(task.id, 200);

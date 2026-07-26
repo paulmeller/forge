@@ -1,4 +1,4 @@
-import { asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 
 import { missions, tasks, type Task } from '@forge/db';
 
@@ -33,7 +33,20 @@ export async function listTasksForWorkspace(containerId: string): Promise<Task[]
     .orderBy(asc(tasks.createdAt));
 }
 
-export async function getTask(id: string): Promise<Task | null> {
-  const [row] = await db.select().from(tasks).where(eq(tasks.id, id)).limit(1);
-  return row ?? null;
+/**
+ * Ownership-scoped lookup — userId is required (not optional/defaulted) so
+ * the compiler forces every call site to supply the caller's identity.
+ * Tasks carry no userId of their own (see schema.ts), so ownership is
+ * established by joining to the owning mission. A task that exists but
+ * belongs to someone else's mission returns null, identical to a
+ * nonexistent id, so existence isn't observable across accounts.
+ */
+export async function getTask(id: string, userId: string): Promise<Task | null> {
+  const [row] = await db
+    .select({ task: tasks })
+    .from(tasks)
+    .innerJoin(missions, eq(tasks.missionId, missions.id))
+    .where(and(eq(tasks.id, id), eq(missions.userId, userId)))
+    .limit(1);
+  return row?.task ?? null;
 }

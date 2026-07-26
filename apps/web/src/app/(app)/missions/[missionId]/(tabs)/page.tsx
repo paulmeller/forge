@@ -11,6 +11,7 @@ import { getMission } from '@/lib/missions';
 import { getSkill, getSkillBySlug } from '@/lib/skills';
 import { rollupTasks, tokensToUsd } from '@/lib/rollups';
 import { listTasksForMission } from '@/lib/tasks';
+import { withAuth } from '@/lib/with-auth';
 
 import { TimelineClient } from '../timeline-client';
 
@@ -25,8 +26,9 @@ export default async function MissionDetailPage({
 }) {
   const { missionId } = await params;
   const { task: selectedTaskId } = await searchParams;
+  const user = await withAuth();
 
-  const mission = await getMission(missionId);
+  const mission = await getMission(missionId, user.id);
   if (!mission) notFound();
 
   const tasks = await listTasksForMission(missionId);

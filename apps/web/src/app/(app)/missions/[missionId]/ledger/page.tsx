@@ -6,6 +6,7 @@ import { Timeline } from '@/components/timeline';
 import { getMission } from '@/lib/missions';
 import { listLedgerForMission } from '@/lib/ledger';
 import { listTasksForMission } from '@/lib/tasks';
+import { withAuth } from '@/lib/with-auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,8 +16,9 @@ export default async function MissionLedgerPage({
   params: Promise<{ missionId: string }>;
 }) {
   const { missionId } = await params;
+  const user = await withAuth();
 
-  const mission = await getMission(missionId);
+  const mission = await getMission(missionId, user.id);
   if (!mission) notFound();
 
   const [allEvents, tasks] = await Promise.all([

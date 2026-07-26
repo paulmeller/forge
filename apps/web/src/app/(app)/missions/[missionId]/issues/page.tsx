@@ -9,6 +9,7 @@ import { PageHeader, PageShell } from '@/components/page-shell';
 import { getMission } from '@/lib/missions';
 import { listTasksForMission } from '@/lib/tasks';
 import { groupTasksByIssue } from '@/lib/triage-view';
+import { withAuth } from '@/lib/with-auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,8 +19,9 @@ export default async function MissionIssuesPage({
   params: Promise<{ missionId: string }>;
 }) {
   const { missionId } = await params;
+  const user = await withAuth();
 
-  const mission = await getMission(missionId);
+  const mission = await getMission(missionId, user.id);
   if (!mission) notFound();
 
   const tasks = await listTasksForMission(missionId);

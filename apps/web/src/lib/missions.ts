@@ -139,7 +139,17 @@ export async function listMissions(): Promise<Mission[]> {
   return listMissionsForUser(user.id);
 }
 
-export async function getMission(id: string): Promise<Mission | null> {
-  const [row] = await db.select().from(missions).where(eq(missions.id, id)).limit(1);
+/**
+ * Ownership-scoped lookup — userId is required (not optional/defaulted) so
+ * the compiler forces every call site to supply the caller's identity. A
+ * mission that exists but belongs to someone else returns null, identical
+ * to a nonexistent id, so existence isn't observable across accounts.
+ */
+export async function getMission(id: string, userId: string): Promise<Mission | null> {
+  const [row] = await db
+    .select()
+    .from(missions)
+    .where(and(eq(missions.id, id), eq(missions.userId, userId)))
+    .limit(1);
   return row ?? null;
 }

@@ -6,6 +6,7 @@ import { MissionStatusBadge } from '@/components/mission-status-badge';
 import { PageHeader, PageShell } from '@/components/page-shell';
 import { getMission } from '@/lib/missions';
 import { getRetrospectiveForMission, listProposals } from '@/lib/retrospectives';
+import { withAuth } from '@/lib/with-auth';
 
 import { ProposalCard } from './proposal-card';
 import { RequestRetroButton } from './request-retro-button';
@@ -18,7 +19,8 @@ export default async function RetrospectivePage({
   params: Promise<{ missionId: string }>;
 }) {
   const { missionId } = await params;
-  const mission = await getMission(missionId);
+  const user = await withAuth();
+  const mission = await getMission(missionId, user.id);
   if (!mission) notFound();
 
   const retro = await getRetrospectiveForMission(missionId);

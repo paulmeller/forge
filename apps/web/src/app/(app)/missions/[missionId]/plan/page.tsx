@@ -6,6 +6,7 @@ import { PageHeader, PageShell } from '@/components/page-shell';
 import { TemplateText } from '@/components/template-text';
 import { getMission } from '@/lib/missions';
 import { listTasksForMission } from '@/lib/tasks';
+import { withAuth } from '@/lib/with-auth';
 
 import { MissionActionButton } from '../mission-actions';
 import { PlanEditor } from './plan-editor';
@@ -18,7 +19,8 @@ export default async function PlanPreviewPage({
   params: Promise<{ missionId: string }>;
 }) {
   const { missionId } = await params;
-  const mission = await getMission(missionId);
+  const user = await withAuth();
+  const mission = await getMission(missionId, user.id);
   if (!mission) notFound();
 
   // Plan preview only makes sense in 'planning' status. If the operator landed

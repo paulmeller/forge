@@ -9,6 +9,7 @@ import { MissionTabs } from '@/components/mission-tabs';
 import { PageHeader, PageShell } from '@/components/page-shell';
 import { getMission } from '@/lib/missions';
 import { listTasksForMission } from '@/lib/tasks';
+import { withAuth } from '@/lib/with-auth';
 
 import { MissionActionButton } from '../mission-actions';
 
@@ -22,8 +23,9 @@ export default async function MissionLayout({
   children: React.ReactNode;
 }) {
   const { missionId } = await params;
+  const user = await withAuth();
 
-  const mission = await getMission(missionId);
+  const mission = await getMission(missionId, user.id);
   if (!mission) notFound();
 
   // Duplicates page.tsx's own listTasksForMission call. No React cache()-based

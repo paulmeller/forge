@@ -17,6 +17,7 @@ let db: LibSQLDatabase<Record<string, unknown>>;
 let client: { close: () => void };
 let schema: typeof import('@forge/db');
 let listTasksForWorkspace: typeof import('./tasks').listTasksForWorkspace;
+let getTask: typeof import('./tasks').getTask;
 
 beforeAll(async () => {
   const dbMod = await import('./db');
@@ -26,7 +27,7 @@ beforeAll(async () => {
     migrationsFolder: resolve(__dirname, '../../../../packages/db/migrations'),
   });
   schema = await import('@forge/db');
-  ({ listTasksForWorkspace } = await import('./tasks'));
+  ({ listTasksForWorkspace, getTask } = await import('./tasks'));
 });
 
 afterAll(() => {
@@ -112,5 +113,33 @@ describe('listTasksForWorkspace', () => {
 
     const rows = await listTasksForWorkspace(emptyContainerId);
     expect(rows).toEqual([]);
+  });
+});
+
+describe('getTask', () => {
+  it("returns the task to its mission's owner", async () => {
+    const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const taskId = `tsk_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    await insertMission(missionId, { userId: 'owner_1' });
+    await insertTask(taskId, missionId);
+
+    const row = await getTask(taskId, 'owner_1');
+    expect(row?.id).toBe(taskId);
+    expect(row?.missionId).toBe(missionId);
+  });
+
+  it("returns null for the same task queried as a different user (IDOR guard)", async () => {
+    const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const taskId = `tsk_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    await insertMission(missionId, { userId: 'owner_2' });
+    await insertTask(taskId, missionId);
+
+    const row = await getTask(taskId, 'attacker_1');
+    expect(row).toBeNull();
+  });
+
+  it('returns null for a nonexistent id', async () => {
+    const row = await getTask('tsk_does_not_exist', 'owner_1');
+    expect(row).toBeNull();
   });
 });
