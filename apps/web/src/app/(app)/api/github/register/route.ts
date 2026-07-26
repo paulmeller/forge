@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 
+import { escapeHtml } from '@/lib/escape-html';
+
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
@@ -11,8 +13,19 @@ export const dynamic = 'force-dynamic';
  * /api/github/register/callback with a code we exchange for credentials.
  *
  * See: https://docs.github.com/en/apps/sharing-github-apps/registering-a-github-app-from-a-manifest
+ *
+ * Development-only, and deliberately NOT behind withAuth(). This flow mints
+ * the GitHub App that supplies GITHUB_CLIENT_ID/SECRET — the credentials
+ * sign-in itself depends on — so requiring a session would deadlock: no app
+ * means no login, and no login would mean no way to create the app. Gating on
+ * the environment instead keeps bootstrap possible while removing it from the
+ * public deployment. Run it locally, then copy the credentials into secrets.
  */
 export async function GET(request: Request) {
+  if (process.env.NODE_ENV === 'production') {
+    return new NextResponse('Not found', { status: 404 });
+  }
+
   const url = new URL(request.url);
   const callbackUrl = `${url.origin}/api/github/register/callback`;
 
@@ -61,13 +74,16 @@ export async function GET(request: Request) {
 <html>
 <body>
   <form id="f" method="post" action="https://github.com/settings/apps/new">
-    <input type="hidden" name="manifest" value='${JSON.stringify(manifest).replace(/'/g, '&#39;')}' />
+    <input type="hidden" name="manifest" value='${escapeHtml(JSON.stringify(manifest))}' />
   </form>
   <script>document.getElementById('f').submit();</script>
 </body>
 </html>`;
 
   return new NextResponse(html, {
-    headers: { 'Content-Type': 'text/html' },
+    headers: {
+      'Content-Type': 'text/html',
+      'Cache-Control': 'no-store, max-age=0',
+    },
   });
 }

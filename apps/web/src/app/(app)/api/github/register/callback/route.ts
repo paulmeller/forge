@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 
+import { escapeHtml } from '@/lib/escape-html';
+
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
@@ -8,8 +10,18 @@ export const dynamic = 'force-dynamic';
  *
  * After the user creates the app on GitHub, we get redirected here
  * with ?code=xxx. Exchange it for the app credentials.
+ *
+ * Development-only for the same reason as step 1 (see ../route.ts): this is
+ * pre-login bootstrap, so it cannot require a session, and an unauthenticated
+ * endpoint that renders a private key has no business on a public deployment.
+ * `code` is attacker-suppliable, so every field of the resulting response is
+ * treated as untrusted and escaped on the way into the HTML.
  */
 export async function GET(request: Request) {
+  if (process.env.NODE_ENV === 'production') {
+    return new NextResponse('Not found', { status: 404 });
+  }
+
   const url = new URL(request.url);
   const code = url.searchParams.get('code');
 
@@ -47,20 +59,25 @@ export async function GET(request: Request) {
 </head>
 <body>
   <h1>Forge GitHub App Created</h1>
-  <p>App <strong>${app.name}</strong> (ID: ${app.id}) is ready. Save these credentials:</p>
+  <p>App <strong>${escapeHtml(app.name)}</strong> (ID: ${escapeHtml(app.id)}) is ready. Save these credentials:</p>
   <pre><code># Add to .env.local or Cloud Run secrets
-GITHUB_APP_ID=${app.id}
-GITHUB_APP_SLUG=${app.slug}
-GITHUB_CLIENT_ID=${app.client_id}
-GITHUB_CLIENT_SECRET=${app.client_secret}
-GITHUB_APP_PRIVATE_KEY="${app.pem?.replace(/\n/g, '\\n')}"
-GITHUB_WEBHOOK_SECRET=${app.webhook_secret}</code></pre>
+GITHUB_APP_ID=${escapeHtml(app.id)}
+GITHUB_APP_SLUG=${escapeHtml(app.slug)}
+GITHUB_CLIENT_ID=${escapeHtml(app.client_id)}
+GITHUB_CLIENT_SECRET=${escapeHtml(app.client_secret)}
+GITHUB_APP_PRIVATE_KEY="${escapeHtml(app.pem?.replace(/\n/g, '\\n'))}"
+GITHUB_WEBHOOK_SECRET=${escapeHtml(app.webhook_secret)}</code></pre>
   <p class="warn">Save the private key now — GitHub won't show it again.</p>
   <p>Next: <a href="/setup" style="color: #3b82f6;">Go to Setup</a> to install the app on your repos.</p>
 </body>
 </html>`;
 
   return new NextResponse(html, {
-    headers: { 'Content-Type': 'text/html' },
+    headers: {
+      'Content-Type': 'text/html',
+      // This body carries a private key and two secrets. Without no-store the
+      // browser's disk cache (and any intermediary) is free to persist them.
+      'Cache-Control': 'no-store, max-age=0',
+    },
   });
 }
