@@ -2,10 +2,10 @@
 
 import { randomUUID } from 'node:crypto';
 
-import Anthropic from '@anthropic-ai/sdk';
 import { ledgerEvents, missions, tasks, type TaskStatus } from '@forge/db';
 import { eq } from 'drizzle-orm';
 
+import { getAdapter } from '@/server/tick/adapters';
 import { db } from '@/lib/db';
 import { env } from '@/lib/env';
 import { buildCreateIssuePayload } from '@/lib/github-issue-create';
@@ -123,25 +123,6 @@ export async function createIssue(
   return { ok: true };
 }
 
-async function cancelManagedAgentsSession(sessionId: string): Promise<void> {
-  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
-  await client.beta.sessions.events.send(sessionId, {
-    events: [{ type: 'user.interrupt' }],
-  } as never);
-}
-
-async function sendSteeringMessage(sessionId: string, text: string): Promise<void> {
-  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
-  await client.beta.sessions.events.send(sessionId, {
-    events: [
-      {
-        type: 'user.message',
-        content: [{ type: 'text', text }],
-      },
-    ],
-  } as never);
-}
-
 // Terminal Task statuses (mirrors apps/tick/src/reconciler.ts's
 // MISSION_TERMINAL_TASK_STATUSES, minus 'awaiting_review' which is
 // mission-terminal but not Task-terminal — no cross-app import needed for
@@ -160,7 +141,7 @@ export async function abortTask(
   const user = await withAuth();
 
   const [row] = await db
-    .select({ task: tasks, ownerId: missions.userId })
+    .select({ task: tasks, ownerId: missions.userId, backend: missions.backend })
     .from(tasks)
     .innerJoin(missions, eq(tasks.missionId, missions.id))
     .where(eq(tasks.id, taskId))
@@ -173,7 +154,10 @@ export async function abortTask(
   }
 
   try {
-    await cancelManagedAgentsSession(task.sessionId);
+    // Route through the mission's own backend rather than assuming
+    // managed-agents: a Gemini mission's session lives behind a different API
+    // entirely, and backendSessionRef is the handle that survives a restart.
+    await getAdapter(row.backend).cancelSession(task.sessionId, task.backendSessionRef);
   } catch (err) {
     return {
       ok: false,
@@ -222,7 +206,7 @@ export async function steerTask(
   if (!text) return { ok: false, error: 'Message is empty' };
 
   const [row] = await db
-    .select({ task: tasks, ownerId: missions.userId })
+    .select({ task: tasks, ownerId: missions.userId, backend: missions.backend })
     .from(tasks)
     .innerJoin(missions, eq(tasks.missionId, missions.id))
     .where(eq(tasks.id, taskId))
@@ -235,7 +219,21 @@ export async function steerTask(
   }
 
   try {
-    await sendSteeringMessage(task.sessionId, text);
+    // Route through the mission's own backend, not a hardcoded Anthropic
+    // client. Like the tick engine's other sendTurn call sites, a backend that
+    // rotates its session handle (Gemini) returns a new ref we must persist,
+    // or a later cancel/poll would target the stale one.
+    const result = await getAdapter(row.backend).sendTurn({
+      sessionId: task.sessionId,
+      text,
+      backendSessionRef: task.backendSessionRef,
+    });
+    if (result.backendSessionRef) {
+      await db
+        .update(tasks)
+        .set({ backendSessionRef: result.backendSessionRef, updatedAt: new Date() })
+        .where(eq(tasks.id, task.id));
+    }
   } catch (err) {
     return {
       ok: false,
