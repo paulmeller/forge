@@ -11,7 +11,7 @@ export const missionStatus = [
 ] as const;
 export type MissionStatus = (typeof missionStatus)[number];
 
-export const backend = ['managed-agents', 'gateway'] as const;
+export const backend = ['managed-agents', 'gateway', 'gemini-managed-agents'] as const;
 export type Backend = (typeof backend)[number];
 
 export const plannerStrategy = ['rule-based', 'llm', 'graph', 'triage'] as const;

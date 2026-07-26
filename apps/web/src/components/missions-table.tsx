@@ -94,7 +94,11 @@ export function MissionsTable({
               </TableCell>
               <TableCell>
                 <DataChip title={mission.backend} className="relative">
-                  {mission.backend === 'managed-agents' ? 'ma' : 'gw'}
+                  {mission.backend === 'managed-agents'
+                    ? 'ma'
+                    : mission.backend === 'gateway'
+                      ? 'gw'
+                      : 'gm'}
                 </DataChip>
               </TableCell>
               <TableCell className="text-right text-xs text-muted-foreground">

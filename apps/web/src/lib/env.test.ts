@@ -44,4 +44,18 @@ describe('tick env getters', () => {
     delete process.env.FORGE_GIT_AUTHOR_NAME;
     delete process.env.FORGE_GIT_AUTHOR_EMAIL;
   });
+
+  it('defaults FORGE_GEMINI_MODEL to gemini-pro-latest, leaves GEMINI_API_KEY unset by default', () => {
+    expect(env.FORGE_GEMINI_MODEL).toBe('gemini-pro-latest');
+    expect(env.GEMINI_API_KEY).toBeUndefined();
+  });
+
+  it('reads GEMINI_API_KEY and FORGE_GEMINI_MODEL overrides from process.env at access time', () => {
+    process.env.GEMINI_API_KEY = 'test-key';
+    process.env.FORGE_GEMINI_MODEL = 'gemini-flash-latest';
+    expect(env.GEMINI_API_KEY).toBe('test-key');
+    expect(env.FORGE_GEMINI_MODEL).toBe('gemini-flash-latest');
+    delete process.env.GEMINI_API_KEY;
+    delete process.env.FORGE_GEMINI_MODEL;
+  });
 });

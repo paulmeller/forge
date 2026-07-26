@@ -4,7 +4,7 @@
  * Both `managed-agents` and `gateway` implement this same surface; callers
  * (dispatcher, poller, Gate) don't know which is underneath. Per PRD §7.9.
  */
-export type BackendKind = 'managed-agents' | 'gateway';
+export type BackendKind = 'managed-agents' | 'gateway' | 'gemini-managed-agents';
 
 export type CreateSessionInput = {
   agentId: string;

@@ -87,6 +87,12 @@ export const env = {
   get FORGE_MA_DEFAULT_VAULT_ID(): string | undefined {
     return optional('FORGE_MA_DEFAULT_VAULT_ID');
   },
+  get GEMINI_API_KEY(): string | undefined {
+    return optional('GEMINI_API_KEY');
+  },
+  get FORGE_GEMINI_MODEL(): string {
+    return optional('FORGE_GEMINI_MODEL') ?? 'gemini-pro-latest';
+  },
   // Git identity dispatched agents commit as. Without these pre-set, the sandbox has no git
   // identity and the agent's first commit fails, forcing it to discover the error and
   // self-recover mid-turn — on every single task.
