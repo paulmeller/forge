@@ -1,5 +1,6 @@
 import type {
   BackendAdapter,
+  BackendEvent,
   CreateSessionInput,
   CreateSessionResult,
   GetSessionResult,
@@ -54,6 +55,19 @@ export class GeminiManagedAgentsAdapter implements BackendAdapter {
   private readonly model: string;
   private readonly baseUrl: string;
   private readonly latestInteractionId = new Map<string, string>();
+  // Append-only per-session event log — see the design note above this task.
+  // Never rebuilt or reordered; each poll only ever pushes newly-discovered items.
+  private readonly eventLog = new Map<string, BackendEvent[]>();
+  // How many of interaction.steps[] have already been translated into an
+  // event, per session — steps are only ever appended by Gemini, so this is
+  // a plain "resume from here" count, not a set of seen ids.
+  private readonly processedStepCount = new Map<string, number>();
+  // Whether the one-time terminal status event has already been appended.
+  private readonly terminalEmitted = new Set<string>();
+  // Last cumulative usage totals seen, for deciding whether this poll
+  // warrants appending ONE new usage-delta event. Once appended, a usage
+  // event's delta value is fixed forever — it is never recomputed later.
+  private readonly lastSeenUsage = new Map<string, { input: number; output: number }>();
 
   constructor(opts: GeminiManagedAgentsAdapterOptions) {
     this.apiKey = opts.apiKey;
@@ -95,9 +109,81 @@ export class GeminiManagedAgentsAdapter implements BackendAdapter {
     this.latestInteractionId.set(sessionId, interaction.id);
   }
 
-  async listEvents(_input: ListEventsInput): Promise<ListEventsResult> {
-    // Replaced in Task 3 with the full status/step translation.
-    return { events: [], hasMore: false };
+  async listEvents(input: ListEventsInput): Promise<ListEventsResult> {
+    const physicalId = this.latestInteractionId.get(input.sessionId) ?? input.sessionId;
+    const interaction = await this.request<GeminiInteraction>(
+      'GET',
+      `/v1beta/interactions/${physicalId}`,
+    );
+
+    const log = this.eventLog.get(input.sessionId) ?? [];
+    if (log.length === 0) {
+      log.push({
+        id: `${input.sessionId}:status:running`,
+        type: 'session.status_running',
+        processedAt: null,
+        raw: {},
+      });
+    }
+
+    const allSteps = interaction.steps ?? [];
+    const processedCount = this.processedStepCount.get(input.sessionId) ?? 0;
+    for (let i = processedCount; i < allSteps.length; i++) {
+      const step = allSteps[i]!;
+      // Index-based, not id/call_id-based: a code_execution_call and its
+      // paired code_execution_result share the same call_id, so keying by
+      // that would collide the two into the same synthetic event id.
+      const eventId = `${input.sessionId}:step:${i}`;
+      const type = step.type as string | undefined;
+      if (type === 'thought') {
+        log.push({ id: eventId, type: 'agent.thinking', processedAt: null, raw: step });
+      } else if (type === 'model_output') {
+        log.push({ id: eventId, type: 'agent.message', processedAt: null, raw: step });
+      } else if (type === 'code_execution_call') {
+        log.push({ id: eventId, type: 'agent.tool_use', processedAt: null, raw: step });
+      } else if (type === 'code_execution_result') {
+        log.push({ id: eventId, type: 'agent.tool_result', processedAt: null, raw: step });
+      }
+      // Unrecognized step types are skipped — informational-only, matching
+      // state.ts's convention of letting unrecognized events fall through.
+    }
+    this.processedStepCount.set(input.sessionId, allSteps.length);
+
+    if (!this.terminalEmitted.has(input.sessionId)) {
+      const statusEvent = terminalStatusEvent(input.sessionId, interaction.status);
+      if (statusEvent) {
+        log.push(statusEvent);
+        this.terminalEmitted.add(input.sessionId);
+      }
+    }
+
+    const prevUsage = this.lastSeenUsage.get(input.sessionId) ?? { input: 0, output: 0 };
+    const currentInput = interaction.usage?.total_input_tokens ?? 0;
+    const currentOutput = interaction.usage?.total_output_tokens ?? 0;
+    const inputDelta = Math.max(0, currentInput - prevUsage.input);
+    const outputDelta = Math.max(0, currentOutput - prevUsage.output);
+    if (inputDelta > 0 || outputDelta > 0) {
+      // id uses the log's length at this moment — always higher than any
+      // previous usage event's id, since the log only ever grows.
+      log.push({
+        id: `${input.sessionId}:usage:${log.length}`,
+        type: 'span.model_request_end',
+        processedAt: null,
+        raw: { model_usage: { input_tokens: inputDelta, output_tokens: outputDelta } },
+      });
+      this.lastSeenUsage.set(input.sessionId, { input: currentInput, output: currentOutput });
+    }
+
+    this.eventLog.set(input.sessionId, log);
+
+    let events = log;
+    if (input.afterEventId) {
+      const idx = log.findIndex((e) => e.id === input.afterEventId);
+      events = idx >= 0 ? log.slice(idx + 1) : log;
+    }
+
+    const latest = events.at(-1);
+    return { events, latestEventId: latest?.id ?? input.afterEventId, hasMore: false };
   }
 
   async getSession(sessionId: string): Promise<GetSessionResult> {
@@ -147,6 +233,38 @@ export class GeminiManagedAgentsAdapter implements BackendAdapter {
     }
 
     return res.json() as Promise<T>;
+  }
+}
+
+function terminalStatusEvent(sessionId: string, status: string): BackendEvent | null {
+  switch (status) {
+    case 'completed':
+      return {
+        id: `${sessionId}:status:completed`,
+        type: 'session.status_idle',
+        processedAt: null,
+        raw: { stop_reason: { type: 'end_turn' } },
+      };
+    case 'failed':
+    case 'incomplete':
+    case 'budget_exceeded':
+      return {
+        id: `${sessionId}:status:${status}`,
+        type: 'session.error',
+        processedAt: null,
+        raw: { message: `gemini interaction ${status}` },
+      };
+    case 'requires_action':
+      return {
+        id: `${sessionId}:status:requires_action`,
+        type: 'session.error',
+        processedAt: null,
+        raw: { message: 'unexpected requires_action: v1 attaches no tool that should produce this state' },
+      };
+    case 'cancelled':
+      return { id: `${sessionId}:status:cancelled`, type: 'session.status_terminated', processedAt: null, raw: {} };
+    default:
+      return null; // queued / in_progress — not yet settled
   }
 }
 
