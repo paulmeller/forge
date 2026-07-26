@@ -221,7 +221,10 @@ describe('runGuardrails — cancel verification', () => {
     expect(task?.status).toBe('failed');
     expect(task?.haltReason).toBe('max_turns');
 
-    const unverifiedEvents = await ledgerEventsFor('grd_mission_idle', 'guardrails.cancel_unverified');
+    const unverifiedEvents = await ledgerEventsFor(
+      'grd_mission_idle',
+      'guardrails.cancel_unverified',
+    );
     expect(unverifiedEvents).toHaveLength(0);
   });
 
