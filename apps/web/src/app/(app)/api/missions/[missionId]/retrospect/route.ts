@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { apiAuth } from '@/lib/api-auth';
+import { getMission } from '@/lib/missions';
 import {
   createRetrospective,
   getRetrospectiveForMission,
@@ -15,10 +16,15 @@ export async function GET(
   _request: Request,
   { params }: { params: Promise<{ missionId: string }> },
 ) {
-  const [, errorResponse] = await apiAuth();
+  const [user, errorResponse] = await apiAuth();
   if (errorResponse) return errorResponse;
 
   const { missionId } = await params;
+  const mission = await getMission(missionId, user.id);
+  if (!mission) {
+    return NextResponse.json({ error: 'mission not found' }, { status: 404 });
+  }
+
   const retro = await getRetrospectiveForMission(missionId);
   if (!retro) {
     return NextResponse.json({ retrospective: null, proposals: [] });
@@ -36,6 +42,11 @@ export async function POST(
   if (errorResponse) return errorResponse;
 
   const { missionId } = await params;
+  const mission = await getMission(missionId, user.id);
+  if (!mission) {
+    return NextResponse.json({ error: 'mission not found' }, { status: 404 });
+  }
+
   try {
     const { retrospective } = await createRetrospective(missionId, user.id);
     return NextResponse.json({ retrospective }, { status: 201 });

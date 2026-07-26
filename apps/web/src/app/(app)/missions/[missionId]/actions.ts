@@ -9,7 +9,9 @@ import {
   resumeMission,
   startMission,
 } from '@/lib/mission-transitions';
+import { getMission } from '@/lib/missions';
 import { PlannerError, runPlanner } from '@/lib/planner';
+import { withAuth } from '@/lib/with-auth';
 
 export type MissionActionState = {
   error?: string;
@@ -22,10 +24,18 @@ export async function missionAction(
   _prevState: MissionActionState,
   formData: FormData,
 ): Promise<MissionActionState> {
+  // Server Actions are POST endpoints reachable without ever rendering the
+  // page — withAuth() is the only thing standing between an unauthenticated
+  // visitor and a mission transition, so it must run before anything else.
+  const user = await withAuth();
+
   const missionId = formData.get('missionId');
   const op = formData.get('op');
   if (typeof missionId !== 'string') return { error: 'missing missionId' };
   if (typeof op !== 'string') return { error: 'missing op' };
+
+  const mission = await getMission(missionId, user.id);
+  if (!mission) return { error: 'mission not found' };
 
   let redirectTo: string | null = null;
   try {

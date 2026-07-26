@@ -32,8 +32,8 @@ export async function PATCH(
   try {
     const proposal = await reviewProposal(
       proposalId,
-      decision as 'accepted' | 'rejected' | 'edited',
       user.id,
+      decision as 'accepted' | 'rejected' | 'edited',
       editedContent,
     );
     return NextResponse.json({ proposal });

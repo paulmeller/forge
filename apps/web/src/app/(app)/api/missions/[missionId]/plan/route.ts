@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { apiAuth } from '@/lib/api-auth';
+import { getMission } from '@/lib/missions';
 import { PlannerError, runPlanner } from '@/lib/planner';
 
 export const runtime = 'nodejs';
@@ -10,10 +11,15 @@ export async function POST(
   _request: Request,
   { params }: { params: Promise<{ missionId: string }> },
 ) {
-  const [, errorResponse] = await apiAuth();
+  const [user, errorResponse] = await apiAuth();
   if (errorResponse) return errorResponse;
 
   const { missionId } = await params;
+  const mission = await getMission(missionId, user.id);
+  if (!mission) {
+    return NextResponse.json({ error: 'mission not found' }, { status: 404 });
+  }
+
   try {
     const result = await runPlanner(missionId);
     return NextResponse.json({

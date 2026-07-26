@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 
 import {
   ledgerEvents,
@@ -142,6 +142,13 @@ export async function getRetrospective(id: string): Promise<Retrospective | null
   return row ?? null;
 }
 
+/**
+ * NOT independently ownership-scoped — mirrors listTasksForMission(): the
+ * caller must first resolve missionId/retrospectiveId through an
+ * ownership-checked getMission(missionId, userId) (both current call sites
+ * — the retrospect API route and the retrospective page — do this before
+ * calling here) so a non-owned missionId never reaches this query.
+ */
 export async function getRetrospectiveForMission(missionId: string): Promise<Retrospective | null> {
   const [row] = await db
     .select()
@@ -152,6 +159,7 @@ export async function getRetrospectiveForMission(missionId: string): Promise<Ret
   return row ?? null;
 }
 
+/** See getRetrospectiveForMission() — same caveat, same call sites. */
 export async function listProposals(retrospectiveId: string): Promise<RetrospectiveProposal[]> {
   return db
     .select()
@@ -159,16 +167,34 @@ export async function listProposals(retrospectiveId: string): Promise<Retrospect
     .where(eq(retrospectiveProposals.retrospectiveId, retrospectiveId));
 }
 
+/**
+ * Review (accept/reject/edit) a proposal, scoped to the acting user's
+ * ownership of the mission the proposal ultimately hangs off (proposal →
+ * retrospective → mission.userId). userId is required (not optional/
+ * defaulted), mirroring getMission/getTask, so the compiler forces every
+ * call site to supply the caller's identity — a proposal that exists but
+ * belongs to someone else's mission is treated identically to a
+ * nonexistent proposal id (same error, no distinct "forbidden" path).
+ */
 export async function reviewProposal(
   proposalId: string,
+  userId: string,
   decision: 'accepted' | 'rejected' | 'edited',
-  reviewedBy: string,
   editedContent?: Record<string, unknown>,
 ): Promise<RetrospectiveProposal> {
+  const [owned] = await db
+    .select({ id: retrospectiveProposals.id })
+    .from(retrospectiveProposals)
+    .innerJoin(retrospectives, eq(retrospectiveProposals.retrospectiveId, retrospectives.id))
+    .innerJoin(missions, eq(retrospectives.missionId, missions.id))
+    .where(and(eq(retrospectiveProposals.id, proposalId), eq(missions.userId, userId)))
+    .limit(1);
+  if (!owned) throw new Error('proposal not found');
+
   const now = new Date();
   const patch: Record<string, unknown> = {
     status: decision,
-    reviewedBy,
+    reviewedBy: userId,
     reviewedAt: now,
   };
   if (editedContent) {
@@ -189,7 +215,7 @@ export async function reviewProposal(
       id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
       missionId: retro.missionId,
       eventType: `retrospective.proposal_${decision}`,
-      payload: { proposalId, reviewedBy, type: updated.type },
+      payload: { proposalId, reviewedBy: userId, type: updated.type },
       createdAt: now,
     });
   }
