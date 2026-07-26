@@ -3,12 +3,14 @@ import Anthropic from '@anthropic-ai/sdk';
 import { env } from '@/lib/env';
 
 import { GatewayAdapter } from './gateway';
+import { GeminiManagedAgentsAdapter } from './gemini-managed-agents';
 import { ManagedAgentsAdapter } from './managed-agents';
 import type { BackendAdapter, BackendKind } from './types';
 
 export * from './types';
 export { ManagedAgentsAdapter } from './managed-agents';
 export { GatewayAdapter } from './gateway';
+export { GeminiManagedAgentsAdapter } from './gemini-managed-agents';
 
 const cache = new Map<BackendKind, BackendAdapter>();
 
@@ -47,6 +49,16 @@ export function getAdapter(kind: BackendKind): BackendAdapter {
         throw new Error('GATEWAY_API_KEY is required for gateway backend');
       }
       adapter = new GatewayAdapter({ baseUrl: env.GATEWAY_URL, apiKey: env.GATEWAY_API_KEY, environmentId: env.GATEWAY_ENVIRONMENT_ID });
+      break;
+    }
+    case 'gemini-managed-agents': {
+      if (!env.GEMINI_API_KEY) {
+        throw new Error('GEMINI_API_KEY is required for gemini-managed-agents backend');
+      }
+      adapter = new GeminiManagedAgentsAdapter({
+        apiKey: env.GEMINI_API_KEY,
+        model: env.FORGE_GEMINI_MODEL,
+      });
       break;
     }
     default:

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { GatewayAdapter, GatewayApiError } from './gateway';
+import { GeminiManagedAgentsAdapter } from './gemini-managed-agents';
 import { ManagedAgentsAdapter } from './managed-agents';
 import type { BackendAdapter } from './types';
 
@@ -16,7 +17,7 @@ function adapterSuite(name: string, create: () => BackendAdapter) {
   describe(`${name} contract`, () => {
     it('has the correct kind', () => {
       const adapter = create();
-      expect(['managed-agents', 'gateway']).toContain(adapter.kind);
+      expect(['managed-agents', 'gateway', 'gemini-managed-agents']).toContain(adapter.kind);
     });
 
     it('implements createSession', () => {
@@ -64,6 +65,16 @@ adapterSuite('GatewayAdapter', () =>
   new GatewayAdapter({
     baseUrl: 'https://gateway.test',
     apiKey: 'test-key',
+  }),
+);
+
+// Gemini adapter — plain fetch, no real HTTP in these tests (fetch isn't
+// invoked by anything adapter-contract.test.ts calls, since it only checks
+// method presence, not behavior).
+adapterSuite('GeminiManagedAgentsAdapter', () =>
+  new GeminiManagedAgentsAdapter({
+    apiKey: 'test-key',
+    model: 'gemini-pro-latest',
   }),
 );
 
