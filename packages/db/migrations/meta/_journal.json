@@ -99,6 +99,13 @@
       "when": 1784259071246,
       "tag": "0012_opposite_vindicator",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1785034302152,
+      "tag": "0014_foamy_shockwave",
+      "breakpoints": true
     }
   ]
 }

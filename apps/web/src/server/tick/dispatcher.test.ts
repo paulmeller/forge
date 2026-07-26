@@ -203,6 +203,7 @@ function task(id: string, overrides: Partial<Task> = {}): Task {
     dependsOnIds: null,
     status: 'queued',
     sessionId: null,
+    backendSessionRef: null,
     prUrl: null,
     prNumber: null,
     diffAdditions: null,

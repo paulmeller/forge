@@ -1,0 +1,1 @@
+ALTER TABLE `tasks` ADD `backend_session_ref` text;

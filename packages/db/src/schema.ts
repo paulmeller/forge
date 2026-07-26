@@ -173,6 +173,14 @@ export const tasks = sqliteTable(
     dependsOnIds: text('depends_on_ids', { mode: 'json' }).$type<string[]>(),
     status: text('status', { enum: taskStatus }).notNull().default('queued'),
     sessionId: text('session_id'),
+    // The backend's *live* session handle. Usually identical to sessionId, but
+    // Gemini rotates its interaction id on every turn, so this tracks which
+    // physical handle is currently live. Persisted because the tick engine runs
+    // on Cloud Run with --min-instances=0: in-memory adapter state does not
+    // survive a cold start or a scale-out to another instance, and a stale
+    // handle makes cancelSession silently cancel an already-finished session.
+    // Nullable only for tasks created before this column existed.
+    backendSessionRef: text('backend_session_ref'),
     prUrl: text('pr_url'),
     prNumber: integer('pr_number'),
     diffAdditions: integer('diff_additions'),
