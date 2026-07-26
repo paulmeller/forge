@@ -138,25 +138,42 @@ export async function runGuardrails(log: Logger): Promise<GuardrailsResult> {
     // Best-effort cancel — a failure here must NOT block the status change.
     if (task.sessionId) {
       let cancelled = false;
+      let cancelError: string | undefined;
       try {
         const adapter = getAdapter(mission.backend);
         await adapter.cancelSession(task.sessionId, task.backendSessionRef);
         cancelled = await verifyCancelled(adapter, task.sessionId, task.backendSessionRef);
       } catch (err) {
-        log.warn(
-          { taskId: task.id, err: err instanceof Error ? err.message : String(err) },
-          'guardrails:cancel_failed',
-        );
+        cancelError = err instanceof Error ? err.message : String(err);
       }
       if (!cancelled) {
-        log.error({ taskId: task.id, reason }, 'guardrails:cancel_unverified');
-        await db.insert(ledgerEvents).values({
-          id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
-          missionId: mission.id,
-          taskId: task.id,
-          eventType: 'guardrails.cancel_unverified',
-          payload: { sessionId: task.sessionId, backendSessionRef: task.backendSessionRef, reason },
-        });
+        // Single report for both "cancel threw" and "cancel didn't verify" —
+        // don't also warn from the catch above, or one event logs twice.
+        log.error({ taskId: task.id, reason, err: cancelError }, 'guardrails:cancel_unverified');
+        // The status-change below must happen regardless of whether this insert
+        // succeeds, so failures here are swallowed (and merely warned about).
+        try {
+          await db.insert(ledgerEvents).values({
+            id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
+            missionId: mission.id,
+            taskId: task.id,
+            eventType: 'guardrails.cancel_unverified',
+            payload: {
+              sessionId: task.sessionId,
+              backendSessionRef: task.backendSessionRef,
+              reason,
+              err: cancelError,
+            },
+          });
+        } catch (insertErr) {
+          log.warn(
+            {
+              taskId: task.id,
+              err: insertErr instanceof Error ? insertErr.message : String(insertErr),
+            },
+            'guardrails:cancel_unverified_ledger_failed',
+          );
+        }
       }
     }
 

@@ -213,29 +213,45 @@ async function hardStop(
   for (const task of inflight) {
     if (task.sessionId) {
       let cancelled = false;
+      let cancelError: string | undefined;
       try {
         const adapter = getAdapter(mission.backend);
         await adapter.cancelSession(task.sessionId, task.backendSessionRef);
         cancelled = await verifyCancelled(adapter, task.sessionId, task.backendSessionRef);
       } catch (err) {
-        log.warn(
-          { taskId: task.id, err: err instanceof Error ? err.message : String(err) },
-          'budgets:hard_stop_cancel_failed',
-        );
+        cancelError = err instanceof Error ? err.message : String(err);
       }
       if (!cancelled) {
         // The agent may still be burning budget. Loud, and auditable in the UI.
+        // This is the single report for both "cancel threw" and "cancel didn't
+        // verify" — don't also warn from the catch above, or one event logs twice.
         log.error(
-          { taskId: task.id, missionId: mission.id },
+          { taskId: task.id, missionId: mission.id, err: cancelError },
           'budgets:hard_stop_cancel_unverified',
         );
-        await db.insert(ledgerEvents).values({
-          id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
-          missionId: mission.id,
-          taskId: task.id,
-          eventType: 'budgets.hard_stop_cancel_unverified',
-          payload: { sessionId: task.sessionId, backendSessionRef: task.backendSessionRef },
-        });
+        // The status-change below must happen regardless of whether this insert
+        // succeeds, so failures here are swallowed (and merely warned about).
+        try {
+          await db.insert(ledgerEvents).values({
+            id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
+            missionId: mission.id,
+            taskId: task.id,
+            eventType: 'budgets.hard_stop_cancel_unverified',
+            payload: {
+              sessionId: task.sessionId,
+              backendSessionRef: task.backendSessionRef,
+              err: cancelError,
+            },
+          });
+        } catch (insertErr) {
+          log.warn(
+            {
+              taskId: task.id,
+              err: insertErr instanceof Error ? insertErr.message : String(insertErr),
+            },
+            'budgets:hard_stop_cancel_unverified_ledger_failed',
+          );
+        }
       }
     }
     await db

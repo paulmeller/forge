@@ -93,6 +93,7 @@ export async function retryMission(
         lastError: null,
         completedAt: null,
         sessionId: null,
+        backendSessionRef: null,
         updatedAt: now,
       })
       .where(and(eq(tasks.missionId, missionId), inArray(tasks.status, ['failed', 'abandoned'])))

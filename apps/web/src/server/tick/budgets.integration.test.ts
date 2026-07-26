@@ -15,10 +15,12 @@ for (const suffix of ['', '-wal', '-shm']) {
 process.env.DATABASE_URL = `file:${DB_FILE}`;
 
 const cancelSession = vi.fn();
+// managed-agents' cancelSession sends user.interrupt, which drains the session
+// to idle (not terminated) — this is the real successful-cancel shape.
 const getSession = vi.fn(
   async (): Promise<{ sessionId: string; status: import('./adapters').SessionLifecycle }> => ({
     sessionId: 'sess_leaf',
-    status: 'terminated',
+    status: 'idle',
   }),
 );
 vi.mock('./adapters', () => ({
@@ -158,6 +160,32 @@ describe('runBudgets — container/leaf aggregation', () => {
     expect(events).toHaveLength(1);
   });
 
+  it('treats a session drained to idle as a verified cancel — the real successful-interrupt shape', async () => {
+    await insertMission('bud_container_idle', { budgetTokens: 1_000_000, budgetHardStopPct: 100 });
+    await insertTask('bud_t_idle', 'bud_container_idle', {
+      costTokens: 1_200_000,
+      status: 'running',
+      sessionId: 'sess_idle',
+    });
+
+    // managed-agents cancelSession sends user.interrupt, which drains to idle —
+    // this must NOT be reported as unverified.
+    getSession.mockResolvedValueOnce({ sessionId: 'sess_idle', status: 'idle' as const });
+
+    const result = await runBudgets(noopLog);
+    expect(result.hardStopped).toBe(1);
+
+    const task = await getTask('bud_t_idle');
+    expect(task?.status).toBe('failed');
+    expect(task?.haltReason).toBe('budget_hard_stop');
+
+    const unverifiedEvents = await ledgerEventsFor(
+      'bud_container_idle',
+      'budgets.hard_stop_cancel_unverified',
+    );
+    expect(unverifiedEvents).toHaveLength(0);
+  });
+
   it('still marks the task failed when cancel silently missed (getSession reports it still running)', async () => {
     await insertMission('bud_container_running', { budgetTokens: 1_000_000, budgetHardStopPct: 100 });
     await insertTask('bud_t_running', 'bud_container_running', {
@@ -206,6 +234,40 @@ describe('runBudgets — container/leaf aggregation', () => {
       'budgets.hard_stop_cancel_unverified',
     );
     expect(unverifiedEvents).toHaveLength(1);
+  });
+
+  it('still marks the task failed when the unverified-cancel ledger insert itself throws', async () => {
+    await insertMission('bud_container_ledger_throw', {
+      budgetTokens: 1_000_000,
+      budgetHardStopPct: 100,
+    });
+    await insertTask('bud_t_ledger_throw', 'bud_container_ledger_throw', {
+      costTokens: 1_200_000,
+      status: 'running',
+      sessionId: 'sess_ledger_throw',
+    });
+
+    // Force the unverified path (still running) AND make the ledger insert
+    // that path performs throw — the failed-status update must still land.
+    getSession.mockResolvedValueOnce({
+      sessionId: 'sess_ledger_throw',
+      status: 'running' as const,
+    });
+    const insertSpy = vi.spyOn(db, 'insert').mockImplementationOnce(() => {
+      throw new Error('ledger insert boom');
+    });
+
+    let result: Awaited<ReturnType<typeof runBudgets>>;
+    try {
+      result = await runBudgets(noopLog);
+    } finally {
+      insertSpy.mockRestore();
+    }
+    expect(result.hardStopped).toBe(1);
+
+    const task = await getTask('bud_t_ledger_throw');
+    expect(task?.status).toBe('failed');
+    expect(task?.haltReason).toBe('budget_hard_stop');
   });
 
   it('does not re-fire the hard stop on the next tick when nothing is left to stop', async () => {

@@ -19,10 +19,12 @@ for (const suffix of ['', '-wal', '-shm']) {
 process.env.DATABASE_URL = `file:${DB_FILE}`;
 
 const cancelSession = vi.fn();
+// managed-agents' cancelSession sends user.interrupt, which drains the session
+// to idle (not terminated) — this is the real successful-cancel shape.
 const getSession = vi.fn(
   async (): Promise<{ sessionId: string; status: import('./adapters').SessionLifecycle }> => ({
     sessionId: 'sess_leaf',
-    status: 'terminated',
+    status: 'idle',
   }),
 );
 vi.mock('./adapters', () => ({
@@ -199,6 +201,30 @@ describe('checkBreach — boundaries and priority', () => {
 });
 
 describe('runGuardrails — cancel verification', () => {
+  it('treats a session drained to idle as a verified cancel — the real successful-interrupt shape', async () => {
+    await insertMission('grd_mission_idle', { taskMaxTurns: 2 });
+    await insertTask('grd_t_idle', 'grd_mission_idle', {
+      status: 'running',
+      sessionId: 'sess_grd_idle',
+      turnCount: 5,
+    });
+
+    // managed-agents cancelSession sends user.interrupt, which drains to idle —
+    // this must NOT be reported as unverified.
+    getSession.mockResolvedValueOnce({ sessionId: 'sess_grd_idle', status: 'idle' as const });
+
+    const result = await runGuardrails(noopLog);
+    expect(result.halted).toBe(1);
+    expect(result.byReason.max_turns).toBe(1);
+
+    const task = await getTask('grd_t_idle');
+    expect(task?.status).toBe('failed');
+    expect(task?.haltReason).toBe('max_turns');
+
+    const unverifiedEvents = await ledgerEventsFor('grd_mission_idle', 'guardrails.cancel_unverified');
+    expect(unverifiedEvents).toHaveLength(0);
+  });
+
   it('still marks the task failed when cancel silently missed (getSession reports it still running)', async () => {
     await insertMission('grd_mission_running', { taskMaxTurns: 2 });
     await insertTask('grd_t_running', 'grd_mission_running', {
@@ -249,5 +275,37 @@ describe('runGuardrails — cancel verification', () => {
       'guardrails.cancel_unverified',
     );
     expect(unverifiedEvents).toHaveLength(1);
+  });
+
+  it('still marks the task failed when the unverified-cancel ledger insert itself throws', async () => {
+    await insertMission('grd_mission_ledger_throw', { taskMaxTurns: 2 });
+    await insertTask('grd_t_ledger_throw', 'grd_mission_ledger_throw', {
+      status: 'running',
+      sessionId: 'sess_grd_ledger_throw',
+      turnCount: 5,
+    });
+
+    // Force the unverified path (still running) AND make the ledger insert
+    // that path performs throw — the failed-status update must still land.
+    getSession.mockResolvedValueOnce({
+      sessionId: 'sess_grd_ledger_throw',
+      status: 'running' as const,
+    });
+    const insertSpy = vi.spyOn(db, 'insert').mockImplementationOnce(() => {
+      throw new Error('ledger insert boom');
+    });
+
+    let result: Awaited<ReturnType<typeof runGuardrails>>;
+    try {
+      result = await runGuardrails(noopLog);
+    } finally {
+      insertSpy.mockRestore();
+    }
+    expect(result.halted).toBe(1);
+    expect(result.byReason.max_turns).toBe(1);
+
+    const task = await getTask('grd_t_ledger_throw');
+    expect(task?.status).toBe('failed');
+    expect(task?.haltReason).toBe('max_turns');
   });
 });
