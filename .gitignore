@@ -43,3 +43,8 @@ next-env.d.ts
 
 # TypeScript incremental build info
 *.tsbuildinfo
+
+# Agent working scratch: task briefs, reports, review diffs, the SDD progress
+# ledger, and brainstorm mockup servers. Specs and plans are tracked under
+# docs/superpowers/ — this is the transient runtime side only.
+.superpowers/
