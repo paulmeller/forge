@@ -90,6 +90,7 @@ async function pollOne(task: Task): Promise<{ eventsIngested: number; transition
   const { events } = await adapter.listEvents({
     sessionId: task.sessionId,
     afterEventId: latestLedger?.sourceEventId ?? undefined,
+    backendSessionRef: task.backendSessionRef,
   });
 
   if (events.length === 0) return { eventsIngested: 0, transitions: 0 };

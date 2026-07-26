@@ -198,7 +198,11 @@ async function retryWithFeedback(
 
   try {
     const adapter = getAdapter(mission.backend);
-    await adapter.sendTurn(task.sessionId, prompt);
+    await adapter.sendTurn({
+      sessionId: task.sessionId,
+      text: prompt,
+      backendSessionRef: task.backendSessionRef,
+    });
   } catch {
     return false;
   }

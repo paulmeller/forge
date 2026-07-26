@@ -79,7 +79,7 @@ describe('GeminiManagedAgentsAdapter session lifecycle', () => {
     const adapter = new GeminiManagedAgentsAdapter({ apiKey: 'k', model: 'gemini-pro-latest' });
 
     const { sessionId } = await adapter.createSession(input);
-    await adapter.sendTurn(sessionId, 'continue');
+    await adapter.sendTurn({ sessionId, text: 'continue' });
     const session = await adapter.getSession(sessionId);
 
     expect(session).toEqual({ sessionId: 'v1_first', status: 'idle', stopReasonType: undefined });
@@ -316,5 +316,81 @@ describe('GeminiManagedAgentsAdapter.listEvents — cost delta tracking', () => 
       raw: { stop_reason: { type: 'end_turn' } },
     });
     expect(second.events.some((e) => e.type === 'span.model_request_end')).toBe(true);
+  });
+});
+
+describe('GeminiManagedAgentsAdapter backendSessionRef precedence', () => {
+  it('prefers a passed-in backendSessionRef over its in-memory cache', async () => {
+    const { fn, calls } = fakeFetch([
+      { body: { id: 'v1_first', status: 'in_progress' } }, // createSession
+      { body: { id: 'v1_third', status: 'in_progress' } }, // sendTurn
+    ]);
+    vi.stubGlobal('fetch', fn);
+    const adapter = new GeminiManagedAgentsAdapter({ apiKey: 'k', model: 'gemini-pro-latest' });
+
+    const { sessionId } = await adapter.createSession(input);
+    // Cache says v1_first; the caller supplies a newer, persisted ref.
+    await adapter.sendTurn({ sessionId, text: 'go', backendSessionRef: 'v1_second' });
+
+    const body = JSON.parse(calls[1]!.init.body as string);
+    expect(body.previous_interaction_id).toBe('v1_second');
+  });
+
+  it('falls back to sessionId when the cache is empty and no ref is passed (cold-start path)', async () => {
+    const { fn, calls } = fakeFetch([{ body: { status: 'cancelled' } }]);
+    vi.stubGlobal('fetch', fn);
+    // Fresh adapter — empty cache, exactly like a cold Cloud Run instance.
+    const adapter = new GeminiManagedAgentsAdapter({ apiKey: 'k', model: 'gemini-pro-latest' });
+
+    await adapter.cancelSession('v1_orphan');
+
+    expect(calls[0]!.url).toContain('/v1beta/interactions/v1_orphan/cancel');
+  });
+
+  it('cancelSession targets the passed-in ref on a cold instance, not the original sessionId', async () => {
+    const { fn, calls } = fakeFetch([{ body: { status: 'cancelled' } }]);
+    vi.stubGlobal('fetch', fn);
+    const adapter = new GeminiManagedAgentsAdapter({ apiKey: 'k', model: 'gemini-pro-latest' });
+
+    await adapter.cancelSession('v1_original', 'v1_live');
+
+    expect(calls[0]!.url).toContain('/v1beta/interactions/v1_live/cancel');
+    expect(calls[0]!.url).not.toContain('v1_original');
+  });
+
+  it('getSession targets the passed-in ref on a cold instance', async () => {
+    const { fn, calls } = fakeFetch([{ body: { id: 'v1_live', status: 'completed' } }]);
+    vi.stubGlobal('fetch', fn);
+    const adapter = new GeminiManagedAgentsAdapter({ apiKey: 'k', model: 'gemini-pro-latest' });
+
+    await adapter.getSession('v1_original', 'v1_live');
+
+    expect(calls[0]!.url).toContain('/v1beta/interactions/v1_live');
+  });
+
+  it('listEvents targets the passed-in ref on a cold instance', async () => {
+    const { fn, calls } = fakeFetch([
+      { body: { id: 'v1_live', status: 'in_progress', steps: [] } },
+    ]);
+    vi.stubGlobal('fetch', fn);
+    const adapter = new GeminiManagedAgentsAdapter({ apiKey: 'k', model: 'gemini-pro-latest' });
+
+    await adapter.listEvents({ sessionId: 'v1_original', backendSessionRef: 'v1_live' });
+
+    expect(calls[0]!.url).toContain('/v1beta/interactions/v1_live');
+  });
+
+  it('sendTurn returns the rotated interaction id for the caller to persist', async () => {
+    const { fn } = fakeFetch([
+      { body: { id: 'v1_first', status: 'in_progress' } },
+      { body: { id: 'v1_second', status: 'in_progress' } },
+    ]);
+    vi.stubGlobal('fetch', fn);
+    const adapter = new GeminiManagedAgentsAdapter({ apiKey: 'k', model: 'gemini-pro-latest' });
+
+    const { sessionId } = await adapter.createSession(input);
+    const result = await adapter.sendTurn({ sessionId, text: 'continue' });
+
+    expect(result).toEqual({ backendSessionRef: 'v1_second' });
   });
 });

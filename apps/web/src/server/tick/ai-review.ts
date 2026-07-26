@@ -212,7 +212,11 @@ async function reviewOne(task: Task, log: Logger): Promise<ReviewOutcome> {
     if (task.sessionId) {
       try {
         const adapter = getAdapter(mission.backend);
-        await adapter.sendTurn(task.sessionId, review.feedback);
+        await adapter.sendTurn({
+          sessionId: task.sessionId,
+          text: review.feedback,
+          backendSessionRef: task.backendSessionRef,
+        });
       } catch (err) {
         log.warn(
           { taskId: task.id, err: err instanceof Error ? err.message : String(err) },

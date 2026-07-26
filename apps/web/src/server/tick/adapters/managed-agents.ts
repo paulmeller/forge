@@ -8,6 +8,8 @@ import type {
   GetSessionResult,
   ListEventsInput,
   ListEventsResult,
+  SendTurnInput,
+  SendTurnResult,
   SessionLifecycle,
 } from './types';
 
@@ -67,19 +69,22 @@ export class ManagedAgentsAdapter implements BackendAdapter {
       ...(vaultIds.length > 0 ? { vault_ids: vaultIds } : {}),
     } as never);
 
-    await this.sendTurn(session.id, input.prompt);
+    await this.sendTurn({ sessionId: session.id, text: input.prompt });
     return { sessionId: session.id };
   }
 
-  async sendTurn(sessionId: string, text: string): Promise<void> {
-    await this.client.beta.sessions.events.send(sessionId, {
+  // backendSessionRef is unused: Managed Agents session ids are stable for the
+  // life of the session, so there is never a rotated handle to track.
+  async sendTurn(input: SendTurnInput): Promise<SendTurnResult> {
+    await this.client.beta.sessions.events.send(input.sessionId, {
       events: [
         {
           type: 'user.message',
-          content: [{ type: 'text', text }],
+          content: [{ type: 'text', text: input.text }],
         },
       ],
     } as never);
+    return {};
   }
 
   async listEvents(input: ListEventsInput): Promise<ListEventsResult> {
@@ -110,7 +115,7 @@ export class ManagedAgentsAdapter implements BackendAdapter {
     };
   }
 
-  async getSession(sessionId: string): Promise<GetSessionResult> {
+  async getSession(sessionId: string, _backendSessionRef?: string | null): Promise<GetSessionResult> {
     const session = (await this.client.beta.sessions.retrieve(sessionId)) as MaSession;
     return {
       sessionId,
@@ -119,7 +124,7 @@ export class ManagedAgentsAdapter implements BackendAdapter {
     };
   }
 
-  async cancelSession(sessionId: string): Promise<void> {
+  async cancelSession(sessionId: string, _backendSessionRef?: string | null): Promise<void> {
     await this.client.beta.sessions.events.send(sessionId, {
       events: [{ type: 'user.interrupt' }],
     } as never);

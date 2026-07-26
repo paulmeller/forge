@@ -238,10 +238,11 @@ async function verifyOne(task: Task, log: Logger): Promise<VerifyOutcome> {
   if (task.verifyRetryCount < env.VERIFY_RETRY_MAX && task.sessionId) {
     if (task.sessionId) {
       try {
-        await getAdapter(mission.backend).sendTurn(
-          task.sessionId,
-          buildVerifyFeedback(verdict.missing ?? ''),
-        );
+        await getAdapter(mission.backend).sendTurn({
+          sessionId: task.sessionId,
+          text: buildVerifyFeedback(verdict.missing ?? ''),
+          backendSessionRef: task.backendSessionRef,
+        });
       } catch (err) {
         log.warn(
           { taskId: task.id, err: err instanceof Error ? err.message : String(err) },

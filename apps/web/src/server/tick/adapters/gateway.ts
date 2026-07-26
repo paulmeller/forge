@@ -6,6 +6,8 @@ import type {
   GetSessionResult,
   ListEventsInput,
   ListEventsResult,
+  SendTurnInput,
+  SendTurnResult,
   SessionLifecycle,
   ToolConfirmationDecision,
 } from './types';
@@ -71,20 +73,23 @@ export class GatewayAdapter implements BackendAdapter {
     const session = await this.request<GatewaySession>('POST', '/v1/sessions', body);
 
     // Send the initial prompt as a follow-up turn (same pattern as MA adapter)
-    await this.sendTurn(session.id, input.prompt);
+    await this.sendTurn({ sessionId: session.id, text: input.prompt });
 
     return { sessionId: session.id };
   }
 
-  async sendTurn(sessionId: string, text: string): Promise<void> {
-    await this.request('POST', `/v1/sessions/${sessionId}/events`, {
+  // backendSessionRef is unused: gateway session ids are stable for the life
+  // of the session, so there is never a rotated handle to track.
+  async sendTurn(input: SendTurnInput): Promise<SendTurnResult> {
+    await this.request('POST', `/v1/sessions/${input.sessionId}/events`, {
       events: [
         {
           type: 'user.message',
-          content: [{ type: 'text', text }],
+          content: [{ type: 'text', text: input.text }],
         },
       ],
     });
+    return {};
   }
 
   async listEvents(input: ListEventsInput): Promise<ListEventsResult> {
@@ -120,7 +125,7 @@ export class GatewayAdapter implements BackendAdapter {
     };
   }
 
-  async getSession(sessionId: string): Promise<GetSessionResult> {
+  async getSession(sessionId: string, _backendSessionRef?: string | null): Promise<GetSessionResult> {
     const session = await this.request<GatewaySession>('GET', `/v1/sessions/${sessionId}`);
     return {
       sessionId,
@@ -129,7 +134,7 @@ export class GatewayAdapter implements BackendAdapter {
     };
   }
 
-  async cancelSession(sessionId: string): Promise<void> {
+  async cancelSession(sessionId: string, _backendSessionRef?: string | null): Promise<void> {
     await this.request('POST', `/v1/sessions/${sessionId}/events`, {
       events: [{ type: 'user.interrupt' }],
     });

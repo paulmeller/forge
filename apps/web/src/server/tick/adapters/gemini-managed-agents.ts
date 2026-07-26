@@ -6,6 +6,8 @@ import type {
   GetSessionResult,
   ListEventsInput,
   ListEventsResult,
+  SendTurnInput,
+  SendTurnResult,
   SessionLifecycle,
   ToolConfirmationDecision,
 } from './types';
@@ -75,6 +77,16 @@ export class GeminiManagedAgentsAdapter implements BackendAdapter {
     this.baseUrl = opts.baseUrl ?? 'https://generativelanguage.googleapis.com';
   }
 
+  /**
+   * Which physical Gemini interaction to act on. Precedence: the caller's
+   * persisted ref (authoritative, survives restarts) → this instance's cache
+   * (fast path while warm) → the original sessionId (last resort, only for
+   * tasks created before backendSessionRef existed).
+   */
+  private resolvePhysicalId(sessionId: string, backendSessionRef?: string | null): string {
+    return backendSessionRef ?? this.latestInteractionId.get(sessionId) ?? sessionId;
+  }
+
   async createSession(input: CreateSessionInput): Promise<CreateSessionResult> {
     const body = {
       model: this.model,
@@ -98,19 +110,20 @@ export class GeminiManagedAgentsAdapter implements BackendAdapter {
     return { sessionId: interaction.id };
   }
 
-  async sendTurn(sessionId: string, text: string): Promise<void> {
-    const physicalId = this.latestInteractionId.get(sessionId) ?? sessionId;
+  async sendTurn(input: SendTurnInput): Promise<SendTurnResult> {
+    const physicalId = this.resolvePhysicalId(input.sessionId, input.backendSessionRef);
     const interaction = await this.request<GeminiInteraction>('POST', '/v1beta/interactions', {
       model: this.model,
       background: true,
       previous_interaction_id: physicalId,
-      input: text,
+      input: input.text,
     });
-    this.latestInteractionId.set(sessionId, interaction.id);
+    this.latestInteractionId.set(input.sessionId, interaction.id);
+    return { backendSessionRef: interaction.id };
   }
 
   async listEvents(input: ListEventsInput): Promise<ListEventsResult> {
-    const physicalId = this.latestInteractionId.get(input.sessionId) ?? input.sessionId;
+    const physicalId = this.resolvePhysicalId(input.sessionId, input.backendSessionRef);
     const interaction = await this.request<GeminiInteraction>(
       'GET',
       `/v1beta/interactions/${physicalId}`,
@@ -186,8 +199,8 @@ export class GeminiManagedAgentsAdapter implements BackendAdapter {
     return { events, latestEventId: latest?.id ?? input.afterEventId, hasMore: false };
   }
 
-  async getSession(sessionId: string): Promise<GetSessionResult> {
-    const physicalId = this.latestInteractionId.get(sessionId) ?? sessionId;
+  async getSession(sessionId: string, backendSessionRef?: string | null): Promise<GetSessionResult> {
+    const physicalId = this.resolvePhysicalId(sessionId, backendSessionRef);
     const interaction = await this.request<GeminiInteraction>(
       'GET',
       `/v1beta/interactions/${physicalId}`,
@@ -199,8 +212,8 @@ export class GeminiManagedAgentsAdapter implements BackendAdapter {
     };
   }
 
-  async cancelSession(sessionId: string): Promise<void> {
-    const physicalId = this.latestInteractionId.get(sessionId) ?? sessionId;
+  async cancelSession(sessionId: string, backendSessionRef?: string | null): Promise<void> {
+    const physicalId = this.resolvePhysicalId(sessionId, backendSessionRef);
     await this.request('POST', `/v1beta/interactions/${physicalId}/cancel`);
   }
 

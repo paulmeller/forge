@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { GatewayAdapter, GatewayApiError } from './gateway';
 import { GeminiManagedAgentsAdapter } from './gemini-managed-agents';
@@ -97,5 +97,34 @@ describe('GatewayAdapter specifics', () => {
     expect(err.message).toContain('404');
     expect(err.message).toContain('/v1/sessions/123');
     expect(err.name).toBe('GatewayApiError');
+  });
+});
+
+describe('non-rotating adapters report no rotated handle', () => {
+  it('ManagedAgentsAdapter.sendTurn returns an empty result', async () => {
+    const send = vi.fn(async () => ({}));
+    const adapter = new ManagedAgentsAdapter({
+      apiKey: 'test-key',
+      environmentId: 'test-env',
+      client: { beta: { sessions: { events: { send } } } } as never,
+    });
+
+    const result = await adapter.sendTurn({ sessionId: 's1', text: 'hi' });
+
+    expect(result).toEqual({});
+    expect(send).toHaveBeenCalledOnce();
+  });
+
+  it('GatewayAdapter.sendTurn returns an empty result', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, status: 200, json: async () => ({}), text: async () => '' })),
+    );
+    const adapter = new GatewayAdapter({ baseUrl: 'https://gw.test', apiKey: 'k' });
+
+    const result = await adapter.sendTurn({ sessionId: 's1', text: 'hi' });
+
+    expect(result).toEqual({});
+    vi.unstubAllGlobals();
   });
 });

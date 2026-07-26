@@ -21,6 +21,23 @@ export type CreateSessionResult = {
   sessionId: string;
 };
 
+export type SendTurnInput = {
+  sessionId: string;
+  text: string;
+  /**
+   * The backend's live session handle, when it differs from `sessionId`.
+   * Gemini rotates its interaction id every turn; passing the persisted
+   * value lets a cold instance target the correct one instead of falling
+   * back to the original (already-finished) session.
+   */
+  backendSessionRef?: string | null;
+};
+
+export type SendTurnResult = {
+  /** Set when this turn produced a new backend handle the caller must persist. */
+  backendSessionRef?: string;
+};
+
 export type BackendEventKind =
   | 'user.message'
   | 'agent.message'
@@ -50,6 +67,8 @@ export type ListEventsInput = {
   sessionId: string;
   /** Cursor — return events with id > this. Adapter decides the concrete pagination. */
   afterEventId?: string;
+  /** See SendTurnInput.backendSessionRef. */
+  backendSessionRef?: string | null;
 };
 
 export type ListEventsResult = {
@@ -74,10 +93,10 @@ export type ToolConfirmationDecision =
 export interface BackendAdapter {
   readonly kind: BackendKind;
   createSession(input: CreateSessionInput): Promise<CreateSessionResult>;
-  sendTurn(sessionId: string, text: string): Promise<void>;
+  sendTurn(input: SendTurnInput): Promise<SendTurnResult>;
   listEvents(input: ListEventsInput): Promise<ListEventsResult>;
-  getSession(sessionId: string): Promise<GetSessionResult>;
-  cancelSession(sessionId: string): Promise<void>;
+  getSession(sessionId: string, backendSessionRef?: string | null): Promise<GetSessionResult>;
+  cancelSession(sessionId: string, backendSessionRef?: string | null): Promise<void>;
   /**
    * Approve or deny an MCP / agent tool use that's blocking the session at
    * `session.status_idle` with `stop_reason.type='requires_action'`. The
