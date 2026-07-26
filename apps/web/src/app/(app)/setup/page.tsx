@@ -3,6 +3,7 @@ import { eq } from '@forge/db/orm';
 
 import { githubInstallationRepos, githubInstallations } from '@forge/db';
 
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { PageHeader, PageShell } from '@/components/page-shell';
 import { db } from '@/lib/db';
 import { env } from '@/lib/env';
@@ -11,8 +12,13 @@ import { withAuth } from '@/lib/with-auth';
 
 import { RepoPicker } from './repo-picker';
 
-export default async function SetupPage() {
+export default async function SetupPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string }>;
+}) {
   const user = await withAuth();
+  const { error } = await searchParams;
 
   const [installation] = await db
     .select()
@@ -52,6 +58,17 @@ export default async function SetupPage() {
   return (
     <PageShell>
       <PageHeader title="Get set up" subtitle="Connect GitHub and choose which repos Forge can work on." />
+
+      {error === 'install_state_mismatch' && (
+        <Alert variant="destructive" className="mb-6">
+          <AlertTitle className="text-sm">Install wasn&rsquo;t completed</AlertTitle>
+          <AlertDescription className="text-xs">
+            We couldn&rsquo;t confirm that install started from this browser, so it wasn&rsquo;t
+            linked to your account. This happens if the link sat unused for more than 10 minutes.
+            Start again with the button below.
+          </AlertDescription>
+        </Alert>
+      )}
 
       <div className="mb-6 flex items-center">
         {[
@@ -98,7 +115,9 @@ export default async function SetupPage() {
             </div>
             {!installation && (
               <a
-                href={`https://github.com/apps/${env.GITHUB_APP_SLUG}/installations/new`}
+                // Goes via our own route so it can mint a one-time state
+                // cookie before bouncing to GitHub — see api/github/install.
+                href="/api/github/install"
                 className="inline-flex items-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
               >
                 Install on GitHub
