@@ -15,8 +15,9 @@ for (const suffix of ['', '-wal', '-shm']) {
 process.env.DATABASE_URL = `file:${DB_FILE}`;
 
 const cancelSession = vi.fn();
+const getSession = vi.fn(async () => ({ sessionId: 'sess_leaf', status: 'terminated' as const }));
 vi.mock('./adapters', () => ({
-  getAdapter: () => ({ cancelSession }),
+  getAdapter: () => ({ cancelSession, getSession }),
 }));
 
 // Dynamically imported after env is set.
@@ -25,7 +26,7 @@ let client: { close: () => void };
 let schema: typeof import('@forge/db');
 let runBudgets: typeof import('./budgets').runBudgets;
 
-const noopLog = { info: () => {}, warn: () => {} };
+const noopLog = { info: () => {}, warn: () => {}, error: () => {} };
 
 beforeAll(async () => {
   const dbMod = await import('@/lib/db');
@@ -141,7 +142,7 @@ describe('runBudgets — container/leaf aggregation', () => {
     expect(container?.status).toBe('paused');
     expect(container?.completedAt).toBeNull();
 
-    expect(cancelSession).toHaveBeenCalledWith('sess_leaf');
+    expect(cancelSession).toHaveBeenCalledWith('sess_leaf', null);
     const inflightTask = await getTask('bud_t3');
     expect(inflightTask?.status).toBe('failed');
     expect(inflightTask?.haltReason).toBe('budget_hard_stop');

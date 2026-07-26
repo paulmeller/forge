@@ -14,11 +14,13 @@ import {
 import { getAdapter } from './adapters';
 import { db } from '@/lib/db';
 import { env } from '@/lib/env';
+import { verifyCancelled } from './cancel-verify';
 import { getSkill } from './skill-loader';
 
 type Logger = {
   info: (o: object, m?: string) => void;
   warn: (o: object, m?: string) => void;
+  error: (o: object, m?: string) => void;
 };
 
 export type GuardrailsResult = {
@@ -135,13 +137,26 @@ export async function runGuardrails(log: Logger): Promise<GuardrailsResult> {
 
     // Best-effort cancel — a failure here must NOT block the status change.
     if (task.sessionId) {
+      let cancelled = false;
       try {
-        await getAdapter(mission.backend).cancelSession(task.sessionId);
+        const adapter = getAdapter(mission.backend);
+        await adapter.cancelSession(task.sessionId, task.backendSessionRef);
+        cancelled = await verifyCancelled(adapter, task.sessionId, task.backendSessionRef);
       } catch (err) {
         log.warn(
           { taskId: task.id, err: err instanceof Error ? err.message : String(err) },
           'guardrails:cancel_failed',
         );
+      }
+      if (!cancelled) {
+        log.error({ taskId: task.id, reason }, 'guardrails:cancel_unverified');
+        await db.insert(ledgerEvents).values({
+          id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
+          missionId: mission.id,
+          taskId: task.id,
+          eventType: 'guardrails.cancel_unverified',
+          payload: { sessionId: task.sessionId, backendSessionRef: task.backendSessionRef, reason },
+        });
       }
     }
 

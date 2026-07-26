@@ -6,11 +6,13 @@ import { ledgerEvents, missions, tasks, type Mission, type TaskStatus } from '@f
 
 import { getAdapter } from './adapters';
 import { db } from '@/lib/db';
+import { verifyCancelled } from './cancel-verify';
 import { INFLIGHT_STATUSES } from './dispatcher';
 
 type Logger = {
   info: (o: object, m?: string) => void;
   warn: (o: object, m?: string) => void;
+  error: (o: object, m?: string) => void;
 };
 
 export type BudgetResult = {
@@ -210,13 +212,30 @@ async function hardStop(
 
   for (const task of inflight) {
     if (task.sessionId) {
+      let cancelled = false;
       try {
-        await getAdapter(mission.backend).cancelSession(task.sessionId);
+        const adapter = getAdapter(mission.backend);
+        await adapter.cancelSession(task.sessionId, task.backendSessionRef);
+        cancelled = await verifyCancelled(adapter, task.sessionId, task.backendSessionRef);
       } catch (err) {
         log.warn(
           { taskId: task.id, err: err instanceof Error ? err.message : String(err) },
           'budgets:hard_stop_cancel_failed',
         );
+      }
+      if (!cancelled) {
+        // The agent may still be burning budget. Loud, and auditable in the UI.
+        log.error(
+          { taskId: task.id, missionId: mission.id },
+          'budgets:hard_stop_cancel_unverified',
+        );
+        await db.insert(ledgerEvents).values({
+          id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
+          missionId: mission.id,
+          taskId: task.id,
+          eventType: 'budgets.hard_stop_cancel_unverified',
+          payload: { sessionId: task.sessionId, backendSessionRef: task.backendSessionRef },
+        });
       }
     }
     await db
