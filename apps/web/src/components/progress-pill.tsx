@@ -112,8 +112,9 @@ export function TaskProgressPill({
           // polls/streams a new rollup — there's no self-ticking timer here (and
           // adding a setInterval purely to satisfy purity would make this
           // component re-render every second for a cosmetic freshness gain
-          // nobody asked for). suppressHydrationWarning below already covers the
-          // one real consequence (SSR vs. hydration value drift).
+          // nobody asked for). The suppressHydrationWarning on Chip above (set
+          // whenever timeSensitive, which is exactly this live case) already
+          // covers the one real consequence: SSR vs. hydration value drift.
           // eslint-disable-next-line react-hooks/purity
           Date.now() - rollup.startedAt.getTime()
         : 0;

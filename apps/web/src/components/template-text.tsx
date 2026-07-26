@@ -11,9 +11,13 @@ export function TemplateText({ text }: { text: string }) {
   let lastIndex = 0;
   let key = 0;
 
-  // matchAll clones the regex internally, so it doesn't touch the shared
-  // module-level TEMPLATE_VAR_RE.lastIndex — safe if two components render
-  // concurrently, unlike a manual lastIndex reset + exec() loop.
+  // matchAll iterates a clone, so it never *writes* the shared module-level
+  // TEMPLATE_VAR_RE.lastIndex — no cross-component corruption when two
+  // components render concurrently, unlike the exec() loop this replaced.
+  // Note it does *read* lastIndex as its start offset, so this is only safe
+  // while nothing in this module leaves it non-zero; matchAll is currently
+  // the regex's only use here. Add an exec()/test() call and leading matches
+  // would start being skipped.
   for (const match of text.matchAll(TEMPLATE_VAR_RE)) {
     if (match.index > lastIndex) {
       parts.push(<Fragment key={`t${key++}`}>{text.slice(lastIndex, match.index)}</Fragment>);

@@ -166,9 +166,12 @@ function TaskRow({
   // Extract variable names from the goal template
   const varNames = useMemo(() => {
     const names = new Set<string>();
-    // matchAll clones the regex internally, so it doesn't touch the shared
-    // module-level TEMPLATE_VAR_RE.lastIndex — safe if two components render
-    // concurrently, unlike a manual lastIndex reset + exec() loop.
+    // matchAll iterates a clone, so it never *writes* the shared module-level
+    // TEMPLATE_VAR_RE.lastIndex — no cross-component corruption when two
+    // components render concurrently, unlike the exec() loop this replaced.
+    // Note it does *read* lastIndex as its start offset. Safe here because the
+    // regex's only other use is String.replace() above, which resets lastIndex
+    // to 0 on both entry and exit; a stray exec()/test() would break that.
     for (const m of goalTemplate.matchAll(TEMPLATE_VAR_RE)) {
       names.add(m[1]!);
     }

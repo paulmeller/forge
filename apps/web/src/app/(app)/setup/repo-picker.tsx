@@ -37,11 +37,12 @@ export function RepoPicker({
     [sortedRepos, query],
   );
 
-  // TanStack Virtual's useVirtualizer() returns functions that can't be
-  // memoized safely, so the compiler correctly skips memoizing this
-  // component. That's an accurate diagnosis (not a false positive) — nothing
-  // here is misused, so there's nothing to change; suppressed to keep lint
-  // clean without swapping virtualization libraries.
+  // TanStack Virtual's useVirtualizer() returns functions that couldn't be
+  // memoized safely if the React Compiler were enabled. It isn't in this build
+  // (no reactCompiler in next.config.mjs) — this is a lint-only rule here, and
+  // an accurate diagnosis rather than a false positive. Nothing is misused, so
+  // there's nothing to change; suppressed rather than swap virtualization
+  // libraries over it.
   // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
     count: filteredRepos.length,
