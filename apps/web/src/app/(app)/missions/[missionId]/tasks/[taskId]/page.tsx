@@ -131,6 +131,7 @@ export default async function TaskDetailPage({
             ledger={ledger}
           />
           <SessionLogView
+            key={task.id}
             taskId={task.id}
             isLive={['queued', 'dispatching', 'running'].includes(task.status)}
             initialEvents={[...ledger].reverse()}

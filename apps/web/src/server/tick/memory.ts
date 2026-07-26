@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import { and, eq, inArray, lte, sql } from 'drizzle-orm';
 
-import { ledgerEvents, memories, type Memory, type NewMemory } from '@forge/db';
+import { memories, type Memory, type NewMemory } from '@forge/db';
 
 import { db } from '@/lib/db';
 

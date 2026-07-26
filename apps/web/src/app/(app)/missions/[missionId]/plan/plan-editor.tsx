@@ -166,9 +166,10 @@ function TaskRow({
   // Extract variable names from the goal template
   const varNames = useMemo(() => {
     const names = new Set<string>();
-    let m: RegExpExecArray | null;
-    TEMPLATE_VAR_RE.lastIndex = 0;
-    while ((m = TEMPLATE_VAR_RE.exec(goalTemplate)) !== null) {
+    // matchAll clones the regex internally, so it doesn't touch the shared
+    // module-level TEMPLATE_VAR_RE.lastIndex — safe if two components render
+    // concurrently, unlike a manual lastIndex reset + exec() loop.
+    for (const m of goalTemplate.matchAll(TEMPLATE_VAR_RE)) {
       names.add(m[1]!);
     }
     return Array.from(names);

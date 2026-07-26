@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useTransition } from 'react';
+import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 
 import { Button } from '@/components/ui/button';
@@ -30,9 +30,14 @@ export function WorkOnItButton({
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  // Reset the error when the headline changes, computed during render (the
+  // "adjusting state when a prop changes" recipe — react.dev/learn/you-might-not-need-an-effect)
+  // instead of in a useEffect, so there's no extra post-commit render.
+  const [prevHeadline, setPrevHeadline] = useState(headline);
+  if (prevHeadline !== headline) {
+    setPrevHeadline(headline);
     setError(null);
-  }, [headline]);
+  }
 
   const inFlight = headline !== null && !TERMINAL.has(headline);
   if (inFlight) {

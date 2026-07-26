@@ -3,7 +3,6 @@ import { existsSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { migrate } from 'drizzle-orm/libsql/migrator';
-import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import type { LibSQLDatabase } from 'drizzle-orm/libsql';

@@ -39,24 +39,17 @@ export function SessionLogView({
   maxLines?: number;
   className?: string;
 }) {
+  // All state below is seeded once from props and never re-synced on a
+  // `taskId` change from within this component — callers must render this
+  // component with `key={taskId}` (as both call sites do) so switching tasks
+  // fully remounts it with fresh initial state, rather than updating an
+  // existing instance in place via an effect.
   const [events, setEvents] = useState<LogEvent[]>(initialEvents);
   const [newCount, setNewCount] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const pinnedRef = useRef(true);
   const prevLengthRef = useRef(initialEvents.length);
   const forceScrollRef = useRef(true);
-
-  useEffect(() => {
-    setEvents(initialEvents);
-    prevLengthRef.current = initialEvents.length;
-    pinnedRef.current = true;
-    forceScrollRef.current = true;
-    setNewCount(0);
-    // Only re-seed when the task changes — live events accumulate on top
-    // independently, and initialEvents is a snapshot taken once per render
-    // of the parent, not a dependency we want to re-trigger on every poll.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [taskId]);
 
   useEffect(() => {
     if (!isLive) return;

@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useEffect, useState } from 'react';
+import { useActionState, useState } from 'react';
 import { Bug, Check, GitBranch, LayoutGrid } from 'lucide-react';
 import Link from 'next/link';
 
@@ -84,16 +84,26 @@ export function NewMissionForm({
         ? 'agent from env default'
         : 'no agent — connect in Setup';
 
-  useEffect(() => {
+  // Both of these are "adjust state when a prop/derived value changes" cases
+  // (react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes):
+  // computed during render, tracking the previous value in state rather than
+  // in a useEffect, so there's no extra post-commit render (and no one-frame
+  // flash of the stale value) on every action-state update or mission-type
+  // switch.
+  const [prevFieldErrors, setPrevFieldErrors] = useState(state.fieldErrors);
+  if (prevFieldErrors !== state.fieldErrors) {
+    setPrevFieldErrors(state.fieldErrors);
     const errorKeys = Object.keys(state.fieldErrors ?? {});
     if (errorKeys.some((key) => ADVANCED_FIELDS.has(key))) {
       setShowAdvanced(true);
     }
-  }, [state.fieldErrors]);
+  }
 
-  useEffect(() => {
+  const [prevMissionType, setPrevMissionType] = useState(missionType);
+  if (prevMissionType !== missionType) {
+    setPrevMissionType(missionType);
     setRepoError(null);
-  }, [missionType]);
+  }
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     setRepoError(null);

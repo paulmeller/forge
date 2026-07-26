@@ -108,7 +108,14 @@ export function TaskProgressPill({
     rollup.startedAt && rollup.endedAt
       ? rollup.endedAt.getTime() - rollup.startedAt.getTime()
       : rollup.startedAt
-        ? Date.now() - rollup.startedAt.getTime()
+        ? // Date.now() is impure, but this pill only re-renders when the parent
+          // polls/streams a new rollup — there's no self-ticking timer here (and
+          // adding a setInterval purely to satisfy purity would make this
+          // component re-render every second for a cosmetic freshness gain
+          // nobody asked for). suppressHydrationWarning below already covers the
+          // one real consequence (SSR vs. hydration value drift).
+          // eslint-disable-next-line react-hooks/purity
+          Date.now() - rollup.startedAt.getTime()
         : 0;
 
   const live = !!rollup.startedAt && !rollup.endedAt;

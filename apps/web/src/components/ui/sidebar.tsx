@@ -661,7 +661,12 @@ const SidebarMenuSkeleton = React.forwardRef<
   }
 >(({ className, showIcon = false, ...props }, ref) => {
   // Random width between 50 to 90%.
+  // Vendored shadcn/ui component — left as-is (rather than refactored to a
+  // stable per-item seed) so this file stays diffable against upstream. The
+  // randomness only affects a loading-skeleton's cosmetic width, so a
+  // remount-triggered value change is harmless.
   const width = React.useMemo(() => {
+    // eslint-disable-next-line react-hooks/purity
     return `${Math.floor(Math.random() * 40) + 50}%`
   }, [])
 

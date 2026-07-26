@@ -9,11 +9,12 @@ const TEMPLATE_VAR_RE = /\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g;
 export function TemplateText({ text }: { text: string }) {
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;
-  let match;
   let key = 0;
 
-  TEMPLATE_VAR_RE.lastIndex = 0;
-  while ((match = TEMPLATE_VAR_RE.exec(text)) !== null) {
+  // matchAll clones the regex internally, so it doesn't touch the shared
+  // module-level TEMPLATE_VAR_RE.lastIndex — safe if two components render
+  // concurrently, unlike a manual lastIndex reset + exec() loop.
+  for (const match of text.matchAll(TEMPLATE_VAR_RE)) {
     if (match.index > lastIndex) {
       parts.push(<Fragment key={`t${key++}`}>{text.slice(lastIndex, match.index)}</Fragment>);
     }

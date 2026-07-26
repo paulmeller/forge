@@ -37,6 +37,12 @@ export function RepoPicker({
     [sortedRepos, query],
   );
 
+  // TanStack Virtual's useVirtualizer() returns functions that can't be
+  // memoized safely, so the compiler correctly skips memoizing this
+  // component. That's an accurate diagnosis (not a false positive) — nothing
+  // here is misused, so there's nothing to change; suppressed to keep lint
+  // clean without swapping virtualization libraries.
+  // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
     count: filteredRepos.length,
     getScrollElement: () => scrollRef.current,
