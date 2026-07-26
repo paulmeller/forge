@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => {
     maxSlotsOverride: undefined as number | undefined,
     selectAllStatuses: false,
     lastLimitArg: undefined as number | undefined,
+    updateSetCalls: [] as Array<Partial<Task>>,
     env: {
       GITHUB_APP_TOKEN: undefined as string | undefined,
       FORGE_GIT_AUTHOR_NAME: 'Forge Agent',
@@ -45,6 +46,7 @@ const mocks = vi.hoisted(() => {
     state.maxSlotsOverride = undefined;
     state.selectAllStatuses = false;
     state.lastLimitArg = undefined;
+    state.updateSetCalls = [];
     state.env.GITHUB_APP_TOKEN = undefined;
     state.env.FORGE_GIT_AUTHOR_NAME = 'Forge Agent';
     state.env.FORGE_GIT_AUTHOR_EMAIL = 'forge-agent@users.noreply.github.com';
@@ -99,21 +101,28 @@ const mocks = vi.hoisted(() => {
       })),
     })),
     update: vi.fn(() => ({
-      set: vi.fn((values: Partial<Task>) => ({
-        where: vi.fn(() => ({
-          returning: vi.fn(async () => {
-            const ids = state.selectedIdBatches.shift() ?? [];
-            const claimed: typeof state.tasks = [];
-            for (const id of ids) {
-              const task = state.tasks.find((candidate) => candidate.id === id);
-              if (!task || task.status !== 'queued') continue;
-              Object.assign(task, values);
-              claimed.push(task);
-            }
-            return claimed;
-          }),
-        })),
-      })),
+      set: vi.fn((values: Partial<Task>) => {
+        // Record every payload passed to .set(...) so tests can assert on
+        // what dispatchOne actually persists, independent of whether the
+        // chain also calls .returning() (claimNextBatch does; dispatchOne
+        // does not).
+        state.updateSetCalls.push(values);
+        return {
+          where: vi.fn(() => ({
+            returning: vi.fn(async () => {
+              const ids = state.selectedIdBatches.shift() ?? [];
+              const claimed: typeof state.tasks = [];
+              for (const id of ids) {
+                const task = state.tasks.find((candidate) => candidate.id === id);
+                if (!task || task.status !== 'queued') continue;
+                Object.assign(task, values);
+                claimed.push(task);
+              }
+              return claimed;
+            }),
+          })),
+        };
+      }),
     })),
     insert: vi.fn(() => ({ values: vi.fn(async () => undefined) })),
   };
@@ -466,6 +475,28 @@ describe('dispatchOne', () => {
     expect(prompt.indexOf('git config --global user.name')).toBeLessThan(
       prompt.indexOf('Work on'),
     );
+  });
+
+  it('persists backendSessionRef equal to the session id returned by createSession, in the same update as sessionId', async () => {
+    mocks.state.env.GITHUB_APP_TOKEN = 'ghp_test';
+    mocks.adapter.createSession.mockResolvedValue({ sessionId: 'ses_abc123' });
+
+    await dispatchOne(mission(), task('t1'));
+
+    expect(mocks.state.updateSetCalls).toHaveLength(1);
+    const payload = mocks.state.updateSetCalls[0]!;
+    expect(payload.sessionId).toBe('ses_abc123');
+    expect(payload.backendSessionRef).toBe('ses_abc123');
+    expect(payload.status).toBe('running');
+  });
+
+  it('does not touch the tasks table at all when createSession throws', async () => {
+    mocks.state.env.GITHUB_APP_TOKEN = 'ghp_test';
+    mocks.adapter.createSession.mockRejectedValue(new Error('backend unavailable'));
+
+    await expect(dispatchOne(mission(), task('t1'))).rejects.toThrow('backend unavailable');
+
+    expect(mocks.state.updateSetCalls).toHaveLength(0);
   });
 });
 
