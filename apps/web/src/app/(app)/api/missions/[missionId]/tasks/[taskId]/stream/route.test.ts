@@ -20,10 +20,10 @@ let client: { close: () => void };
 beforeAll(async () => {
   const dbMod = await import('@/lib/db');
   client = dbMod.client as unknown as { close: () => void };
-  // Route dir is 9 levels below repo root:
-  // stream → [taskId] → tasks → api → (app) → app → src → web → apps → root.
+  // Route dir is 11 levels below repo root: stream → [taskId] → tasks →
+  // [missionId] → missions → api → (app) → app → src → web → apps → root.
   await migrate(dbMod.db as never, {
-    migrationsFolder: resolve(__dirname, '../../../../../../../../../packages/db/migrations'),
+    migrationsFolder: resolve(__dirname, '../../../../../../../../../../../packages/db/migrations'),
   });
   const schema = await import('@forge/db');
   const now = new Date();
@@ -52,6 +52,13 @@ beforeAll(async () => {
     id: 'tsk_other_user', missionId: 'm2', repo: 'a/b', baseBranch: 'main',
     kind: 'fix', status: 'running', sessionId: 'sess_2', createdAt: now, updatedAt: now,
   });
+  // Also owned by 'u1', so a request pairing it with tsk_live can only fail on
+  // the mission-mismatch check — not on ownership.
+  await dbMod.db.insert(schema.missions).values({
+    id: 'm3', userId: 'u1', name: 'm3', goal: 'g', status: 'running',
+    backend: 'managed-agents', agentId: 'a1', plannerStrategy: 'triage',
+    webhookSecret: 's', createdAt: now, updatedAt: now,
+  });
   ({ GET } = await import('./route'));
 });
 
@@ -62,11 +69,11 @@ afterAll(() => {
   }
 });
 
-function params(taskId: string) {
-  return { params: Promise.resolve({ taskId }) };
+function params(taskId: string, missionId = 'm1') {
+  return { params: Promise.resolve({ missionId, taskId }) };
 }
 
-describe('GET /api/tasks/[taskId]/stream (in-process)', () => {
+describe('GET /api/missions/[missionId]/tasks/[taskId]/stream (in-process)', () => {
   it('503s (retryable) for an unknown task', async () => {
     const res = await GET(new Request('http://x'), params('tsk_missing'));
     expect(res.status).toBe(503);
@@ -79,9 +86,21 @@ describe('GET /api/tasks/[taskId]/stream (in-process)', () => {
 
   it('503s (not 404, not 200) for a live task owned by another user', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
-    const res = await GET(new Request('http://x'), params('tsk_other_user'));
+    // Paired with its own mission so ownership is the only thing that can
+    // reject it — otherwise the mismatch check would mask a lost user scope.
+    const res = await GET(new Request('http://x'), params('tsk_other_user', 'm2'));
     expect(res.status).toBe(503);
     // Ownership must be enforced before the upstream proxy fetch ever fires.
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it('503s when the task is real and owned but belongs to a different mission', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const res = await GET(new Request('http://x'), params('tsk_live', 'm3'));
+    expect(res.status).toBe(503);
+    // The URL must describe the task it serves: a mission the caller owns is
+    // still the wrong mission, and must not proxy tsk_live's session.
     expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
   });

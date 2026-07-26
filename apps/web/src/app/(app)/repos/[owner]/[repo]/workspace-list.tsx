@@ -318,6 +318,10 @@ export function WorkspaceList({
               </summary>
               <SessionLogView
                 key={activeConsole.task.id}
+                // The task's own missionId, not this page's `missionId` prop:
+                // the workspace shows issue-leaf missions whose tasks belong to
+                // a child mission, not the container the page is scoped to.
+                missionId={activeConsole.task.missionId}
                 taskId={activeConsole.task.id}
                 isLive={activeConsole.isLive}
                 initialEvents={activeConsole.ledger}

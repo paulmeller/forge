@@ -12,20 +12,20 @@ export const dynamic = 'force-dynamic';
  * Agents engine's session event stream. withAuth() is retained: this route is
  * browser-facing and fronts a raw x-api-key call.
  *
- * Task-missing, no-session-yet, and belonging-to-someone-else all map to 503
- * (not 404): EventSource does not auto-retry non-5xx, and the browser only
- * asks about real task ids — a 404 would strand the client forever even once
- * dispatch creates a session. Ownership must take the same 503 path as
- * "missing" so a task id's existence (and owner) isn't observable by trying
- * ids that belong to someone else — getTask() is scoped by userId precisely
- * so this route can't forget that check.
+ * Task-missing, no-session-yet, belonging-to-someone-else, and belonging to a
+ * different mission than the URL claims all map to 503 (not 404): EventSource
+ * does not auto-retry non-5xx, and the browser only asks about real task ids —
+ * a 404 would strand the client forever even once dispatch creates a session.
+ * Every rejection shares that one path so a task id's existence, owner, and
+ * mission aren't observable by probing. getTask() is scoped by userId
+ * precisely so this route can't forget the ownership half.
  */
 export async function GET(
   _request: Request,
-  { params }: { params: Promise<{ taskId: string }> },
+  { params }: { params: Promise<{ missionId: string; taskId: string }> },
 ) {
   const user = await withAuth();
-  const { taskId } = await params;
+  const { missionId, taskId } = await params;
 
   const streamUnavailable = (status: number) =>
     new Response(JSON.stringify({ error: 'stream unavailable' }), {
@@ -34,7 +34,10 @@ export async function GET(
     });
 
   const task = await getTask(taskId, user.id);
-  if (!task || !task.sessionId) return streamUnavailable(503);
+  // The missionId in the path must actually own this task — otherwise the
+  // nesting would be decorative, and /missions/<any>/tasks/<id>/stream would
+  // serve a task the URL misdescribes.
+  if (!task || task.missionId !== missionId || !task.sessionId) return streamUnavailable(503);
 
   let upstream: Response;
   try {

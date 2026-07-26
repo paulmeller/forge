@@ -27,12 +27,14 @@ const LINE_RE = /^(\[[^\]]+\])(.*)$/s;
 const PIN_THRESHOLD_PX = 24;
 
 export function SessionLogView({
+  missionId,
   taskId,
   isLive,
   initialEvents,
   maxLines,
   className,
 }: {
+  missionId: string;
   taskId: string;
   isLive: boolean;
   initialEvents: LogEvent[];
@@ -53,7 +55,7 @@ export function SessionLogView({
 
   useEffect(() => {
     if (!isLive) return;
-    const source = new EventSource(`/api/tasks/${taskId}/stream`);
+    const source = new EventSource(`/api/missions/${missionId}/tasks/${taskId}/stream`);
     source.onmessage = (e) => {
       try {
         const parsed = JSON.parse(e.data) as unknown;
@@ -65,7 +67,7 @@ export function SessionLogView({
       }
     };
     return () => source.close();
-  }, [taskId, isLive]);
+  }, [missionId, taskId, isLive]);
 
   useEffect(() => {
     const el = containerRef.current;
