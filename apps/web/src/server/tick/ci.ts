@@ -196,13 +196,15 @@ async function retryWithFeedback(
 
   const prompt = buildRetryPrompt(sha, failedChecks);
 
+  let rotatedRef: string | undefined;
   try {
     const adapter = getAdapter(mission.backend);
-    await adapter.sendTurn({
+    const result = await adapter.sendTurn({
       sessionId: task.sessionId,
       text: prompt,
       backendSessionRef: task.backendSessionRef,
     });
+    rotatedRef = result.backendSessionRef;
   } catch {
     return false;
   }
@@ -212,6 +214,7 @@ async function retryWithFeedback(
     .update(tasks)
     .set({
       retryCount: task.retryCount + 1,
+      ...(rotatedRef ? { backendSessionRef: rotatedRef } : {}),
       // Stay at awaiting_ci — once the agent pushes, GitHub will trigger a
       // new check run and we'll re-evaluate on the next ci poll.
       updatedAt: now,

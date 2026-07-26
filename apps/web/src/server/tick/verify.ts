@@ -238,11 +238,17 @@ async function verifyOne(task: Task, log: Logger): Promise<VerifyOutcome> {
   if (task.verifyRetryCount < env.VERIFY_RETRY_MAX && task.sessionId) {
     if (task.sessionId) {
       try {
-        await getAdapter(mission.backend).sendTurn({
+        const result = await getAdapter(mission.backend).sendTurn({
           sessionId: task.sessionId,
           text: buildVerifyFeedback(verdict.missing ?? ''),
           backendSessionRef: task.backendSessionRef,
         });
+        if (result.backendSessionRef) {
+          await db
+            .update(tasks)
+            .set({ backendSessionRef: result.backendSessionRef, updatedAt: new Date() })
+            .where(eq(tasks.id, task.id));
+        }
       } catch (err) {
         log.warn(
           { taskId: task.id, err: err instanceof Error ? err.message : String(err) },

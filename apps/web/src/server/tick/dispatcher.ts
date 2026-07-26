@@ -308,6 +308,9 @@ export async function dispatchOne(mission: Mission, task: Task): Promise<void> {
     .set({
       status: 'running',
       sessionId,
+      // Initially identical to sessionId. Backends that rotate their handle
+      // (Gemini) update this on every turn; stable backends never change it.
+      backendSessionRef: sessionId,
       updatedAt: now,
       ...(!task.acceptanceCriteria && skill?.loopPolicy?.acceptanceCriteria
         ? { acceptanceCriteria: skill.loopPolicy.acceptanceCriteria }
