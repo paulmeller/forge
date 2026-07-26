@@ -15,7 +15,12 @@ for (const suffix of ['', '-wal', '-shm']) {
 process.env.DATABASE_URL = `file:${DB_FILE}`;
 
 const cancelSession = vi.fn();
-const getSession = vi.fn(async () => ({ sessionId: 'sess_leaf', status: 'terminated' as const }));
+const getSession = vi.fn(
+  async (): Promise<{ sessionId: string; status: import('./adapters').SessionLifecycle }> => ({
+    sessionId: 'sess_leaf',
+    status: 'terminated',
+  }),
+);
 vi.mock('./adapters', () => ({
   getAdapter: () => ({ cancelSession, getSession }),
 }));
@@ -151,6 +156,56 @@ describe('runBudgets — container/leaf aggregation', () => {
 
     const events = await ledgerEventsFor('bud_container_2', 'budget.hard_stopped');
     expect(events).toHaveLength(1);
+  });
+
+  it('still marks the task failed when cancel silently missed (getSession reports it still running)', async () => {
+    await insertMission('bud_container_running', { budgetTokens: 1_000_000, budgetHardStopPct: 100 });
+    await insertTask('bud_t_running', 'bud_container_running', {
+      costTokens: 1_200_000,
+      status: 'running',
+      sessionId: 'sess_running',
+    });
+
+    // cancelSession "succeeds" (no throw) but the session never actually stopped —
+    // the exact silent-miss scenario verifyCancelled exists to catch.
+    getSession.mockResolvedValueOnce({ sessionId: 'sess_running', status: 'running' as const });
+
+    const result = await runBudgets(noopLog);
+    expect(result.hardStopped).toBe(1);
+
+    const task = await getTask('bud_t_running');
+    expect(task?.status).toBe('failed');
+    expect(task?.haltReason).toBe('budget_hard_stop');
+
+    const unverifiedEvents = await ledgerEventsFor(
+      'bud_container_running',
+      'budgets.hard_stop_cancel_unverified',
+    );
+    expect(unverifiedEvents).toHaveLength(1);
+  });
+
+  it('still marks the task failed when the post-cancel status read throws', async () => {
+    await insertMission('bud_container_reject', { budgetTokens: 1_000_000, budgetHardStopPct: 100 });
+    await insertTask('bud_t_reject', 'bud_container_reject', {
+      costTokens: 1_200_000,
+      status: 'running',
+      sessionId: 'sess_reject',
+    });
+
+    getSession.mockRejectedValueOnce(new Error('backend unreachable'));
+
+    const result = await runBudgets(noopLog);
+    expect(result.hardStopped).toBe(1);
+
+    const task = await getTask('bud_t_reject');
+    expect(task?.status).toBe('failed');
+    expect(task?.haltReason).toBe('budget_hard_stop');
+
+    const unverifiedEvents = await ledgerEventsFor(
+      'bud_container_reject',
+      'budgets.hard_stop_cancel_unverified',
+    );
+    expect(unverifiedEvents).toHaveLength(1);
   });
 
   it('does not re-fire the hard stop on the next tick when nothing is left to stop', async () => {
