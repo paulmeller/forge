@@ -154,7 +154,13 @@ function TaskRow({
   const [varsState, varsAction, varsPending] = useActionState(updatePromptVarsAction, initial);
   const [expanded, setExpanded] = useState(false);
 
-  const savedVars = (task.promptVars ?? {}) as Record<string, unknown>;
+  // Memoized so the `?? {}` fallback doesn't allocate a fresh object every
+  // render when promptVars is null — that fresh reference is a dependency of
+  // the isDirty memo below, which would otherwise recompute on every render.
+  const savedVars = useMemo(
+    () => (task.promptVars ?? {}) as Record<string, unknown>,
+    [task.promptVars],
+  );
   const [localVars, setLocalVars] = useState<Record<string, string>>(() => {
     const out: Record<string, string> = {};
     for (const [k, v] of Object.entries(savedVars)) {
