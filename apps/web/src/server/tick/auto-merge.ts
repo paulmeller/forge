@@ -39,13 +39,14 @@ function client(): Octokit {
 }
 
 /**
- * For each Mission with an auto-merge policy, find ready_to_merge Tasks
- * whose PR shape matches the policy, merge them. `ready_to_merge` means every
- * enabled gate already passed — this must never key on `needs_human`, which
- * is reserved for Tasks that were escalated to a person.
+ * For each Mission with an auto-merge policy, find `ready_to_merge` Tasks
+ * whose PR shape matches the policy and hand them to GitHub's native
+ * auto-merge.
  *
- * PRD §7.5: success + auto-merge policy allows → merging → merged.
- * PRD §11 Phase 1 was no-auto-merge; this is the Phase 2 wiring.
+ * `needs_human` Tasks are structurally excluded: the status split exists so
+ * that a Task which failed AI review, failed self-verify, stalled in a gate,
+ * or bounced off a previous merge attempt can never be selected here — a
+ * small diff is not evidence that rejected work is safe.
  */
 export async function runAutoMerge(log: Logger): Promise<AutoMergeResult> {
   const candidates = await db
@@ -64,6 +65,7 @@ export async function runAutoMerge(log: Logger): Promise<AutoMergeResult> {
   for (const row of candidates) {
     const policy = row.mission.autoMergePolicy as AutoMergePolicy | null;
     if (!policy?.enabled) continue;
+    if (policy.requireHumanApproval && !row.task.approvedBy) continue;
 
     try {
       const result = await tryMerge(row.task, row.mission, policy);
@@ -127,47 +129,60 @@ async function tryMerge(
     return 'blocked';
   }
 
-  // Transition to merging, attempt the merge, then merged or rollback.
-  const now = new Date();
-  await db
-    .update(tasks)
-    .set({ status: 'merging', updatedAt: now })
-    .where(eq(tasks.id, task.id));
+  // Merge-time gating belongs to GitHub, not to us. Read the branch's
+  // required checks; an empty set means nothing would gate the merge, so
+  // native auto-merge would fire instantly — block instead of pretending
+  // the diff-shape check made that safe.
+  const required = await requiredChecksFor(gh, owner, repo, pr.base.ref);
+  if (required.length === 0) {
+    await markBlocked(task, mission, pullNumber, [
+      `branch '${pr.base.ref}' has no required checks configured — refusing to auto-merge`,
+    ]);
+    return 'blocked';
+  }
 
-  let mergeOk = false;
+  const missingChecks = (policy.requiredChecks ?? []).filter((c) => !required.includes(c));
+  if (missingChecks.length > 0) {
+    await markBlocked(task, mission, pullNumber, [
+      `policy requires checks the branch does not: ${missingChecks.join(', ')}`,
+    ]);
+    return 'blocked';
+  }
+
+  const now = new Date();
+  await db.update(tasks).set({ status: 'merging', updatedAt: now }).where(eq(tasks.id, task.id));
+
   let mergeError: string | null = null;
   try {
-    await gh.pulls.merge({
-      owner,
-      repo,
-      pull_number: pullNumber,
-      merge_method: 'squash',
-      commit_title: pr.title || `Merge PR #${pullNumber}`,
-    });
-    mergeOk = true;
+    await gh.graphql(
+      `mutation($pullRequestId: ID!) {
+        enablePullRequestAutoMerge(input: { pullRequestId: $pullRequestId, mergeMethod: SQUASH }) {
+          clientMutationId
+        }
+      }`,
+      { pullRequestId: pr.node_id },
+    );
   } catch (err) {
     mergeError = err instanceof Error ? err.message : String(err);
   }
 
-  if (mergeOk) {
-    const completed = new Date();
-    await db
-      .update(tasks)
-      .set({ status: 'merged', updatedAt: completed, completedAt: completed })
-      .where(eq(tasks.id, task.id));
+  if (!mergeError) {
+    // Armed, not merged. GitHub merges when the required checks pass; the
+    // pull_request webhook moves this Task to `merged` when that happens.
     await db.insert(ledgerEvents).values({
       id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
       missionId: task.missionId,
       taskId: task.id,
-      eventType: 'auto_merge.merged',
+      eventType: 'auto_merge.armed',
       payload: {
         prNumber: pullNumber,
         method: 'squash',
+        requiredChecks: required,
         additions: pr.additions,
         deletions: pr.deletions,
         filesChanged: pr.changed_files,
       },
-      createdAt: completed,
+      createdAt: new Date(),
     });
     return 'merged';
   }
@@ -268,3 +283,22 @@ function globMatch(path: string, pattern: string): boolean {
 
 // re-export glob for tests
 export const _globMatch = globMatch;
+
+/**
+ * Required status checks on a branch, or [] when the branch is unprotected.
+ * A 404 means no protection rule exists — that is a normal answer here, not
+ * an error, so it maps to the empty set rather than throwing.
+ */
+async function requiredChecksFor(
+  gh: Octokit,
+  owner: string,
+  repo: string,
+  branch: string,
+): Promise<string[]> {
+  try {
+    const { data } = await gh.repos.getBranchProtection({ owner, repo, branch });
+    return data.required_status_checks?.contexts ?? [];
+  } catch {
+    return [];
+  }
+}

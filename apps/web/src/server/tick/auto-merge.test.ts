@@ -97,18 +97,22 @@ const amMocks = vi.hoisted(() => {
   const state = {
     candidateRows: [] as Array<{ task: Task; mission: Mission }>,
     taskUpdateCalls: [] as Array<Record<string, unknown>>,
+    ledgerInserts: [] as Array<Record<string, unknown>>,
     env: { GITHUB_APP_TOKEN: 'ghp_test' as string | undefined },
   };
 
   const reset = () => {
     state.candidateRows = [];
     state.taskUpdateCalls = [];
+    state.ledgerInserts = [];
     state.env.GITHUB_APP_TOKEN = 'ghp_test';
   };
   reset();
 
   const octokit = {
     pulls: { get: vi.fn(), merge: vi.fn(), listFiles: vi.fn() },
+    repos: { getBranchProtection: vi.fn() },
+    graphql: vi.fn(),
   };
 
   const db = {
@@ -125,7 +129,12 @@ const amMocks = vi.hoisted(() => {
         return { where: vi.fn(async () => undefined) };
       }),
     })),
-    insert: vi.fn(() => ({ values: vi.fn(async () => undefined) })),
+    insert: vi.fn(() => ({
+      values: vi.fn(async (v: Record<string, unknown>) => {
+        state.ledgerInserts.push(v);
+        return undefined;
+      }),
+    })),
   };
 
   return { db, octokit, reset, state };
@@ -165,6 +174,7 @@ function amTask(overrides: Partial<Task> = {}): Task {
     haltReason: null,
     escalationReason: null,
     reviewDecision: null,
+    approvedBy: null,
     acceptanceCriteria: null,
     lastError: null,
     costUsd: 0,
@@ -219,12 +229,52 @@ function amMission(overrides: Partial<Mission> = {}): Mission {
   } as Mission;
 }
 
-describe('tryMerge rollback path (via runAutoMerge)', () => {
+// --- Native auto-merge gating ---
+//
+// GitHub, not Forge, decides when the merge actually happens: we only arm
+// native auto-merge (via the GraphQL `enablePullRequestAutoMerge` mutation)
+// after confirming the branch has required checks that would gate it, and
+// we never call `pulls.merge` ourselves any more.
+const PR_URL = 'https://github.com/acme/repo/pull/7';
+const PR_NODE_ID = 'PR_kwDOACME00007';
+
+const mergeSpy = amMocks.octokit.pulls.merge;
+const graphqlSpy = amMocks.octokit.graphql;
+// The brief's test code drives this with a plain string[] ("no checks" /
+// "['build']"); requiredChecksFor unwraps `data.required_status_checks.contexts`
+// from the real Octokit response shape, so this spy sits underneath that
+// unwrapping rather than replacing it.
+const requiredChecksSpy = vi.fn<() => string[] | Promise<string[]>>();
+amMocks.octokit.repos.getBranchProtection.mockImplementation(async () => ({
+  data: { required_status_checks: { contexts: await requiredChecksSpy() } },
+}));
+
+let currentMission: Mission;
+
+async function seedTask(overrides: Partial<Task> = {}): Promise<void> {
+  amMocks.state.candidateRows.push({ task: amTask(overrides), mission: currentMission });
+}
+
+async function setPolicy(policy: Mission['autoMergePolicy']): Promise<void> {
+  currentMission.autoMergePolicy = policy;
+}
+
+function lastBlockedReasons(): string[] {
+  const blockedEvents = amMocks.state.ledgerInserts.filter(
+    (e) => e.eventType === 'auto_merge.blocked',
+  );
+  const last = blockedEvents[blockedEvents.length - 1];
+  const payload = last?.payload as { reasons?: string[] } | undefined;
+  return payload?.reasons ?? [];
+}
+
+describe('tryMerge — native auto-merge gating (via runAutoMerge)', () => {
   const log = { info: vi.fn(), warn: vi.fn() };
 
   beforeEach(() => {
     vi.clearAllMocks();
     amMocks.reset();
+    currentMission = amMission();
     amMocks.octokit.pulls.get.mockResolvedValue({
       data: {
         state: 'open',
@@ -232,12 +282,68 @@ describe('tryMerge rollback path (via runAutoMerge)', () => {
         deletions: 2,
         changed_files: 1,
         title: 'Fix the thing',
+        node_id: PR_NODE_ID,
+        base: { ref: 'main' },
       },
     });
-    amMocks.octokit.pulls.merge.mockRejectedValue(new Error('Pull Request is not mergeable'));
+    requiredChecksSpy.mockReset();
+    requiredChecksSpy.mockResolvedValue(['build']);
+    graphqlSpy.mockReset();
+    graphqlSpy.mockResolvedValue({});
+  });
+
+  // NOTE: "never selects a task that escalated to needs_human" is NOT
+  // duplicated here. This file's mock `db.select().where(...)` returns
+  // whatever `seedTask` pushes regardless of the real WHERE clause — a test
+  // seeding a needs_human row here would pass or fail independent of
+  // production's `eq(tasks.status, 'ready_to_merge')` filter, which is not a
+  // real regression guard. That guarantee is proven for real against a live
+  // SQLite DB in auto-merge.integration.test.ts instead.
+
+  it('refuses to merge when the repo has no required checks configured', async () => {
+    await seedTask({ id: 'tsk_ok', status: 'ready_to_merge', prUrl: PR_URL });
+    requiredChecksSpy.mockResolvedValue([]);
+    const res = await runAutoMerge(log);
+    expect(res.merged).toBe(0);
+    expect(res.blocked).toBe(1);
+    expect(lastBlockedReasons()).toEqual(
+      expect.arrayContaining([expect.stringContaining('no required checks')]),
+    );
+  });
+
+  it('blocks when the policy names a check the repo does not require', async () => {
+    await seedTask({ id: 'tsk_ok', status: 'ready_to_merge', prUrl: PR_URL });
+    requiredChecksSpy.mockResolvedValue(['build']);
+    await setPolicy({ enabled: true, requiredChecks: ['build', 'e2e'] });
+    const res = await runAutoMerge(log);
+    expect(res.blocked).toBe(1);
+    expect(lastBlockedReasons()).toEqual(
+      expect.arrayContaining([expect.stringContaining('e2e')]),
+    );
+  });
+
+  it('enables native auto-merge instead of merging directly', async () => {
+    await seedTask({ id: 'tsk_ok', status: 'ready_to_merge', prUrl: PR_URL });
+    requiredChecksSpy.mockResolvedValue(['build']);
+    await runAutoMerge(log);
+    // GitHub owns the merge decision; we must not call pulls.merge ourselves.
+    expect(mergeSpy).not.toHaveBeenCalled();
+    expect(graphqlSpy).toHaveBeenCalledWith(
+      expect.stringContaining('enablePullRequestAutoMerge'),
+      expect.objectContaining({ pullRequestId: PR_NODE_ID }),
+    );
+  });
+
+  it('skips unapproved tasks when the policy requires human approval', async () => {
+    await seedTask({ id: 'tsk_ok', status: 'ready_to_merge', prUrl: PR_URL, approvedBy: null });
+    await setPolicy({ enabled: true, requireHumanApproval: true });
+    const res = await runAutoMerge(log);
+    expect(res.merged).toBe(0);
+    expect(graphqlSpy).not.toHaveBeenCalled();
   });
 
   it('rolls back to needs_human with escalationReason auto_merge_failed when the GitHub merge call fails', async () => {
+    graphqlSpy.mockRejectedValue(new Error('Pull Request is not mergeable'));
     amMocks.state.candidateRows = [{ task: amTask(), mission: amMission() }];
 
     const result = await runAutoMerge(log);

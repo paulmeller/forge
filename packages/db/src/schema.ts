@@ -214,6 +214,7 @@ export const tasks = sqliteTable(
     haltReason: text('halt_reason', { enum: haltReason }),
     escalationReason: text('escalation_reason', { enum: escalationReason }),
     reviewDecision: text('review_decision', { enum: reviewDecision }),
+    approvedBy: text('approved_by'),
     acceptanceCriteria: text('acceptance_criteria'),
     lastError: text('last_error'),
     costUsd: integer('cost_usd').notNull().default(0),
@@ -455,6 +456,12 @@ export type AutoMergePolicy = {
   maxFilesChanged?: number;
   requiredChecks?: string[];
   allowedPathPatterns?: string[];
+  /**
+   * When true, only Tasks a human approved (see the Approve action) are
+   * merge-eligible. Defaults false: unattended auto-merge stays a real
+   * feature, but operators who want Renovate-style approval can have it.
+   */
+  requireHumanApproval?: boolean;
 };
 
 export type Mission = typeof missions.$inferSelect;

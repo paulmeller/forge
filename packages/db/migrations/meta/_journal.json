@@ -113,6 +113,13 @@
       "when": 1785160407025,
       "tag": "0015_brown_skin",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1785162104339,
+      "tag": "0016_damp_fixer",
+      "breakpoints": true
     }
   ]
 }
