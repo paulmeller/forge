@@ -14,7 +14,7 @@
 - `awaiting_review` is **removed** from the task status enum, not supplemented. No code path may keep using it.
 - Status gates; `escalationReason` explains. Auto-merge must key on **status**, never on the reason column.
 - `needs_human` stays mission-terminal. `ready_to_merge` becomes **non**-terminal.
-- Migrations are generated with `pnpm --filter @forge/db db:generate` and **never hand-written**. Before committing, confirm the generated filename appears in `packages/db/migrations/meta/_journal.json`. A hand-written `0004_auth_tables.sql` was absent from the journal and therefore never ran in any environment, including production. Latest existing migration is `0012_opposite_vindicator` (journal idx 13).
+- Never hand-**create** a migration file. Every migration is produced by `pnpm --filter @forge/db db:generate`, and before committing you must confirm its filename appears in `packages/db/migrations/meta/_journal.json`. A hand-created `0004_auth_tables.sql` was absent from the journal and therefore never ran in any environment, including production. Latest existing migration is `0012_opposite_vindicator` (journal idx 13). A generated, journal-registered file **may** carry a hand-written data backfill appended to it — drizzle does not infer data migrations — provided each appended statement is preceded by its own `--> statement-breakpoint` line. Task 1 Step 5 does exactly this and is not a violation.
 - Every defect gets a test that **fails against today's code**. Each fix is mutation-tested: revert the fix, confirm a specific test fails, restore. A test that still passes with the fix reverted is not coverage and must be rewritten.
 - Escalation reason values, exactly: `ai_review_rejected`, `verify_incomplete`, `gate_stall`, `auto_merge_failed`.
 - Review decision values, exactly: `approved`, `changes_requested`, `commented`.
@@ -782,7 +782,9 @@ Add `tasks`, `ledgerEvents`, `randomUUID`, `eq`, and `db` to the file's imports 
 Run: `cd apps/web && pnpm vitest run "src/app/(app)/api/forge/github/webhook/route.test.ts"`
 Expected: PASS.
 
-- [ ] **Step 6: Subscribe the GitHub App to the new events**
+- [ ] **Step 6: Subscribe the GitHub App to the new events** — OPERATOR STEP, NOT THE IMPLEMENTER'S
+
+**If you are an implementer subagent, skip this step.** It requires the GitHub App settings UI, which you cannot reach; there is no API for event subscriptions. Report `DONE_WITH_CONCERNS` noting that the handlers are inert until the subscription is added. The code and its tests do not depend on it, so the task is otherwise complete.
 
 This is app configuration, not code — without it the handlers never fire. The app's events are currently `check_suite, issue_comment, push`.
 
