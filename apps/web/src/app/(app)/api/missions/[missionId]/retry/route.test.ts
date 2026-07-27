@@ -41,7 +41,7 @@ beforeAll(async () => {
   db = dbMod.db as unknown as LibSQLDatabase<Record<string, unknown>>;
   client = dbMod.client as unknown as { close: () => void };
   await migrate(dbMod.db as never, {
-    migrationsFolder: resolve(__dirname, '../../../../../../../../packages/db/migrations'),
+    migrationsFolder: resolve(__dirname, '../../../../../../../../../packages/db/migrations'),
   });
   schema = await import('@forge/db');
   ({ POST } = await import('./route'));
