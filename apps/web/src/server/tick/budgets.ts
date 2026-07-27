@@ -261,6 +261,15 @@ async function hardStop(
         status: 'failed',
         haltReason: 'budget_hard_stop',
         lastError: 'mission budget hard stop',
+        // INFLIGHT_STATUSES includes ready_to_merge, needs_human and
+        // merging — all of which can carry a human approvedBy (and
+        // needs_human can carry an escalationReason). A hard stop forces
+        // this Task out of existence for budget reasons; neither describes
+        // anything about whatever comes next for it (e.g. a future
+        // resume/retry path), so both must be cleared here exactly like
+        // every other place a Task leaves the state an approval covered.
+        approvedBy: null,
+        escalationReason: null,
         updatedAt: now,
         completedAt: now,
       })

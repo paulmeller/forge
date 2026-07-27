@@ -173,6 +173,15 @@ export async function abortTask(
         status: 'failed',
         haltReason: 'manual_abort',
         lastError: 'Aborted by operator',
+        // TERMINAL_TASK_STATUSES above deliberately excludes ready_to_merge,
+        // needs_human and merging, so an operator can abort a Task sitting
+        // in any of those — and any of them can carry a human approvedBy
+        // (needs_human can also carry an escalationReason). Neither
+        // describes the abort outcome, so both must be cleared here exactly
+        // like every other place a Task is forced out of the state an
+        // approval covered.
+        approvedBy: null,
+        escalationReason: null,
         updatedAt: now,
         completedAt: now,
       })

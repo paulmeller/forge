@@ -71,6 +71,7 @@ async function seedTask(over: {
   id: string;
   status: string;
   escalationReason?: string | null;
+  approvedBy?: string | null;
 }): Promise<string> {
   const now = new Date();
   const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 16)}`;
@@ -97,6 +98,7 @@ async function seedTask(over: {
     prUrl,
     prNumber: prCounter,
     escalationReason: (over.escalationReason ?? null) as never,
+    approvedBy: over.approvedBy ?? null,
     createdAt: now,
     updatedAt: now,
   });
@@ -206,6 +208,22 @@ describe('POST /api/forge/github/webhook — pull_request', () => {
     expect(events.find((e) => e.eventType === 'pr.closed')).toBeDefined();
   });
 
+  it('clears a stale approvedBy when a ready_to_merge PR closes unmerged before auto-merge or the sweep act', async () => {
+    // A human approved this Task (ready_to_merge, approvedBy set), then the
+    // PR was closed on GitHub directly — before auto-merge's own sweep or
+    // the reconciler's merging sweep ever touched it. That approval was for
+    // a PR that's now dead; it must not survive onto the abandoned row.
+    const prUrl = await seedTask({ id: 'tsk_2_approved', status: 'ready_to_merge', approvedBy: 'u1' });
+    const res = await postSigned('pull_request', {
+      action: 'closed',
+      pull_request: { html_url: prUrl, merged: false },
+    });
+    expect(res.status).toBe(200);
+    const task = await getTask('tsk_2_approved');
+    expect(task?.status).toBe('abandoned');
+    expect(task?.approvedBy).toBeNull();
+  });
+
   // Conflict resolution with reconciler.ts's merging sweep: a Task that was
   // `merging` (GitHub native auto-merge armed) whose PR closes unmerged must
   // escalate to needs_human/auto_merge_failed exactly like the sweep does —
@@ -223,6 +241,23 @@ describe('POST /api/forge/github/webhook — pull_request', () => {
     expect(task?.status).toBe('needs_human');
     expect(task?.escalationReason).toBe('auto_merge_failed');
     expect(task?.lastError).toMatch(/closed without merging/);
+  });
+
+  it('clears a stale approvedBy — the fast-path twin of the reconciler merging-sweep fix — when a merging task closes unmerged', async () => {
+    // A task only reaches `merging` via auto-merge's tryMerge, which only
+    // arms native auto-merge on a Task requireHumanApproval already let
+    // through — so approvedBy can be non-null here. This handler is the
+    // webhook fast path for the identical fact the reconciler's merging
+    // sweep already clears approvedBy for; they must agree.
+    const prUrl = await seedTask({ id: 'tsk_merging_approved', status: 'merging', approvedBy: 'u1' });
+    const res = await postSigned('pull_request', {
+      action: 'closed',
+      pull_request: { html_url: prUrl, merged: false },
+    });
+    expect(res.status).toBe(200);
+    const task = await getTask('tsk_merging_approved');
+    expect(task?.status).toBe('needs_human');
+    expect(task?.approvedBy).toBeNull();
 
     const events = await getLedgerEvents('tsk_merging_closed');
     const failedEvent = events.find((e) => e.eventType === 'auto_merge.failed');

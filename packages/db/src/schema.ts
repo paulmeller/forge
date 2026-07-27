@@ -482,13 +482,17 @@ export type AutoMergePolicy = {
    * `approvedBy` is written by the review Approve action
    * (review-actions.ts) when a human clicks Approve on a `needs_human`
    * Task, and read by auto-merge.ts's `requireHumanApproval` gate above.
-   * An approval is scoped to the reviewed diff, not to the Task id forever
-   * — it is cleared everywhere the Task either abandons that diff or gets
-   * re-escalated to a human for a *different* one to look at:
+   * An approval is scoped to the reviewed diff, not to the Task id forever.
+   * The invariant: a Task that is not `needs_human` or `ready_to_merge` must
+   * never carry a non-null `approvedBy` — approving applies to work
+   * awaiting or cleared for merge, nothing else. It is cleared everywhere
+   * the Task either abandons that diff or gets re-escalated to a human for
+   * a *different* one to look at:
    *   - Dismiss (review-actions.ts) — the diff was rejected outright.
    *   - Auto-merge rollback (auto-merge.ts) — the merge attempt failed.
-   *   - The merging-sweep closed-unmerged branch (reconciler.ts) — the PR
-   *     closed without merging while auto-merge was armed.
+   *   - The merging-sweep closed-unmerged branch (reconciler.ts) and its
+   *     fast-path webhook twin (github/webhook/route.ts) — the PR closed
+   *     without merging while auto-merge was armed.
    *   - The gate-stall sweep (reconciler.ts) — the Task wedged and needs a
    *     human to look again.
    *   - Verify escalation (verify.ts) and AI-review escalation
@@ -497,6 +501,14 @@ export type AutoMergePolicy = {
    *   - retryMission (mission-transitions.ts) — a retry produces new work
    *     (a different diff, a different PR), so nothing about the old
    *     approval applies to it.
+   *   - The budget hard-stop (budgets.ts) — a mission-level stop can force
+   *     a `ready_to_merge`/`needs_human`/`merging` Task straight to
+   *     `failed`.
+   *   - Manual abort (repos/[owner]/[repo]/actions.ts) — an operator can
+   *     abort any Task with a live session, including one already approved.
+   *   - The webhook's generic closed-unmerged branch
+   *     (github/webhook/route.ts) — a PR can close while its Task is still
+   *     `ready_to_merge`, before auto-merge or the reconciler sweep acts.
    * Defaults false: unattended auto-merge stays a real feature, but
    * operators who want Renovate-style approval can opt in.
    */

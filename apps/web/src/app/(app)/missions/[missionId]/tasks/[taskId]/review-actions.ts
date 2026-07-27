@@ -63,6 +63,12 @@ export async function reviewAction(formData: FormData): Promise<ReviewActionStat
             // approval and sailing straight through requireHumanApproval on
             // a PR nobody has looked at (see mission-transitions.ts).
             approvedBy: null,
+            // Also stale the moment the task is dismissed: the reason it was
+            // escalated described the needs_human row, not a dead abandoned
+            // one. Harmless to leave (nothing reads escalationReason off an
+            // abandoned Task today), but leaving it is inconsistent with
+            // clearing approvedBy right next to it for the same reason.
+            escalationReason: null,
             updatedAt: now,
             completedAt: now,
           })

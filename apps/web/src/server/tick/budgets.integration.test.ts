@@ -2,7 +2,7 @@ import { existsSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { migrate } from 'drizzle-orm/libsql/migrator';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNotNull, notInArray } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import type { LibSQLDatabase } from 'drizzle-orm/libsql';
@@ -94,6 +94,27 @@ async function getMission(id: string) {
 async function getTask(id: string) {
   const [row] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id)).limit(1);
   return row;
+}
+
+/**
+ * DB-level invariant check, independent of any one call site: a Task that is
+ * not `needs_human` or `ready_to_merge` must never carry a non-null
+ * `approvedBy` — an approval applies to work awaiting or cleared for merge,
+ * nothing else. Scanning the whole table (rather than asserting per-field on
+ * one seeded row) is what makes this durable against a *future* write path
+ * into failed/abandoned/queued that forgets to clear the field — a
+ * per-call-site test only ever proves the sites it was written for.
+ */
+async function approvedByInvariantViolations() {
+  return db
+    .select({ id: schema.tasks.id, status: schema.tasks.status, approvedBy: schema.tasks.approvedBy })
+    .from(schema.tasks)
+    .where(
+      and(
+        isNotNull(schema.tasks.approvedBy),
+        notInArray(schema.tasks.status, ['needs_human', 'ready_to_merge']),
+      ),
+    );
 }
 
 async function ledgerEventsFor(missionId: string, eventType: string) {
@@ -275,5 +296,76 @@ describe('runBudgets — container/leaf aggregation', () => {
     expect(result.hardStopped).toBe(0);
     const events = await ledgerEventsFor('bud_container_2', 'budget.hard_stopped');
     expect(events).toHaveLength(1);
+  });
+
+  it('hard stop clears approvedBy on a ready_to_merge task it fails', async () => {
+    // INFLIGHT_STATUSES (what hardStop selects) includes ready_to_merge,
+    // which can carry a human approvedBy from an earlier Approve — the
+    // exact case the reviewer traced through dynamically.
+    await insertMission('bud_container_rtm', { budgetTokens: 1_000_000, budgetHardStopPct: 100 });
+    await insertTask('bud_t_rtm', 'bud_container_rtm', {
+      costTokens: 1_200_000,
+      status: 'ready_to_merge',
+      sessionId: 'sess_rtm',
+      approvedBy: 'u1',
+    });
+
+    const result = await runBudgets(noopLog);
+    expect(result.hardStopped).toBe(1);
+
+    const task = await getTask('bud_t_rtm');
+    expect(task?.status).toBe('failed');
+    expect(task?.approvedBy).toBeNull();
+  });
+
+  it('hard stop clears escalationReason on a needs_human task it fails', async () => {
+    // Asserted as its own test, on its own field, against its own fixture —
+    // conflating this with the approvedBy assertion above would make a
+    // future mutant that drops only the escalationReason clear (or only the
+    // approvedBy clear) indistinguishable from one that drops both.
+    await insertMission('bud_container_nh', { budgetTokens: 1_000_000, budgetHardStopPct: 100 });
+    await insertTask('bud_t_nh', 'bud_container_nh', {
+      costTokens: 1_200_000,
+      status: 'needs_human',
+      sessionId: 'sess_nh',
+      escalationReason: 'ai_review_rejected',
+    });
+
+    const result = await runBudgets(noopLog);
+    expect(result.hardStopped).toBe(1);
+
+    const task = await getTask('bud_t_nh');
+    expect(task?.status).toBe('failed');
+    expect(task?.escalationReason).toBeNull();
+  });
+
+  it('invariant: after a hard stop, no row holds approvedBy outside needs_human/ready_to_merge', async () => {
+    await insertMission('bud_container_inv', { budgetTokens: 1_000_000, budgetHardStopPct: 100 });
+    // One of each INFLIGHT_STATUSES shape that can carry approvedBy, all
+    // over the hard-stop threshold so every one of them gets acted on.
+    await insertTask('bud_t_inv_rtm', 'bud_container_inv', {
+      costTokens: 1_200_000,
+      status: 'ready_to_merge',
+      sessionId: 'sess_inv_rtm',
+      approvedBy: 'u1',
+    });
+    await insertTask('bud_t_inv_nh', 'bud_container_inv', {
+      costTokens: 0,
+      status: 'needs_human',
+      sessionId: 'sess_inv_nh',
+      approvedBy: 'u2',
+      escalationReason: 'gate_stall',
+    });
+    await insertTask('bud_t_inv_merging', 'bud_container_inv', {
+      costTokens: 0,
+      status: 'merging',
+      sessionId: 'sess_inv_merging',
+      approvedBy: 'u3',
+    });
+
+    await runBudgets(noopLog);
+
+    const violations = await approvedByInvariantViolations();
+    expect(violations).toEqual([]);
   });
 });

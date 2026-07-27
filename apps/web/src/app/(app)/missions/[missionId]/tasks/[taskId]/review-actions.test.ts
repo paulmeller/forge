@@ -141,6 +141,20 @@ describe('reviewAction', () => {
     expect(row.approvedBy).toBeNull();
   });
 
+  it('dismiss clears a stale escalationReason left over from the needs_human row', async () => {
+    // The escalationReason described why the task landed in needs_human —
+    // once dismissed, that reason no longer describes anything (the row is
+    // abandoned dead work). Leaving it stale is harmless today (nothing
+    // reads escalationReason off an abandoned task) but inconsistent with
+    // clearing approvedBy right next to it for the identical reason.
+    await seedTask({ id: 'tsk_2c', status: 'needs_human', escalationReason: 'ai_review_rejected' });
+    const result = await reviewAction(formData({ taskId: 'tsk_2c', op: 'dismiss' }));
+    expect(result).toEqual({ ok: true });
+    const row = await getTaskRow('tsk_2c');
+    expect(row.status).toBe('abandoned');
+    expect(row.escalationReason).toBeNull();
+  });
+
   it('refuses a task belonging to another user, and leaves it untouched', async () => {
     await seedTask({ id: 'tsk_3', status: 'needs_human', userId: 'someone_else' });
     const res = await reviewAction(formData({ taskId: 'tsk_3', op: 'approve' }));

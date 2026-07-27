@@ -320,6 +320,12 @@ async function handlePullRequest(rawBody: string) {
       .set({
         status: 'needs_human',
         escalationReason: 'auto_merge_failed',
+        // The fast-path twin of reconciler.ts's merging-sweep closed-unmerged
+        // branch, which observes this exact same fact and clears approvedBy
+        // for the exact same reason: the earlier approval was for a PR that
+        // just closed unmerged, and does not cover whatever a human decides
+        // to do next.
+        approvedBy: null,
         lastError:
           'PR closed without merging while auto-merge was armed — a human closed it, or auto-merge was disarmed',
         updatedAt: now,
@@ -348,7 +354,22 @@ async function handlePullRequest(rawBody: string) {
 
   const [updated] = await db
     .update(tasks)
-    .set({ status: 'abandoned', updatedAt: now, completedAt: now })
+    .set({
+      status: 'abandoned',
+      // This branch handles every non-terminal, non-merging status a Task
+      // could be in when its PR closes unmerged — including ready_to_merge,
+      // which can carry a human approvedBy (e.g. an approved diff whose PR
+      // gets closed on GitHub before auto-merge or the reconciler sweep
+      // gets to it). That approval was for a PR that's now dead, so it must
+      // not survive onto the abandoned row. (escalationReason is not
+      // cleared here: no status this branch can observe — ready_to_merge,
+      // queued, or an agent-active status — can carry a non-null one; it is
+      // only ever set alongside needs_human, which is filtered out above by
+      // TERMINAL_TASK_STATUSES.)
+      approvedBy: null,
+      updatedAt: now,
+      completedAt: now,
+    })
     .where(and(eq(tasks.id, task.id), eq(tasks.status, task.status)))
     .returning();
   if (!updated) {
