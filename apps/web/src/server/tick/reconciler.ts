@@ -284,6 +284,10 @@ export async function runReconciler(log: Logger): Promise<ReconcileResult> {
       .set({
         status: 'needs_human',
         escalationReason: 'gate_stall',
+        // Re-escalating to a human: any earlier approval was for a diff that
+        // never got this far. Don't let it survive to cover whatever comes
+        // out of this stall.
+        approvedBy: null,
         lastError: `gate stalled in ${task.status} for >${env.GATE_STALL_MS}ms`,
         updatedAt: now,
       })
@@ -372,6 +376,9 @@ export async function runReconciler(log: Logger): Promise<ReconcileResult> {
         .set({
           status: 'needs_human',
           escalationReason: 'auto_merge_failed',
+          // The earlier approval was for a PR that just closed unmerged —
+          // it does not cover whatever a human decides to do next.
+          approvedBy: null,
           lastError:
             'PR closed without merging while auto-merge was armed — a human closed it, or auto-merge was disarmed',
           updatedAt: now,

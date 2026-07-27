@@ -13,7 +13,7 @@ import { getTask } from '@/lib/tasks';
 import { listLedgerForTask } from '@/lib/ledger';
 import { withAuth } from '@/lib/with-auth';
 
-import { reviewAction } from './review-actions';
+import { ReviewActionForm } from './review-form';
 import { TaskFileTabs } from './file-tabs';
 
 export const dynamic = 'force-dynamic';
@@ -152,25 +152,7 @@ export default async function TaskDetailPage({
                 {ESCALATION_COPY[task.escalationReason ?? ''] ?? 'This task was escalated for review.'}
                 {' Approving makes it eligible for auto-merge.'}
               </AlertDescription>
-              <form
-                action={async (formData: FormData) => {
-                  'use server';
-                  // reviewAction returns ReviewActionState for the tests to assert
-                  // on; a <form action> must resolve to void, and this page is a
-                  // Server Component that re-renders via revalidatePath, so the
-                  // return value has nothing to do here.
-                  await reviewAction(formData);
-                }}
-                className="mt-3 flex gap-2"
-              >
-                <input type="hidden" name="taskId" value={task.id} />
-                <Button type="submit" name="op" value="approve">
-                  Approve
-                </Button>
-                <Button type="submit" name="op" value="dismiss" variant="outline">
-                  Dismiss
-                </Button>
-              </form>
+              <ReviewActionForm taskId={task.id} />
             </Alert>
           ) : null}
           <SessionLogView

@@ -94,6 +94,15 @@ export async function retryMission(
         completedAt: null,
         sessionId: null,
         backendSessionRef: null,
+        // A retry produces new work from scratch — a different diff, a
+        // different PR. Neither a stale human approval nor a stale
+        // escalation reason describes anything about that new work, so
+        // both must be cleared here rather than surviving into the
+        // re-run. Leaving approvedBy set is what let a task approved once,
+        // then rolled back and dismissed, sail through requireHumanApproval
+        // on a PR nobody ever reviewed.
+        approvedBy: null,
+        escalationReason: null,
         updatedAt: now,
       })
       .where(and(eq(tasks.missionId, missionId), inArray(tasks.status, ['failed', 'abandoned'])))

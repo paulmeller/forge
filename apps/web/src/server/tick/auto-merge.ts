@@ -215,13 +215,18 @@ async function tryMerge(
     return 'merged';
   }
 
-  // Roll back to needs_human so the operator can intervene.
+  // Roll back to needs_human so the operator can intervene. Clear
+  // approvedBy: the approval that got this Task here covered a merge attempt
+  // that just failed, not whatever comes next — a re-escalation to a human
+  // must not carry a stale rubber stamp forward (see requireHumanApproval in
+  // runAutoMerge above).
   const errAt = new Date();
   await db
     .update(tasks)
     .set({
       status: 'needs_human',
       escalationReason: 'auto_merge_failed',
+      approvedBy: null,
       lastError: `auto-merge failed: ${mergeError ?? 'unknown'}`,
       updatedAt: errAt,
     })

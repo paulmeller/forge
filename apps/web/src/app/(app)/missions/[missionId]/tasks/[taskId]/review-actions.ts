@@ -55,7 +55,17 @@ export async function reviewAction(formData: FormData): Promise<ReviewActionStat
           .returning()
       : await db
           .update(tasks)
-          .set({ status: 'abandoned', updatedAt: now, completedAt: now })
+          .set({
+            status: 'abandoned',
+            // A dismissed Task is dead work — any prior approval was for a
+            // diff that never merged. Clearing it here is what stops a
+            // retryMission'd re-run of THIS task from inheriting yesterday's
+            // approval and sailing straight through requireHumanApproval on
+            // a PR nobody has looked at (see mission-transitions.ts).
+            approvedBy: null,
+            updatedAt: now,
+            completedAt: now,
+          })
           .where(and(eq(tasks.id, task.id), eq(tasks.status, 'needs_human')))
           .returning();
 

@@ -233,7 +233,8 @@ describe('reviewOne escalate path (via runAiReview)', () => {
   });
 
   it('escalates to needs_human with escalationReason ai_review_rejected once retries are exhausted', async () => {
-    arMocks.state.awaitingTasks = [arTask({ aiReviewRetryCount: 3 })];
+    // approvedBy set — otherwise clearing it would pass vacuously.
+    arMocks.state.awaitingTasks = [arTask({ aiReviewRetryCount: 3, approvedBy: 'u1' })];
 
     const result = await runAiReview(log);
 
@@ -241,5 +242,8 @@ describe('reviewOne escalate path (via runAiReview)', () => {
     const escalateCall = arMocks.state.taskUpdateCalls.find((call) => call.status === 'needs_human');
     expect(escalateCall?.status).toBe('needs_human');
     expect(escalateCall?.escalationReason).toBe('ai_review_rejected');
+    // Re-escalating to a human must clear any earlier approval — it covered
+    // a diff that has since changed, not whatever is in front of them now.
+    expect(escalateCall?.approvedBy).toBeNull();
   });
 });

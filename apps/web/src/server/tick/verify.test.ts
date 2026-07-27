@@ -263,10 +263,15 @@ describe('verifyOne escalate paths (via runVerify)', () => {
     const escalateCall = vfMocks.state.taskUpdateCalls.find((call) => call.status === 'needs_human');
     expect(escalateCall?.status).toBe('needs_human');
     expect(escalateCall?.escalationReason).toBe('verify_incomplete');
+    // Re-escalating to a human must clear any earlier approval — it covered
+    // a diff that has since changed, not whatever is in front of them now.
+    expect(escalateCall?.approvedBy).toBeNull();
   }
 
   it('escalates when the task has no acceptance criteria', async () => {
-    vfMocks.state.awaitingTasks = [vfTask({ acceptanceCriteria: null })];
+    // approvedBy set so the escalate-clears-it assertion above is a real
+    // check, not a vacuous pass on an already-null field.
+    vfMocks.state.awaitingTasks = [vfTask({ acceptanceCriteria: null, approvedBy: 'u1' })];
 
     const result = await runVerify(log);
 
@@ -274,7 +279,7 @@ describe('verifyOne escalate paths (via runVerify)', () => {
   });
 
   it('escalates when HEAD has not moved since the last verify pass (no new push)', async () => {
-    vfMocks.state.awaitingTasks = [vfTask({ lastVerifiedSha: 'sha_1' })];
+    vfMocks.state.awaitingTasks = [vfTask({ lastVerifiedSha: 'sha_1', approvedBy: 'u1' })];
 
     const result = await runVerify(log);
 
@@ -282,7 +287,7 @@ describe('verifyOne escalate paths (via runVerify)', () => {
   });
 
   it('escalates once verify retries are exhausted', async () => {
-    vfMocks.state.awaitingTasks = [vfTask({ verifyRetryCount: 3 })];
+    vfMocks.state.awaitingTasks = [vfTask({ verifyRetryCount: 3, approvedBy: 'u1' })];
 
     const result = await runVerify(log);
 

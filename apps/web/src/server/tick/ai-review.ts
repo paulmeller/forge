@@ -301,6 +301,9 @@ async function escalateTask(
     .set({
       status: 'needs_human',
       escalationReason: 'ai_review_rejected',
+      // Escalating to a human means whatever a previous Approve covered is
+      // no longer the thing in front of them — don't let it ride along.
+      approvedBy: null,
       costTokens: newCostTokens,
       lastError: feedback,
       updatedAt: now,

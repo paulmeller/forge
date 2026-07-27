@@ -478,11 +478,27 @@ export type AutoMergePolicy = {
   allowedPathPatterns?: string[];
   /**
    * When true, only Tasks with `task.approvedBy` set are merge-eligible.
-   * Nothing writes that column yet — an Approve action is planned but not
-   * implemented, so setting this true currently makes every Task on the
-   * Mission permanently unmergeable by auto-merge. Defaults false:
-   * unattended auto-merge stays a real feature, but operators who want
-   * Renovate-style approval can opt in once that action exists.
+   *
+   * `approvedBy` is written by the review Approve action
+   * (review-actions.ts) when a human clicks Approve on a `needs_human`
+   * Task, and read by auto-merge.ts's `requireHumanApproval` gate above.
+   * An approval is scoped to the reviewed diff, not to the Task id forever
+   * — it is cleared everywhere the Task either abandons that diff or gets
+   * re-escalated to a human for a *different* one to look at:
+   *   - Dismiss (review-actions.ts) — the diff was rejected outright.
+   *   - Auto-merge rollback (auto-merge.ts) — the merge attempt failed.
+   *   - The merging-sweep closed-unmerged branch (reconciler.ts) — the PR
+   *     closed without merging while auto-merge was armed.
+   *   - The gate-stall sweep (reconciler.ts) — the Task wedged and needs a
+   *     human to look again.
+   *   - Verify escalation (verify.ts) and AI-review escalation
+   *     (ai-review.ts) — a fresh escalation to a human supersedes whatever
+   *     an earlier approval covered.
+   *   - retryMission (mission-transitions.ts) — a retry produces new work
+   *     (a different diff, a different PR), so nothing about the old
+   *     approval applies to it.
+   * Defaults false: unattended auto-merge stays a real feature, but
+   * operators who want Renovate-style approval can opt in.
    */
   requireHumanApproval?: boolean;
 };

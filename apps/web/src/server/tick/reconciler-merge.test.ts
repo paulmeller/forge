@@ -136,7 +136,11 @@ describe('runReconciler — merging sweep (armed auto-merge reconciliation)', ()
     const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
     const taskId = `tsk_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
     await insertMission(missionId);
-    await insertMergingTask(taskId, missionId);
+    // approvedBy set — this task was armed for auto-merge off a prior human
+    // Approve. A PR that closes unmerged and re-escalates to a human must
+    // not let that stale approval survive to cover whatever a human decides
+    // to do about the (now closed) PR next.
+    await insertMergingTask(taskId, missionId, { approvedBy: 'u1' });
 
     mockOctokit.pulls.get.mockResolvedValue({ data: { state: 'closed', merged: false } });
 
@@ -146,6 +150,7 @@ describe('runReconciler — merging sweep (armed auto-merge reconciliation)', ()
     expect(task?.status).toBe('needs_human');
     expect(task?.escalationReason).toBe('auto_merge_failed');
     expect(task?.lastError).toMatch(/closed without merging/);
+    expect(task?.approvedBy).toBeNull();
     expect(result.mergesEscalated).toBe(1);
 
     const events = await getLedgerEvents(taskId);

@@ -379,7 +379,10 @@ describe('tryMerge — native auto-merge gating (via runAutoMerge)', () => {
 
   it('rolls back to needs_human with escalationReason auto_merge_failed when the GitHub merge call fails', async () => {
     graphqlSpy.mockRejectedValue(new Error('Pull Request is not mergeable'));
-    amMocks.state.candidateRows = [{ task: amTask(), mission: amMission() }];
+    // approvedBy set — this task reached ready_to_merge via a prior human
+    // Approve — so the assertion below actually exercises the clearing
+    // rather than passing vacuously on an already-null field.
+    amMocks.state.candidateRows = [{ task: amTask({ approvedBy: 'u1' }), mission: amMission() }];
 
     const result = await runAutoMerge(log);
 
@@ -389,5 +392,9 @@ describe('tryMerge — native auto-merge gating (via runAutoMerge)', () => {
     expect(rollbackCall?.status).toBe('needs_human');
     expect(rollbackCall?.escalationReason).toBe('auto_merge_failed');
     expect(rollbackCall?.lastError).toContain('Pull Request is not mergeable');
+    // The task that just bounced off a failed merge attempt is re-escalated
+    // to a human — any earlier approval covered a merge that never happened
+    // and must not survive to authorize whatever comes out of this rollback.
+    expect(rollbackCall?.approvedBy).toBeNull();
   });
 });

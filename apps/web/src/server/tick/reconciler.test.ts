@@ -183,6 +183,10 @@ describe('runReconciler — standing mission exemption', () => {
       baseBranch: 'main',
       kind: 'standard',
       status: 'awaiting_verify',
+      // Set as if this task had been approved on a previous cycle before
+      // stalling here — a re-escalation to a human must not let that
+      // approval ride along.
+      approvedBy: 'u1',
       createdAt: staleAt,
       updatedAt: staleAt,
     });
@@ -198,6 +202,7 @@ describe('runReconciler — standing mission exemption', () => {
     const [row] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId)).limit(1);
     expect(row!.status).toBe('needs_human');
     expect(row!.escalationReason).toBe('gate_stall');
+    expect(row!.approvedBy).toBeNull();
   });
 });
 
