@@ -43,7 +43,7 @@ function formatStarted(task: Task | null): string | null {
   return formatDateTime(at, { seconds: true });
 }
 
-/** Renders the full CI -> Merge stepper (or the failed/hidden fallback) as
+/** Renders the full CI -> Review -> Merge stepper (or the failed/hidden fallback) as
  *  one visually contained widget — a bordered pill with numbered, connected
  *  steps, rather than loose badges + a hairline the eye has to piece
  *  together as "a stepper." */
@@ -59,6 +59,7 @@ export function MergeStepper({ state }: { state: MergeStepperState }) {
 
   const steps: Array<{ label: string; state: (typeof state)['ci'] }> = [
     { label: 'CI', state: state.ci },
+    { label: 'Review', state: state.review },
     { label: 'Merge', state: state.merge },
   ];
 
@@ -128,7 +129,9 @@ export function IssueRunPanel({
   const rollup = task ? taskRollupsByTaskId[task.id] : undefined;
   const isLive = task ? RUNNING_STATUSES.has(task.status) : false;
   const assistantMessage = lastAssistantMessage(ledger);
-  const mergeStepper = task ? deriveMergeStepper(task.status, task.prUrl) : { kind: 'hidden' as const };
+  const mergeStepper = task
+    ? deriveMergeStepper(task.status, task.prUrl, task.reviewDecision)
+    : { kind: 'hidden' as const };
   const started = formatStarted(task);
   const canAbort = !!task && ABORTABLE_STATUSES.has(task.status);
   const canSteer = !!task && !!task.sessionId && ABORTABLE_STATUSES.has(task.status);
@@ -138,12 +141,12 @@ export function IssueRunPanel({
   useEffect(() => {
     onActiveTaskChange(task ? { task, ledger, isLive, mergeStepper } : null);
     return () => onActiveTaskChange(null);
-    // Only re-notify when the active task, its status (which drives the
-    // merge stepper shown in the parent's header), or its live-ness
-    // actually changes — `ledger`/`onActiveTaskChange` are fresh references
-    // every render and would otherwise re-fire this on every poll.
+    // Only re-notify when the active task, its status or reviewDecision
+    // (both drive the merge stepper shown in the parent's header), or its
+    // live-ness actually changes — `ledger`/`onActiveTaskChange` are fresh
+    // references every render and would otherwise re-fire this on every poll.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [task?.id, task?.status, isLive]);
+  }, [task?.id, task?.status, task?.reviewDecision, isLive]);
 
   if (!attempt) return <p className="text-xs text-muted-foreground">No attempts yet.</p>;
 
