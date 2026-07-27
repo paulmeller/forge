@@ -311,6 +311,41 @@ describe('tryMerge — native auto-merge gating (via runAutoMerge)', () => {
     );
   });
 
+  it('still treats a 404 from the branch-protection lookup as "unprotected" (known answer)', async () => {
+    await seedTask({ id: 'tsk_ok', status: 'ready_to_merge', prUrl: PR_URL });
+    amMocks.octokit.repos.getBranchProtection.mockRejectedValueOnce(
+      Object.assign(new Error('Branch not protected'), { status: 404 }),
+    );
+    const res = await runAutoMerge(log);
+    expect(res.merged).toBe(0);
+    expect(res.blocked).toBe(1);
+    expect(lastBlockedReasons()).toEqual(
+      expect.arrayContaining([expect.stringContaining('no required checks')]),
+    );
+    // A 404 is a known, normal answer — must not be logged as a warning.
+    expect(log.warn).not.toHaveBeenCalled();
+  });
+
+  it('blocks on an unknown branch-protection error (500) instead of claiming the branch is unprotected, and logs a warning', async () => {
+    await seedTask({ id: 'tsk_ok', status: 'ready_to_merge', prUrl: PR_URL });
+    amMocks.octokit.repos.getBranchProtection.mockRejectedValueOnce(
+      Object.assign(new Error('Internal Server Error'), { status: 500 }),
+    );
+    const res = await runAutoMerge(log);
+    expect(res.merged).toBe(0);
+    expect(res.blocked).toBe(1);
+    const reasons = lastBlockedReasons();
+    expect(reasons).toEqual(
+      expect.arrayContaining([expect.stringContaining('unknown')]),
+    );
+    // Must NOT report the branch as unprotected when the real answer is unknown.
+    expect(reasons.some((r) => r.includes('no required checks configured'))).toBe(false);
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ err: expect.stringContaining('Internal Server Error') }),
+      'auto-merge:required_checks_unknown',
+    );
+  });
+
   it('blocks when the policy names a check the repo does not require', async () => {
     await seedTask({ id: 'tsk_ok', status: 'ready_to_merge', prUrl: PR_URL });
     requiredChecksSpy.mockResolvedValue(['build']);

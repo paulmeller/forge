@@ -27,10 +27,14 @@ export type AutoMergeResult = {
   errors: number;
 };
 
-const PR_URL_RE = /github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/;
+export const PR_URL_RE = /github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/;
 
+// Shared across the tick modules that need to talk to GitHub as the Forge
+// App (currently auto-merge's own sweep and the reconciler's merging sweep).
+// One singleton, one auth path — don't add another `new Octokit(...)`
+// call elsewhere; import this instead.
 let octokit: Octokit | undefined;
-function client(): Octokit {
+export function client(): Octokit {
   if (!octokit) {
     if (!env.GITHUB_APP_TOKEN) throw new Error('GITHUB_APP_TOKEN not configured');
     octokit = new Octokit({ auth: env.GITHUB_APP_TOKEN });
@@ -68,7 +72,7 @@ export async function runAutoMerge(log: Logger): Promise<AutoMergeResult> {
     if (policy.requireHumanApproval && !row.task.approvedBy) continue;
 
     try {
-      const result = await tryMerge(row.task, row.mission, policy);
+      const result = await tryMerge(row.task, row.mission, policy, log);
       if (result === 'merged') merged += 1;
       else blocked += 1;
     } catch (err) {
@@ -87,6 +91,7 @@ async function tryMerge(
   task: Task,
   mission: Mission,
   policy: AutoMergePolicy,
+  log: Logger,
 ): Promise<'merged' | 'blocked'> {
   if (!task.prUrl) return 'blocked';
   const m = PR_URL_RE.exec(task.prUrl);
@@ -133,7 +138,24 @@ async function tryMerge(
   // required checks; an empty set means nothing would gate the merge, so
   // native auto-merge would fire instantly — block instead of pretending
   // the diff-shape check made that safe.
-  const required = await requiredChecksFor(gh, owner, repo, pr.base.ref);
+  const requiredResult = await requiredChecksFor(gh, owner, repo, pr.base.ref);
+  if (requiredResult.status === 'unknown') {
+    // We couldn't get a real answer (403/500/timeout/etc) — that is NOT the
+    // same thing as "branch has no required checks". Don't merge on an
+    // unknown; say so explicitly so the operator doesn't get a false "branch
+    // is unprotected" diagnosis, and surface it the same way runAutoMerge's
+    // outer catch would (warn-level log) since the swallow here would
+    // otherwise hide it from that path entirely.
+    log.warn(
+      { taskId: task.id, err: requiredResult.error },
+      'auto-merge:required_checks_unknown',
+    );
+    await markBlocked(task, mission, pullNumber, [
+      `branch '${pr.base.ref}' required-checks status is unknown (${requiredResult.error}) — refusing to auto-merge`,
+    ]);
+    return 'blocked';
+  }
+  const required = requiredResult.checks;
   if (required.length === 0) {
     await markBlocked(task, mission, pullNumber, [
       `branch '${pr.base.ref}' has no required checks configured — refusing to auto-merge`,
@@ -167,8 +189,14 @@ async function tryMerge(
   }
 
   if (!mergeError) {
-    // Armed, not merged. GitHub merges when the required checks pass; the
-    // pull_request webhook moves this Task to `merged` when that happens.
+    // Armed, not merged. GitHub merges when the required checks pass, on its
+    // own schedule — this Task sits in `merging` until then. Nothing pushes
+    // it onward from here: the Forge GitHub App isn't subscribed to the
+    // `pull_request` webhook event, so a webhook handler for it (even once
+    // one exists) can only ever be a fast path, never the only path. The
+    // reconciler's merging sweep is what actually reconciles this Task —
+    // each tick it asks GitHub for the PR's state directly and moves the
+    // Task to `merged` or escalates to `needs_human`.
     await db.insert(ledgerEvents).values({
       id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
       missionId: task.missionId,
@@ -284,21 +312,31 @@ function globMatch(path: string, pattern: string): boolean {
 // re-export glob for tests
 export const _globMatch = globMatch;
 
+export type RequiredChecksResult =
+  | { status: 'known'; checks: string[] }
+  | { status: 'unknown'; error: string };
+
 /**
- * Required status checks on a branch, or [] when the branch is unprotected.
- * A 404 means no protection rule exists — that is a normal answer here, not
- * an error, so it maps to the empty set rather than throwing.
+ * Required status checks on a branch. A 404 means no protection rule
+ * exists — that is a normal, known answer ("unprotected"), so it maps to
+ * `{ status: 'known', checks: [] }` rather than an error. Any other failure
+ * (403, 500, network timeout, ...) means we genuinely don't know whether the
+ * branch is protected — that must NOT be reported the same way, because the
+ * caller treats an empty check list as "safe to refuse merging on", and a
+ * 403 is not evidence of that.
  */
 async function requiredChecksFor(
   gh: Octokit,
   owner: string,
   repo: string,
   branch: string,
-): Promise<string[]> {
+): Promise<RequiredChecksResult> {
   try {
     const { data } = await gh.repos.getBranchProtection({ owner, repo, branch });
-    return data.required_status_checks?.contexts ?? [];
-  } catch {
-    return [];
+    return { status: 'known', checks: data.required_status_checks?.contexts ?? [] };
+  } catch (err) {
+    const status = (err as { status?: number } | null | undefined)?.status;
+    if (status === 404) return { status: 'known', checks: [] };
+    return { status: 'unknown', error: err instanceof Error ? err.message : String(err) };
   }
 }

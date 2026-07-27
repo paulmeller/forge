@@ -457,9 +457,12 @@ export type AutoMergePolicy = {
   requiredChecks?: string[];
   allowedPathPatterns?: string[];
   /**
-   * When true, only Tasks a human approved (see the Approve action) are
-   * merge-eligible. Defaults false: unattended auto-merge stays a real
-   * feature, but operators who want Renovate-style approval can have it.
+   * When true, only Tasks with `task.approvedBy` set are merge-eligible.
+   * Nothing writes that column yet — an Approve action is planned but not
+   * implemented, so setting this true currently makes every Task on the
+   * Mission permanently unmergeable by auto-merge. Defaults false:
+   * unattended auto-merge stays a real feature, but operators who want
+   * Renovate-style approval can opt in once that action exists.
    */
   requireHumanApproval?: boolean;
 };

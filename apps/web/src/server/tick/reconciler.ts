@@ -7,6 +7,7 @@ import { ledgerEvents, missions, tasks, type Mission, type TaskStatus } from '@f
 
 import { db } from '@/lib/db';
 import { env } from '@/lib/env';
+import { client as getOctokit, PR_URL_RE } from './auto-merge';
 import { extractVerdictFromLedger } from './triage-verdict';
 
 type Logger = {
@@ -23,6 +24,8 @@ export type ReconcileResult = {
   gatesEscalated: number;
   reproduceResolved: number;
   fixesGated: number;
+  mergesCompleted: number;
+  mergesEscalated: number;
 };
 
 export const DEPENDENCY_FAILED_STATUSES: TaskStatus[] = ['failed', 'abandoned'];
@@ -299,6 +302,99 @@ export async function runReconciler(log: Logger): Promise<ReconcileResult> {
     log.info({ taskId: task.id, from: task.status }, 'reconciler:gate_stalled');
   }
 
+  // (1.7) Merging sweep: reconcile Tasks GitHub's native auto-merge left
+  // armed. `tryMerge` (auto-merge.ts) only ARMS a merge via the
+  // `enablePullRequestAutoMerge` GraphQL mutation and leaves the Task in
+  // `merging` — GitHub decides when (and whether) the PR actually merges,
+  // once its required checks resolve. Nothing else moves the Task on: the
+  // Forge GitHub App is not subscribed to the `pull_request` webhook event,
+  // and even once a handler for it exists (a later task), that only ever
+  // fires if a human ticks the event subscription in the GitHub App
+  // settings UI — so it must stay a fast path, never the only path. This
+  // sweep is the real path: every tick, ask GitHub directly what happened.
+  let mergesCompleted = 0;
+  let mergesEscalated = 0;
+  const armed = await db
+    .select()
+    .from(tasks)
+    .where(and(eq(tasks.status, 'merging'), isNotNull(tasks.prUrl)));
+
+  for (const task of armed) {
+    const match = task.prUrl ? PR_URL_RE.exec(task.prUrl) : null;
+    if (!match) continue;
+    const [, owner, repo, pullStr] = match;
+    if (!owner || !repo || !pullStr) continue;
+    const pullNumber = Number(pullStr);
+
+    let pr: { state?: string; merged?: boolean } | undefined;
+    try {
+      const { data } = await getOctokit().pulls.get({ owner, repo, pull_number: pullNumber });
+      pr = data;
+    } catch (err) {
+      log.warn(
+        { taskId: task.id, err: err instanceof Error ? err.message : String(err) },
+        'reconciler:merge_sweep_check_failed',
+      );
+      continue; // couldn't get a real answer — leave it for next tick
+    }
+
+    if (pr.merged) {
+      const now = new Date();
+      // Guard on the status we selected: if a concurrent transition already
+      // moved this Task on, don't clobber it.
+      const [updated] = await db
+        .update(tasks)
+        .set({ status: 'merged', completedAt: now, updatedAt: now })
+        .where(and(eq(tasks.id, task.id), eq(tasks.status, 'merging')))
+        .returning();
+      if (!updated) continue;
+      await db.insert(ledgerEvents).values({
+        id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
+        missionId: task.missionId,
+        taskId: task.id,
+        eventType: 'auto_merge.merged',
+        payload: { prNumber: pullNumber },
+        createdAt: now,
+      });
+      mergesCompleted += 1;
+      log.info({ taskId: task.id, prNumber: pullNumber }, 'reconciler:merge_completed');
+      continue;
+    }
+
+    if (pr.state === 'closed') {
+      // Closed without merging: either a human closed the PR, or the armed
+      // auto-merge got disarmed (branch protection changed, a required
+      // check failed permanently, someone clicked "Disable auto-merge",
+      // ...). Either way a person needs to look — don't keep polling.
+      const now = new Date();
+      const [updated] = await db
+        .update(tasks)
+        .set({
+          status: 'needs_human',
+          escalationReason: 'auto_merge_failed',
+          lastError:
+            'PR closed without merging while auto-merge was armed — a human closed it, or auto-merge was disarmed',
+          updatedAt: now,
+        })
+        .where(and(eq(tasks.id, task.id), eq(tasks.status, 'merging')))
+        .returning();
+      if (!updated) continue;
+      await db.insert(ledgerEvents).values({
+        id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
+        missionId: task.missionId,
+        taskId: task.id,
+        eventType: 'auto_merge.failed',
+        payload: { prNumber: pullNumber, reason: 'pr_closed_unmerged' },
+        createdAt: now,
+      });
+      mergesEscalated += 1;
+      log.info({ taskId: task.id, prNumber: pullNumber }, 'reconciler:merge_escalated');
+      continue;
+    }
+
+    // PR still open — legitimately waiting on required checks. Leave it alone.
+  }
+
   // (2) Complete Missions whose tasks are all in terminal states. A repo's
   // container Mission (workspaceRepo set, issueRef null, parentMissionId
   // null) is fed by neither a planner nor "Work on it" directly — it owns
@@ -343,6 +439,8 @@ export async function runReconciler(log: Logger): Promise<ReconcileResult> {
     gatesEscalated,
     reproduceResolved,
     fixesGated,
+    mergesCompleted,
+    mergesEscalated,
   };
 }
 

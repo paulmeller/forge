@@ -104,6 +104,8 @@ export async function runTick(log: Logger): Promise<TickResult> {
       gatesEscalated: 0,
       reproduceResolved: 0,
       fixesGated: 0,
+      mergesCompleted: 0,
+      mergesEscalated: 0,
     };
   });
 
