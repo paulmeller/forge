@@ -6,7 +6,9 @@ import { NextResponse } from 'next/server';
 
 import { githubInstallations } from '@forge/db';
 
+import { auth } from '@/lib/auth';
 import { db } from '@/lib/db';
+import { userHasInstallationAccess } from '@/lib/github-app-auth';
 import { syncGithubInstallation } from '@/lib/github-installation-sync';
 import { getOptionalUser } from '@/lib/with-auth';
 
@@ -19,6 +21,26 @@ function statesMatch(a: string | undefined, b: string | undefined): boolean {
   const right = Buffer.from(b);
   if (left.length !== right.length) return false;
   return timingSafeEqual(left, right);
+}
+
+/**
+ * Ask GitHub whether this user can see this installation, using the GitHub
+ * token better-auth stored at sign-in. getAccessToken refreshes it when
+ * expired, so a session older than GitHub's 8h user-token lifetime still
+ * verifies. Any failure to obtain a token is "not authorized", not an error.
+ */
+async function userOwnsInstallation(userId: string, installationId: number): Promise<boolean> {
+  let token: string | undefined;
+  try {
+    const result = await auth.api.getAccessToken({
+      body: { providerId: 'github', userId },
+    });
+    token = result?.accessToken;
+  } catch {
+    return false;
+  }
+  if (!token) return false;
+  return userHasInstallationAccess(token, installationId);
 }
 
 export const runtime = 'nodejs';
@@ -57,18 +79,35 @@ export async function GET(request: Request) {
     );
   }
 
-  // Proves this callback belongs to an install *this* user started. Without
-  // it, installation ids being sequential integers means any signed-in user
-  // could claim an unclaimed id belonging to someone else and, via the sync
-  // below, pull in their repo list.
+  // Authorization: prove this installation belongs to this user. Installation
+  // ids are sequential integers, so without a check any signed-in user could
+  // claim an unclaimed id belonging to someone else and, via the sync below,
+  // pull in their repo list.
+  //
+  // Two ways to satisfy it. The state cookie is the fast path, but it only
+  // exists for installs started from /api/github/install. GitHub also calls
+  // this URL with no state at all — when repo access is edited from GitHub's
+  // settings (setup_on_update), via the Configure button, and for installs
+  // begun on the app's own GitHub page. Rejecting those outright meant the
+  // most common way to install a GitHub App silently never linked.
+  //
+  // So when there is no matching cookie, ask GitHub directly using the user's
+  // own token. That answers the ownership question properly for organisation
+  // installs too, where the installation account is the org rather than the
+  // user.
   const jar = await cookies();
   const expectedState = jar.get(INSTALL_STATE_COOKIE)?.value;
-  if (!statesMatch(state, expectedState)) {
-    jar.delete(INSTALL_STATE_COOKIE);
-    return NextResponse.redirect(new URL('/setup?error=install_state_mismatch', url.origin));
+  let authorized = statesMatch(state, expectedState);
+  // One-time use — a replayed callback must not pass on the cookie twice.
+  if (expectedState) jar.delete(INSTALL_STATE_COOKIE);
+
+  if (!authorized) {
+    authorized = await userOwnsInstallation(user.id, installationId);
   }
-  // One-time use — a replayed callback must not pass a second time.
-  jar.delete(INSTALL_STATE_COOKIE);
+
+  if (!authorized) {
+    return NextResponse.redirect(new URL('/setup?error=install_not_verified', url.origin));
+  }
 
   // Check if this installation already exists
   const [existing] = await db

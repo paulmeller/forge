@@ -59,13 +59,13 @@ export default async function SetupPage({
     <PageShell>
       <PageHeader title="Get set up" subtitle="Connect GitHub and choose which repos Forge can work on." />
 
-      {error === 'install_state_mismatch' && (
+      {error === 'install_not_verified' && (
         <Alert variant="destructive" className="mb-6">
-          <AlertTitle className="text-sm">Install wasn&rsquo;t completed</AlertTitle>
+          <AlertTitle className="text-sm">Install wasn&rsquo;t linked</AlertTitle>
           <AlertDescription className="text-xs">
-            We couldn&rsquo;t confirm that install started from this browser, so it wasn&rsquo;t
-            linked to your account. This happens if the link sat unused for more than 10 minutes.
-            Start again with the button below.
+            We couldn&rsquo;t confirm with GitHub that this installation belongs to your account,
+            so it wasn&rsquo;t linked. If you installed on an organisation, check that you still
+            have access to it on GitHub, then start again with the button below.
           </AlertDescription>
         </Alert>
       )}

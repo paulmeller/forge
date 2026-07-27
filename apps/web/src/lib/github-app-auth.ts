@@ -83,6 +83,48 @@ export async function createInstallationAccessToken(
   return json.token;
 }
 
+const MAX_INSTALLATION_PAGES = 10;
+
+/**
+ * GET /user/installations — does this user actually have access to this
+ * installation?
+ *
+ * Called with the user's *own* GitHub token, so GitHub answers the
+ * authorization question directly instead of us inferring it. That matters
+ * for organisation installs, where the installation account is the org and
+ * comparing it to the user's account id would wrongly reject every member.
+ *
+ * Returns false (never throws) on an API failure: the caller treats an
+ * unanswerable ownership question as "not authorized".
+ */
+export async function userHasInstallationAccess(
+  userAccessToken: string,
+  installationId: number,
+): Promise<boolean> {
+  try {
+    for (let page = 1; page <= MAX_INSTALLATION_PAGES; page += 1) {
+      const url = new URL('https://api.github.com/user/installations');
+      url.searchParams.set('per_page', '100');
+      url.searchParams.set('page', String(page));
+      const res = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${userAccessToken}`,
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+      });
+      if (!res.ok) return false;
+      const json = (await res.json()) as { installations?: Array<{ id: number }> };
+      const items = json.installations ?? [];
+      if (items.some((i) => i.id === installationId)) return true;
+      if (items.length < 100) break;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 const MAX_REPO_PAGES = 10;
 
 /** GET /installation/repositories — every repo this installation can access, paginated. */
