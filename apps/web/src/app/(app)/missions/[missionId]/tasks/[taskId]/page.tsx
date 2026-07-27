@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -12,9 +13,17 @@ import { getTask } from '@/lib/tasks';
 import { listLedgerForTask } from '@/lib/ledger';
 import { withAuth } from '@/lib/with-auth';
 
+import { reviewAction } from './review-actions';
 import { TaskFileTabs } from './file-tabs';
 
 export const dynamic = 'force-dynamic';
+
+const ESCALATION_COPY: Record<string, string> = {
+  ai_review_rejected: 'The AI reviewer rejected this three times.',
+  verify_incomplete: 'Self-verify could not confirm the work was complete.',
+  gate_stall: 'A validator kept erroring, so this was escalated automatically.',
+  auto_merge_failed: 'An auto-merge attempt failed and was rolled back.',
+};
 
 const taskStatusVariant: Record<string, 'default' | 'secondary' | 'outline' | 'destructive'> = {
   queued: 'outline',
@@ -136,6 +145,34 @@ export default async function TaskDetailPage({
             verdict={task.verdict}
             ledger={ledger}
           />
+          {task.status === 'needs_human' ? (
+            <Alert>
+              <AlertTitle className="text-sm">Needs your decision</AlertTitle>
+              <AlertDescription className="text-xs">
+                {ESCALATION_COPY[task.escalationReason ?? ''] ?? 'This task was escalated for review.'}
+                {' Approving makes it eligible for auto-merge.'}
+              </AlertDescription>
+              <form
+                action={async (formData: FormData) => {
+                  'use server';
+                  // reviewAction returns ReviewActionState for the tests to assert
+                  // on; a <form action> must resolve to void, and this page is a
+                  // Server Component that re-renders via revalidatePath, so the
+                  // return value has nothing to do here.
+                  await reviewAction(formData);
+                }}
+                className="mt-3 flex gap-2"
+              >
+                <input type="hidden" name="taskId" value={task.id} />
+                <Button type="submit" name="op" value="approve">
+                  Approve
+                </Button>
+                <Button type="submit" name="op" value="dismiss" variant="outline">
+                  Dismiss
+                </Button>
+              </form>
+            </Alert>
+          ) : null}
           <SessionLogView
             key={task.id}
             missionId={mission.id}
