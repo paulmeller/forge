@@ -1,6 +1,6 @@
 import { env } from '@/lib/env';
 import { getTask } from '@/lib/tasks';
-import { withAuth } from '@/lib/with-auth';
+import { getOptionalUser } from '@/lib/with-auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -9,8 +9,15 @@ export const dynamic = 'force-dynamic';
  * Live run view (docs/superpowers/specs/2026-07-16-live-run-view-design.md),
  * consolidated (2026-07-19 spec §B): the old web→tick→Anthropic proxy chain is
  * now a single in-process hop — DB lookup, then a raw fetch to the Managed
- * Agents engine's session event stream. withAuth() is retained: this route is
- * browser-facing and fronts a raw x-api-key call.
+ * Agents engine's session event stream. Authentication is retained: this route
+ * is browser-facing and fronts a raw x-api-key call.
+ *
+ * It authenticates with getOptionalUser() + an explicit 401 rather than
+ * withAuth(). withAuth() redirects, and this endpoint is opened by an
+ * EventSource, which would follow the 302 and hand the client an HTML login
+ * page as if it were an event stream — surfacing an expired session as an
+ * opaque parse error. A 401 also stops EventSource retrying, which is right
+ * here: reconnecting cannot fix a missing session, unlike the 503s below.
  *
  * Task-missing, no-session-yet, belonging-to-someone-else, and belonging to a
  * different mission than the URL claims all map to 503 (not 404): EventSource
@@ -24,7 +31,6 @@ export async function GET(
   _request: Request,
   { params }: { params: Promise<{ missionId: string; taskId: string }> },
 ) {
-  const user = await withAuth();
   const { missionId, taskId } = await params;
 
   const streamUnavailable = (status: number) =>
@@ -32,6 +38,14 @@ export async function GET(
       status,
       headers: { 'content-type': 'application/json' },
     });
+
+  const user = await getOptionalUser();
+  if (!user) {
+    return new Response(JSON.stringify({ error: 'unauthorized' }), {
+      status: 401,
+      headers: { 'content-type': 'application/json' },
+    });
+  }
 
   const task = await getTask(taskId, user.id);
   // The missionId in the path must actually own this task — otherwise the

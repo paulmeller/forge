@@ -9,7 +9,7 @@ import { getDashboardStats } from '@/lib/home';
 import { filterMissionList, hasActiveMissionListFilters } from '@/lib/mission-list-filters';
 import { listMissions } from '@/lib/missions';
 import { rollupMissions, sparklinesForMissions } from '@/lib/rollups';
-import { getOptionalUser } from '@/lib/with-auth';
+import { withAuth } from '@/lib/with-auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,10 +25,13 @@ export default async function DashboardPage({
     kind: kindFilter,
     repo: repoFilter,
   } = await searchParams;
-  const user = await getOptionalUser();
-  const userId = user?.id ?? 'user_default';
+  // listMissions() below calls withAuth() itself, so a logged-out visitor was
+  // already redirected — but only after getDashboardStats had run a full set
+  // of queries as 'user_default'. Authenticating up front drops that wasted
+  // work and removes a fallback identity that read like a data leak.
+  const user = await withAuth();
 
-  const stats = await getDashboardStats(userId);
+  const stats = await getDashboardStats(user.id);
 
   const filters = {
     kind: kindFilter,

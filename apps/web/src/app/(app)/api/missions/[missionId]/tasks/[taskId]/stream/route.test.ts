@@ -10,9 +10,13 @@ for (const suffix of ['', '-wal', '-shm']) {
 }
 process.env.DATABASE_URL = `file:${DB_FILE}`;
 
-vi.mock('@/lib/with-auth', () => ({
-  withAuth: vi.fn(async () => ({ id: 'u1', name: 'User One', email: 'u1@forge.local' })),
-}));
+const getOptionalUser = vi.fn(async () => ({
+  id: 'u1',
+  name: 'User One',
+  email: 'u1@forge.local',
+}) as { id: string; name: string; email: string } | null);
+
+vi.mock('@/lib/with-auth', () => ({ getOptionalUser: () => getOptionalUser() }));
 
 let GET: typeof import('./route').GET;
 let client: { close: () => void };
@@ -74,6 +78,17 @@ function params(taskId: string, missionId = 'm1') {
 }
 
 describe('GET /api/missions/[missionId]/tasks/[taskId]/stream (in-process)', () => {
+  it('401s (not a redirect) with no session, so EventSource stops retrying', async () => {
+    getOptionalUser.mockResolvedValueOnce(null);
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const res = await GET(new Request('http://x'), params('tsk_live'));
+    // A 302 here would hand EventSource an HTML login page as an event
+    // stream; a 5xx would make it reconnect forever against a dead session.
+    expect(res.status).toBe(401);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
   it('503s (retryable) for an unknown task', async () => {
     const res = await GET(new Request('http://x'), params('tsk_missing'));
     expect(res.status).toBe(503);
