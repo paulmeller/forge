@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 
 import { eq } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/libsql/migrator';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import type { LibSQLDatabase } from 'drizzle-orm/libsql';
 
@@ -103,6 +103,43 @@ async function seedTask(over: {
   return prUrl;
 }
 
+/**
+ * Like seedTask, but lets a test pin an explicit prUrl and createdAt —
+ * needed to construct a deliberate prUrl collision (two tasks sharing one
+ * PR URL) with a controlled creation order.
+ */
+async function seedTaskWithPrUrl(over: {
+  id: string;
+  status: string;
+  prUrl: string;
+  createdAt: Date;
+}): Promise<void> {
+  const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 16)}`;
+  await db.insert(schema.missions).values({
+    id: missionId,
+    userId: 'user_1',
+    name: 'Test mission',
+    goal: 'test',
+    status: 'running',
+    backend: 'managed-agents',
+    agentId: 'agent_1',
+    plannerStrategy: 'rule-based',
+    webhookSecret: 'secret',
+    createdAt: over.createdAt,
+    updatedAt: over.createdAt,
+  });
+  await db.insert(schema.tasks).values({
+    id: over.id,
+    missionId,
+    repo: 'acme/api',
+    baseBranch: 'main',
+    status: over.status as never,
+    prUrl: over.prUrl,
+    createdAt: over.createdAt,
+    updatedAt: over.createdAt,
+  });
+}
+
 async function getTask(id: string) {
   const [row] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id)).limit(1);
   return row;
@@ -188,7 +225,14 @@ describe('POST /api/forge/github/webhook — pull_request', () => {
     expect(task?.lastError).toMatch(/closed without merging/);
 
     const events = await getLedgerEvents('tsk_merging_closed');
-    expect(events.find((e) => e.eventType === 'auto_merge.failed')).toBeDefined();
+    const failedEvent = events.find((e) => e.eventType === 'auto_merge.failed');
+    expect(failedEvent).toBeDefined();
+    // Same payload shape reconciler.ts and auto-merge.ts write for this
+    // eventType — { prNumber, reason/error } — not { prUrl }, so a future
+    // consumer can read one shape regardless of which writer produced it.
+    expect(failedEvent?.payload).toMatchObject({ reason: 'pr_closed_unmerged' });
+    expect(failedEvent?.payload).toHaveProperty('prNumber');
+    expect(failedEvent?.payload).not.toHaveProperty('prUrl');
   });
 
   it('still marks a merging task merged when GitHub reports the PR merged', async () => {
@@ -252,6 +296,46 @@ describe('POST /api/forge/github/webhook — pull_request', () => {
   });
 });
 
+describe('POST /api/forge/github/webhook — taskByPrUrl collision handling', () => {
+  // `pr_url` has an index but no unique constraint (schema.ts), so more than
+  // one Task can legitimately share a prUrl. taskByPrUrl must resolve that
+  // deterministically — most recently created wins — rather than depending
+  // on whatever order SQLite happens to return matching rows in. Without
+  // the `orderBy(desc(createdAt))` this test fails: absent an ORDER BY,
+  // SQLite returns matching rows in rowid/insertion order, so it would pick
+  // the OLDER task instead.
+  it('mutates the most recently created task when two tasks share a prUrl', async () => {
+    const sharedPrUrl = 'https://github.com/acme/api/pull/collision-1';
+    const older = new Date('2026-01-01T00:00:00Z');
+    const newer = new Date('2026-01-02T00:00:00Z');
+
+    // Insert the older task first so insertion order and recency order
+    // disagree — a test that just happened to insert the newer one last
+    // wouldn't distinguish "ordered by createdAt" from "ordered by rowid".
+    await seedTaskWithPrUrl({
+      id: 'tsk_collide_old',
+      status: 'ready_to_merge',
+      prUrl: sharedPrUrl,
+      createdAt: older,
+    });
+    await seedTaskWithPrUrl({
+      id: 'tsk_collide_new',
+      status: 'ready_to_merge',
+      prUrl: sharedPrUrl,
+      createdAt: newer,
+    });
+
+    const res = await postSigned('pull_request', {
+      action: 'closed',
+      pull_request: { html_url: sharedPrUrl, merged: true },
+    });
+    expect(res.status).toBe(200);
+
+    expect(await statusOf('tsk_collide_new')).toBe('merged');
+    expect(await statusOf('tsk_collide_old')).toBe('ready_to_merge');
+  });
+});
+
 describe('POST /api/forge/github/webhook — pull_request_review', () => {
   it('records a changes-requested review', async () => {
     const prUrl = await seedTask({ id: 'tsk_3', status: 'ready_to_merge' });
@@ -298,5 +382,110 @@ describe('POST /api/forge/github/webhook — pull_request_review', () => {
       pull_request: { html_url: 'https://github.com/x/y/pull/999999' },
     });
     expect(res.status).toBe(200);
+  });
+
+  it('is a no-op when a review event arrives for an already-terminal task', async () => {
+    const prUrl = await seedTask({ id: 'tsk_review_terminal', status: 'merged' });
+    const res = await postSigned('pull_request_review', {
+      action: 'submitted',
+      review: { state: 'approved' },
+      pull_request: { html_url: prUrl },
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.reason).toBe('already settled');
+    // Untouched — no reviewDecision written onto a settled task.
+    expect(await reviewDecisionOf('tsk_review_terminal')).toBeNull();
+    expect(await statusOf('tsk_review_terminal')).toBe('merged');
+  });
+
+  it('leaves a previously stored decision untouched on an unrecognized review state', async () => {
+    const prUrl = await seedTask({ id: 'tsk_unknown_state', status: 'ready_to_merge' });
+    await postSigned('pull_request_review', {
+      action: 'submitted',
+      review: { state: 'approved' },
+      pull_request: { html_url: prUrl },
+    });
+    expect(await reviewDecisionOf('tsk_unknown_state')).toBe('approved');
+
+    // GitHub's review.state we don't model (e.g. a future state, or a typo
+    // in a test payload) must not wipe out the standing 'approved' decision.
+    const res = await postSigned('pull_request_review', {
+      action: 'submitted',
+      review: { state: 'some_unrecognized_state' },
+      pull_request: { html_url: prUrl },
+    });
+    expect(res.status).toBe(200);
+    expect(await reviewDecisionOf('tsk_unknown_state')).toBe('approved');
+  });
+
+  describe('CAS guard (compare-and-swap on the update)', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    // Simulates the narrow TOCTOU window the CAS guard closes: something
+    // else (the reconciler sweep, another delivery) commits a status change
+    // to the Task between this handler's read and its write. We can't rely
+    // on real thread interleaving in a single-process test, so we inject the
+    // race deterministically at the exact point it matters: intercept the
+    // one `db.update(tasks)` call this handler makes, perform the
+    // "concurrent" status change first, then let the real CAS-guarded write
+    // run against the now-changed row. Without `eq(tasks.status, task.status)`
+    // in the guard this write would succeed anyway (matching on id alone)
+    // and silently overwrite reviewDecision on a Task whose status moved out
+    // from under it — this test fails if that guard is removed.
+    it('does not apply the review decision when the task status changed underneath it', async () => {
+      const prUrl = await seedTask({ id: 'tsk_cas_race', status: 'ready_to_merge' });
+
+      const realUpdate = db.update.bind(db);
+      const updateSpy = vi.spyOn(db, 'update').mockImplementationOnce((table: unknown) => {
+        let setVals: Record<string, unknown> = {};
+        let whereCond: unknown;
+        return {
+          set(vals: Record<string, unknown>) {
+            setVals = vals;
+            return this;
+          },
+          where(cond: unknown) {
+            whereCond = cond;
+            return this;
+          },
+          returning: () =>
+            (async () => {
+              // The "concurrent" write: something else moves the task to a
+              // different, still-non-terminal status before this handler's
+              // own guarded write executes.
+              await realUpdate(schema.tasks)
+                .set({ status: 'awaiting_ci', updatedAt: new Date() })
+                .where(eq(schema.tasks.id, 'tsk_cas_race'));
+
+              return realUpdate(table as typeof schema.tasks)
+                .set(setVals)
+                .where(whereCond as never)
+                .returning();
+            })(),
+        } as never;
+      });
+
+      const res = await postSigned('pull_request_review', {
+        action: 'submitted',
+        review: { state: 'approved' },
+        pull_request: { html_url: prUrl },
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.reason).toBe('already settled');
+
+      const task = await getTask('tsk_cas_race');
+      // The race's own status change landed...
+      expect(task?.status).toBe('awaiting_ci');
+      // ...but the review handler's write did not, because its guard no
+      // longer matched the (now-changed) current status.
+      expect(task?.reviewDecision).toBeNull();
+
+      updateSpy.mockRestore();
+    });
   });
 });

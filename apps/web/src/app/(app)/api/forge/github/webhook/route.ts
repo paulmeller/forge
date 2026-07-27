@@ -1,9 +1,9 @@
 import { randomUUID, createHmac, timingSafeEqual } from 'node:crypto';
 
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
 
-import { ledgerEvents, tasks, type TaskStatus } from '@forge/db';
+import { ledgerEvents, tasks, type ReviewDecision, type TaskStatus } from '@forge/db';
 
 import { db } from '@/lib/db';
 import { dispatchFromGithub, parseForgeDirective } from '@/lib/dispatch-from-github';
@@ -214,10 +214,35 @@ const TERMINAL_TASK_STATUSES = new Set<TaskStatus>([
   'failed',
 ]);
 
-/** Tasks are keyed by the PR URL Forge recorded when it opened the PR. */
+/**
+ * Tasks are keyed by the PR URL Forge recorded when it opened the PR.
+ *
+ * `pr_url` has an index (tasks_pr_url_idx) but deliberately no unique
+ * constraint — a retried task legitimately reopening against the same PR
+ * must not fail an insert. That means this lookup can match more than one
+ * row. Order by createdAt descending so a collision deterministically
+ * resolves to the most recently created task (the retry, not the stale
+ * original) rather than whichever row SQLite happens to return first, and
+ * fetch two rows so a collision is observable instead of silently
+ * mutating an arbitrary one.
+ */
 async function taskByPrUrl(prUrl: string) {
-  const [row] = await db.select().from(tasks).where(eq(tasks.prUrl, prUrl)).limit(1);
-  return row ?? null;
+  const rows = await db
+    .select()
+    .from(tasks)
+    .where(eq(tasks.prUrl, prUrl))
+    .orderBy(desc(tasks.createdAt))
+    .limit(2);
+
+  if (rows.length > 1) {
+    console.warn(
+      `taskByPrUrl: multiple tasks share prUrl=${prUrl} (ids: ${rows
+        .map((r) => r.id)
+        .join(', ')}); using most recently created`,
+    );
+  }
+
+  return rows[0] ?? null;
 }
 
 /**
@@ -312,7 +337,10 @@ async function handlePullRequest(rawBody: string) {
       missionId: task.missionId,
       taskId: task.id,
       eventType: 'auto_merge.failed',
-      payload: { prUrl, reason: 'pr_closed_unmerged' },
+      // Same shape reconciler.ts and auto-merge.ts write for this eventType
+      // ({ prNumber, ... }) — not { prUrl } — so a future consumer can read
+      // one shape regardless of which of the three writers produced it.
+      payload: { prNumber: task.prNumber, reason: 'pr_closed_unmerged' },
       createdAt: now,
     });
     return NextResponse.json({ ok: true, status: 'needs_human' }, { status: 200 });
@@ -367,16 +395,48 @@ async function handlePullRequestReview(rawBody: string) {
     );
   }
 
-  // A dismissed review clears the decision — the PR is unreviewed again.
-  const decision =
-    payload.action === 'dismissed'
-      ? null
-      : (REVIEW_STATES[payload.review?.state?.toLowerCase() ?? ''] ?? null);
+  let decision: ReviewDecision | null;
+  if (payload.action === 'dismissed') {
+    // A dismissed review clears the decision — the PR is unreviewed again.
+    //
+    // KNOWN LIMITATION (see the reviewDecision column comment in
+    // packages/db/src/schema.ts): this clears the column even if a
+    // *different* reviewer's approval is still standing on GitHub, because
+    // the column is a single scalar reflecting only the most recent review
+    // event and this handler has no view of the PR's other reviews. Fixing
+    // that would need a live GitHub API call or a per-reviewer schema,
+    // both out of scope here. Nothing currently gates a merge decision on
+    // this field, so don't start relying on it for that.
+    decision = null;
+  } else {
+    const mapped = REVIEW_STATES[payload.review?.state?.toLowerCase() ?? ''];
+    if (mapped === undefined) {
+      // Unrecognized/unmodeled review.state must not wipe out a previously
+      // recorded decision — leave it untouched rather than collapsing to
+      // null. Only an explicit `dismissed` action clears it.
+      return NextResponse.json(
+        { ok: true, decision: task.reviewDecision, reason: 'unrecognized review state' },
+        { status: 200 },
+      );
+    }
+    decision = mapped;
+  }
 
-  await db
+  // CAS-guarded like every branch of handlePullRequest: read-then-write
+  // otherwise leaves a TOCTOU window against a concurrent settle (e.g. the
+  // reconciler sweep or another delivery of this same event).
+  const [updated] = await db
     .update(tasks)
     .set({ reviewDecision: decision, updatedAt: new Date() })
-    .where(eq(tasks.id, task.id));
+    .where(and(eq(tasks.id, task.id), eq(tasks.status, task.status)))
+    .returning();
+
+  if (!updated) {
+    return NextResponse.json(
+      { ok: true, status: task.status, reason: 'already settled' },
+      { status: 200 },
+    );
+  }
 
   return NextResponse.json({ ok: true, decision }, { status: 200 });
 }

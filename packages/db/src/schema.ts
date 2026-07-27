@@ -84,7 +84,19 @@ export const escalationReason = [
 ] as const;
 export type EscalationReason = (typeof escalationReason)[number];
 
-/** A human's decision on the PR, mirrored from GitHub review events. */
+/**
+ * A human's decision on the PR, mirrored from GitHub review events.
+ *
+ * KNOWN LIMITATION: this column is a single scalar reflecting the *most
+ * recent* `pull_request_review` event, not an aggregate of the PR's
+ * reviews. Dismissing one review nulls it out even when a different
+ * reviewer's approval is still standing on GitHub — the webhook handler
+ * has no view of the PR's other reviews, and correcting that would need
+ * either a live GitHub API call or a per-reviewer schema, both out of
+ * scope for now. Nothing currently gates a merge decision on this field;
+ * do not start trusting it for that without fixing the aggregation gap
+ * first.
+ */
 export const reviewDecision = ['approved', 'changes_requested', 'commented'] as const;
 export type ReviewDecision = (typeof reviewDecision)[number];
 
@@ -213,6 +225,8 @@ export const tasks = sqliteTable(
     lastVerifiedSha: text('last_verified_sha'),
     haltReason: text('halt_reason', { enum: haltReason }),
     escalationReason: text('escalation_reason', { enum: escalationReason }),
+    // See the KNOWN LIMITATION comment on the `reviewDecision` export above:
+    // this reflects only the most recent review event, not an aggregate.
     reviewDecision: text('review_decision', { enum: reviewDecision }),
     approvedBy: text('approved_by'),
     acceptanceCriteria: text('acceptance_criteria'),
@@ -232,6 +246,12 @@ export const tasks = sqliteTable(
     index('tasks_mission_status_idx').on(t.missionId, t.status),
     index('tasks_depends_on_idx').on(t.dependsOnIds),
     index('tasks_session_idx').on(t.sessionId),
+    // Deliberately non-unique: the GitHub webhook looks up a Task by
+    // `pr_url` on every delivery, so this lookup wants an index regardless,
+    // but a legitimate future case (a retried task reopening against the
+    // same PR) must not blow up on an insert. See taskByPrUrl in
+    // apps/web's github/webhook route for the tie-break this backs.
+    index('tasks_pr_url_idx').on(t.prUrl),
   ],
 );
 

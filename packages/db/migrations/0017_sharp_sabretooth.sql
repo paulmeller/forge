@@ -1,0 +1,1 @@
+CREATE INDEX `tasks_pr_url_idx` ON `tasks` (`pr_url`);
