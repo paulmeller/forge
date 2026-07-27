@@ -1,7 +1,11 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { randomUUID, createHmac, timingSafeEqual } from 'node:crypto';
 
+import { and, eq } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
 
+import { ledgerEvents, tasks, type TaskStatus } from '@forge/db';
+
+import { db } from '@/lib/db';
 import { dispatchFromGithub, parseForgeDirective } from '@/lib/dispatch-from-github';
 import { env } from '@/lib/env';
 
@@ -61,6 +65,14 @@ export async function POST(request: Request) {
 
   if (event === 'check_suite') {
     return handleCheckSuite(rawBody);
+  }
+
+  if (event === 'pull_request') {
+    return handlePullRequest(rawBody);
+  }
+
+  if (event === 'pull_request_review') {
+    return handlePullRequestReview(rawBody);
   }
 
   return NextResponse.json({ ignored: true, event }, { status: 200 });
@@ -165,6 +177,208 @@ The PR already exists — just push the fix commit. Do not open a new PR.`;
     },
     { status: 201 },
   );
+}
+
+// ── Observe PRs Forge opened ─────────────────────────────────────────
+//
+// This is a fast path, not the mechanism. The Forge GitHub App must have its
+// event subscriptions edited in the App settings UI (no API for that) before
+// either of these ever fires, and even once subscribed, delivery is
+// best-effort. `runReconciler`'s merging sweep (server/tick/reconciler.ts)
+// polls GitHub directly every tick and is what actually keeps `merging`
+// Tasks from wedging forever — these handlers only shave the latency down
+// when they do fire. Both paths guard every update on the status they read
+// (`WHERE id = ? AND status = ?`, mirroring the sweep) so whichever of the
+// two — webhook or sweep — settles the Task first wins, and the other
+// becomes a no-op instead of a corrupting overwrite.
+
+type PullRequestPayload = {
+  action?: string;
+  pull_request?: { html_url?: string; merged?: boolean };
+  review?: { state?: string };
+};
+
+/**
+ * Statuses a Task cannot leave without a human, or that already reflect a
+ * settled outcome (mirrors reconciler.ts's MISSION_TERMINAL_TASK_STATUSES).
+ * Once a Task is in one of these, further pull_request(_review) events for
+ * its PR are stale — by definition something already closed the loop
+ * (this handler on a prior delivery, the reconciler sweep, or a human) —
+ * and must not be allowed to touch it again.
+ */
+const TERMINAL_TASK_STATUSES = new Set<TaskStatus>([
+  'merged',
+  'resolved',
+  'needs_human',
+  'abandoned',
+  'failed',
+]);
+
+/** Tasks are keyed by the PR URL Forge recorded when it opened the PR. */
+async function taskByPrUrl(prUrl: string) {
+  const [row] = await db.select().from(tasks).where(eq(tasks.prUrl, prUrl)).limit(1);
+  return row ?? null;
+}
+
+/**
+ * Closing the loop on PRs Forge opened. Without this a human merging on
+ * GitHub was never observed, so the Task sat in the review queue forever
+ * while its Mission had already auto-completed around it.
+ */
+async function handlePullRequest(rawBody: string) {
+  let payload: PullRequestPayload;
+  try {
+    payload = JSON.parse(rawBody);
+  } catch {
+    return NextResponse.json({ error: 'invalid JSON' }, { status: 400 });
+  }
+
+  if (payload.action !== 'closed') {
+    return NextResponse.json({ ignored: true, action: payload.action }, { status: 200 });
+  }
+
+  const prUrl = payload.pull_request?.html_url;
+  if (!prUrl) return NextResponse.json({ ignored: true }, { status: 200 });
+
+  const task = await taskByPrUrl(prUrl);
+  if (!task) return NextResponse.json({ ignored: true, reason: 'unknown pr' }, { status: 200 });
+
+  if (TERMINAL_TASK_STATUSES.has(task.status)) {
+    return NextResponse.json(
+      { ok: true, status: task.status, reason: 'already settled' },
+      { status: 200 },
+    );
+  }
+
+  const now = new Date();
+
+  if (payload.pull_request?.merged) {
+    const [updated] = await db
+      .update(tasks)
+      .set({ status: 'merged', updatedAt: now, completedAt: now })
+      .where(and(eq(tasks.id, task.id), eq(tasks.status, task.status)))
+      .returning();
+    if (!updated) {
+      return NextResponse.json(
+        { ok: true, status: task.status, reason: 'already settled' },
+        { status: 200 },
+      );
+    }
+    await db.insert(ledgerEvents).values({
+      id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
+      missionId: task.missionId,
+      taskId: task.id,
+      eventType: 'pr.merged',
+      payload: { prUrl },
+      createdAt: now,
+    });
+    return NextResponse.json({ ok: true, status: 'merged' }, { status: 200 });
+  }
+
+  // Closed without merging.
+  //
+  // CONFLICT RESOLUTION (task-3-brief.md Step 4 vs. reconciler.ts's merging
+  // sweep): the brief maps every closed-unmerged PR to `abandoned`. But if
+  // this Task was in `merging`, GitHub's native auto-merge was armed
+  // (auto-merge.ts's tryMerge) and the PR closed anyway — a human closed
+  // it, or auto-merge got disarmed. The sweep already treats that exact
+  // fact as `needs_human` / `escalationReason: 'auto_merge_failed'`; since
+  // this handler and the sweep observe the same GitHub event through two
+  // different channels, they must agree, or behaviour becomes a race on
+  // which one fires first. Resolution: match the sweep whenever the Task
+  // was `merging` — something was armed, so a human needs to look. For
+  // every other pre-close status nothing was armed, so there's nothing to
+  // escalate; `abandoned` (the brief's answer) is correct there.
+  if (task.status === 'merging') {
+    const [updated] = await db
+      .update(tasks)
+      .set({
+        status: 'needs_human',
+        escalationReason: 'auto_merge_failed',
+        lastError:
+          'PR closed without merging while auto-merge was armed — a human closed it, or auto-merge was disarmed',
+        updatedAt: now,
+      })
+      .where(and(eq(tasks.id, task.id), eq(tasks.status, 'merging')))
+      .returning();
+    if (!updated) {
+      return NextResponse.json(
+        { ok: true, status: task.status, reason: 'already settled' },
+        { status: 200 },
+      );
+    }
+    await db.insert(ledgerEvents).values({
+      id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
+      missionId: task.missionId,
+      taskId: task.id,
+      eventType: 'auto_merge.failed',
+      payload: { prUrl, reason: 'pr_closed_unmerged' },
+      createdAt: now,
+    });
+    return NextResponse.json({ ok: true, status: 'needs_human' }, { status: 200 });
+  }
+
+  const [updated] = await db
+    .update(tasks)
+    .set({ status: 'abandoned', updatedAt: now, completedAt: now })
+    .where(and(eq(tasks.id, task.id), eq(tasks.status, task.status)))
+    .returning();
+  if (!updated) {
+    return NextResponse.json(
+      { ok: true, status: task.status, reason: 'already settled' },
+      { status: 200 },
+    );
+  }
+  await db.insert(ledgerEvents).values({
+    id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
+    missionId: task.missionId,
+    taskId: task.id,
+    eventType: 'pr.closed',
+    payload: { prUrl },
+    createdAt: now,
+  });
+  return NextResponse.json({ ok: true, status: 'abandoned' }, { status: 200 });
+}
+
+const REVIEW_STATES: Record<string, 'approved' | 'changes_requested' | 'commented'> = {
+  approved: 'approved',
+  changes_requested: 'changes_requested',
+  commented: 'commented',
+};
+
+async function handlePullRequestReview(rawBody: string) {
+  let payload: PullRequestPayload;
+  try {
+    payload = JSON.parse(rawBody);
+  } catch {
+    return NextResponse.json({ error: 'invalid JSON' }, { status: 400 });
+  }
+
+  const prUrl = payload.pull_request?.html_url;
+  if (!prUrl) return NextResponse.json({ ignored: true }, { status: 200 });
+
+  const task = await taskByPrUrl(prUrl);
+  if (!task) return NextResponse.json({ ignored: true, reason: 'unknown pr' }, { status: 200 });
+
+  if (TERMINAL_TASK_STATUSES.has(task.status)) {
+    return NextResponse.json(
+      { ok: true, status: task.status, reason: 'already settled' },
+      { status: 200 },
+    );
+  }
+
+  // A dismissed review clears the decision — the PR is unreviewed again.
+  const decision =
+    payload.action === 'dismissed'
+      ? null
+      : (REVIEW_STATES[payload.review?.state?.toLowerCase() ?? ''] ?? null);
+
+  await db
+    .update(tasks)
+    .set({ reviewDecision: decision, updatedAt: new Date() })
+    .where(eq(tasks.id, task.id));
+
+  return NextResponse.json({ ok: true, decision }, { status: 200 });
 }
 
 function verifyHmac(secret: string, body: string, signature: string): boolean {
