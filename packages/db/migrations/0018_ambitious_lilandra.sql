@@ -1,0 +1,1 @@
+ALTER TABLE `github_installation_repos` ADD `repo_policy` text;

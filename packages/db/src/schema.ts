@@ -457,6 +457,12 @@ export const githubInstallationRepos = sqliteTable(
       .notNull()
       .references(() => githubInstallations.id, { onDelete: 'cascade' }),
     repo: text('repo').notNull(), // 'owner/repo'
+    /**
+     * Per-repo policy. JSON rather than one column per setting so later
+     * settings do not each need a migration, and so this can later be
+     * sourced from versioned config when policy-as-code lands.
+     */
+    repoPolicy: text('repo_policy', { mode: 'json' }).$type<RepoPolicy>(),
     createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
       .default(sql`(unixepoch() * 1000)`),
@@ -468,6 +474,10 @@ export const githubInstallationRepos = sqliteTable(
 );
 
 export type GithubInstallationRepo = typeof githubInstallationRepos.$inferSelect;
+
+export type RepoPolicy = {
+  requirePlanApproval: boolean;
+};
 
 export type AutoMergePolicy = {
   enabled: boolean;
