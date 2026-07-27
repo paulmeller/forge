@@ -230,6 +230,14 @@ export const tasks = sqliteTable(
     // this reflects only the most recent review event, not an aggregate.
     reviewDecision: text('review_decision', { enum: reviewDecision }),
     approvedBy: text('approved_by'),
+    // The PR head SHA at the moment `approvedBy` was set (review-actions.ts's
+    // Approve action). Follows the same precedent as `lastVerifiedSha` above:
+    // an approval is a statement about a specific diff, and a bare user id
+    // cannot express that. auto-merge.ts's `requireHumanApproval` gate
+    // compares this against the PR's *current* head SHA before honouring the
+    // approval — see the AutoMergePolicy.requireHumanApproval doc comment
+    // below for the full invariant.
+    approvedHeadSha: text('approved_head_sha'),
     acceptanceCriteria: text('acceptance_criteria'),
     lastError: text('last_error'),
     costUsd: integer('cost_usd').notNull().default(0),
@@ -493,7 +501,27 @@ export type AutoMergePolicy = {
    * `approvedBy` is written by the review Approve action
    * (review-actions.ts) when a human clicks Approve on a `needs_human`
    * Task, and read by auto-merge.ts's `requireHumanApproval` gate above.
-   * An approval is scoped to the reviewed diff, not to the Task id forever.
+   *
+   * This is a "a human looked" control, not separation of duties: nothing
+   * stops the Mission owner from approving their own Task, and there is no
+   * plan to add that check. Operators must not read this as a four-eyes /
+   * dual-control guarantee.
+   *
+   * An approval IS scoped to the reviewed diff, not to the Task id forever
+   * — that is enforced by `approvedHeadSha` (schema.ts, set alongside
+   * `approvedBy`), which records the PR's head SHA at the moment of
+   * approval. auto-merge.ts's `tryMerge` re-reads the PR's *current* head
+   * SHA and refuses to honour the approval if it no longer matches —
+   * closing the gap where a force-push after Approve (a different diff)
+   * would otherwise sail through on the strength of an approval that was
+   * never about that diff. `approvedHeadSha` is not independently cleared
+   * everywhere `approvedBy` is (see below); it only needs to agree with
+   * `approvedBy`'s lifecycle where both are read together, which is only
+   * inside `tryMerge`, and `tryMerge` is only ever reached there when
+   * `approvedBy` is already known non-null (runAutoMerge filters out
+   * `!approvedBy` candidates first) — so a stale `approvedHeadSha` left
+   * behind after `approvedBy` clears to null is inert data, never read.
+   *
    * The invariant: a Task that is not `needs_human` or `ready_to_merge` must
    * never carry a non-null `approvedBy` — approving applies to work
    * awaiting or cleared for merge, nothing else. It is cleared everywhere

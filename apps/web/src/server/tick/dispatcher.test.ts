@@ -230,6 +230,7 @@ function task(id: string, overrides: Partial<Task> = {}): Task {
     escalationReason: null,
     reviewDecision: null,
     approvedBy: null,
+    approvedHeadSha: null,
     acceptanceCriteria: null,
     lastError: null,
     costUsd: 0,

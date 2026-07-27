@@ -16,6 +16,27 @@ export type GithubDispatchInput = {
   goal: string; // free-form text from the comment
   issueRef?: string; // 'owner/repo#123'
   triggeredBy: string; // GitHub login of the commenter
+  /**
+   * Bypasses the repo's `requirePlanApproval` gate for this one dispatch.
+   *
+   * I4: this exists for exactly one caller — the webhook route's
+   * `handleCheckSuite` (self-healing CI-fix dispatch). The plan-approval
+   * gate's whole point is that an `@forge`/`/forge` comment is a *human*
+   * asking Forge to start new work, so a human should see and approve the
+   * plan first. A failing check suite is Forge reacting to its own PR going
+   * red — nobody asked for new work, there is no new "plan" to show, and
+   * gating it just means every red CI run posts another "approve this"
+   * comment on the same PR and piles up an unbounded stack of unapproved
+   * draft missions that never self-heal anything.
+   *
+   * This is a deliberate, narrow exemption for that one self-triggered
+   * fix loop — not a general escape hatch. Don't default it to true, and
+   * don't add a second caller without re-reading this comment; if a repo
+   * needs finer-grained control over this later, that argues for a
+   * dedicated repo-policy field (e.g. `autoFixCi`), not for widening what
+   * this flag is used for.
+   */
+  bypassPlanApprovalGate?: boolean;
 };
 
 export type GithubDispatchResult = {
@@ -35,12 +56,17 @@ const GITHUB_SYSTEM_USER_ID = 'user_default';
  * policy, which defaults to true. An @-mention is a request, not plan
  * approval — the UI path has always required a human to review the plan
  * before dispatch, and this is what stops @forge being the one way in that
- * skips that gate.
+ * skips that gate. `input.bypassPlanApprovalGate` (see its doc comment on
+ * `GithubDispatchInput`) is the one deliberate exception.
  */
 export async function dispatchFromGithub(
   input: GithubDispatchInput,
 ): Promise<GithubDispatchResult> {
   const policy = await getRepoPolicy(input.repoFullName);
+  // I4: the CI-fix path (handleCheckSuite) opts out of the gate explicitly;
+  // every other caller (the @forge comment path) goes through the policy
+  // unchanged.
+  const gated = policy.requirePlanApproval && !input.bypassPlanApprovalGate;
   const now = new Date();
   const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 20)}`;
   const ledgerSeed = `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`;
@@ -72,7 +98,7 @@ export async function dispatchFromGithub(
         userId,
         name: `GH: ${input.repoFullName} — ${input.goal.split('\n')[0]?.slice(0, 60) ?? 'mission'}`,
         goal: `IMPORTANT: The repo is cloned at /mnt/session/resources/repo_0 — cd there first.\n\n${input.goal}`,
-        status: policy.requirePlanApproval ? 'draft' : 'running',
+        status: gated ? 'draft' : 'running',
         backend: env.FORGE_BACKEND,
         agentId,
         plannerStrategy: 'rule-based',
@@ -86,7 +112,7 @@ export async function dispatchFromGithub(
         githubVaultId,
         createdAt: now,
         updatedAt: now,
-        startedAt: policy.requirePlanApproval ? null : now,
+        startedAt: gated ? null : now,
       })
       .returning();
     if (!mission) throw new Error('mission insert returned no rows');
@@ -104,12 +130,12 @@ export async function dispatchFromGithub(
       createdAt: now,
     });
 
-    // Gated (requirePlanApproval): leave the Mission in `draft` with no
-    // Tasks — runPlanner (called below, once the transaction has committed)
-    // is what creates them. Inserting a placeholder Task here too would
-    // leave a gated Mission with two Tasks, breaking the "one-Task Mission"
-    // invariant this function's callers (and the dispatcher) rely on.
-    if (policy.requirePlanApproval) {
+    // Gated: leave the Mission in `draft` with no Tasks — runPlanner (called
+    // below, once the transaction has committed) is what creates them.
+    // Inserting a placeholder Task here too would leave a gated Mission with
+    // two Tasks, breaking the "one-Task Mission" invariant this function's
+    // callers (and the dispatcher) rely on.
+    if (gated) {
       return { mission, taskId: null as string | null };
     }
 
@@ -152,7 +178,7 @@ export async function dispatchFromGithub(
     return { mission, taskId };
   });
 
-  if (!policy.requirePlanApproval) {
+  if (!gated) {
     // created.taskId is always set on this branch (see above).
     return { mission: created.mission, taskId: created.taskId! };
   }

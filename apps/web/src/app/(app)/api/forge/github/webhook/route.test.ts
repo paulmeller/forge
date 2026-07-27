@@ -297,6 +297,68 @@ describe('POST /api/forge/github/webhook — pull_request', () => {
     expect(await statusOf('tsk_merging_merged')).toBe('merged');
   });
 
+  // I3: the most likely human action on an escalated task — merging its PR
+  // directly on GitHub instead of clicking Approve first — was previously
+  // refused (`TERMINAL_TASK_STATUSES` included `needs_human`), leaving the
+  // Task showing as needing a human forever even though the work merged.
+  describe('I3 — a merged PR settles a needs_human task', () => {
+    it('settles needs_human to merged when the PR merges, without a prior Approve', async () => {
+      const prUrl = await seedTask({
+        id: 'tsk_escalated_merged',
+        status: 'needs_human',
+        escalationReason: 'ai_review_rejected',
+      });
+      const res = await postSigned('pull_request', {
+        action: 'closed',
+        pull_request: { html_url: prUrl, merged: true },
+      });
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.status).toBe('merged');
+      expect(await statusOf('tsk_escalated_merged')).toBe('merged');
+
+      const events = await getLedgerEvents('tsk_escalated_merged');
+      expect(events.find((e) => e.eventType === 'pr.merged')).toBeDefined();
+    });
+
+    it('clears a stale approvedBy when settling a needs_human task to merged', async () => {
+      const prUrl = await seedTask({
+        id: 'tsk_escalated_merged_approved',
+        status: 'needs_human',
+        approvedBy: 'u1',
+      });
+      const res = await postSigned('pull_request', {
+        action: 'closed',
+        pull_request: { html_url: prUrl, merged: true },
+      });
+      expect(res.status).toBe(200);
+      const task = await getTask('tsk_escalated_merged_approved');
+      expect(task?.status).toBe('merged');
+      expect(task?.approvedBy).toBeNull();
+    });
+
+    // Deliberately NOT settled: closed-unmerged from needs_human. The Task
+    // is already escalated and awaiting a human either way — see the
+    // reasoning on TERMINAL_TASK_STATUSES's EXCEPTION comment in route.ts.
+    it('leaves a needs_human task in needs_human when its PR closes WITHOUT merging', async () => {
+      const prUrl = await seedTask({
+        id: 'tsk_escalated_closed_unmerged',
+        status: 'needs_human',
+        escalationReason: 'auto_merge_failed',
+      });
+      const res = await postSigned('pull_request', {
+        action: 'closed',
+        pull_request: { html_url: prUrl, merged: false },
+      });
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.reason).toBe('already settled');
+      const task = await getTask('tsk_escalated_closed_unmerged');
+      expect(task?.status).toBe('needs_human');
+      expect(task?.escalationReason).toBe('auto_merge_failed');
+    });
+  });
+
   it('ignores events for PRs Forge did not open', async () => {
     const res = await postSigned('pull_request', {
       action: 'closed',
@@ -562,5 +624,80 @@ describe('POST /api/forge/github/webhook — pull_request_review', () => {
 
       updateSpy.mockRestore();
     });
+  });
+});
+
+// I4: self-healing CI (check_suite.completed/failure) must dispatch
+// immediately, bypassing the repo's plan-approval gate — see the doc
+// comment on `bypassPlanApprovalGate` (dispatch-from-github.ts) for why.
+// No repo-policy row is created in these tests, so the repo is on the
+// gated-by-default policy (DEFAULT_REPO_POLICY) the whole time; a mission
+// landing in `running` here is proof positive the bypass reached
+// dispatchFromGithub, not an accident of the repo happening to be ungated.
+describe('POST /api/forge/github/webhook — check_suite (self-healing CI)', () => {
+  async function missionRow(id: string) {
+    const [row] = await db.select().from(schema.missions).where(eq(schema.missions.id, id)).limit(1);
+    return row;
+  }
+
+  it('dispatches immediately despite the repo defaulting to plan-approval-gated', async () => {
+    const res = await postSigned('check_suite', {
+      action: 'completed',
+      check_suite: {
+        conclusion: 'failure',
+        head_branch: 'feature-x',
+        pull_requests: [{ number: 77, head: { ref: 'feature-x' } }],
+      },
+      repository: { full_name: 'acme/ci-repo' },
+      sender: { login: 'github-actions[bot]' },
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { missionId: string; trigger: string };
+    expect(body.trigger).toBe('check_suite.failure');
+
+    const mission = await missionRow(body.missionId);
+    expect(mission?.status).toBe('running');
+    expect(mission?.startedAt).not.toBeNull();
+
+    const createdTasks = await db
+      .select()
+      .from(schema.tasks)
+      .where(eq(schema.tasks.missionId, body.missionId));
+    expect(createdTasks).toHaveLength(1);
+    expect(createdTasks[0]?.status).toBe('queued');
+  });
+
+  it('ignores check_suite events that are not a completed action', async () => {
+    const res = await postSigned('check_suite', {
+      action: 'requested',
+      check_suite: { conclusion: null, pull_requests: [{ number: 1 }] },
+      repository: { full_name: 'acme/ci-repo' },
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ignored).toBe(true);
+  });
+
+  it('ignores check_suite completions that did not fail', async () => {
+    const res = await postSigned('check_suite', {
+      action: 'completed',
+      check_suite: { conclusion: 'success', pull_requests: [{ number: 1 }] },
+      repository: { full_name: 'acme/ci-repo' },
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ignored).toBe(true);
+  });
+
+  it('ignores a failing check suite with no associated PR (a direct push, not a PR)', async () => {
+    const res = await postSigned('check_suite', {
+      action: 'completed',
+      check_suite: { conclusion: 'failure', pull_requests: [] },
+      repository: { full_name: 'acme/ci-repo' },
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ignored).toBe(true);
+    expect(body.reason).toBe('no PR associated');
   });
 });

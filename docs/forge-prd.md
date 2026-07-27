@@ -97,7 +97,7 @@ Fleet-fix their own repos (dependency bumps, CI migrations). Sensitive to cost �
 ### 7.2 Tasks
 
 - A Task is the atomic unit of work: one repo, one branch, one backend session.
-- Task lifecycle: `queued → dispatching → running → turn_ended → opening_pr → awaiting_ci → (awaiting_review) → merging → merged` (terminal) with failure branches `abandoned` and `failed`.
+- Task lifecycle: `queued → dispatching → running → turn_ended → opening_pr → awaiting_ci → (awaiting_verify | awaiting_ai_review) → ready_to_merge → merging → merged` (terminal), with an escalation branch to `needs_human` from any gate (a human resolves it via Approve → `ready_to_merge` or Dismiss → `abandoned`, or by acting on the PR directly on GitHub) and failure branches `abandoned` and `failed`. The single `awaiting_review` status from the original design split into `awaiting_verify` (self-verify gate) and `awaiting_ai_review` (AI code review gate), each escalating independently to `needs_human` on repeated failure.
 - Tasks carry input (repo, base branch, prompt template variables, optional issue reference) and output (session ID, PR URL, diff stats, CI status, cost).
 - Tasks support retry-with-feedback: on CI failure, Forge sends a follow-up turn to the same session with the failing log; up to `retry_count_max` (default 3).
 - **Steering (shipped).** An operator can send a free-text message into a running Task's live session at any point while it's in `dispatching`, `running`, `turn_ended`, or `opening_pr` — appended as a `user.message` event over the same session channel the Dispatcher uses for the opening turn. Recorded in the Ledger (`task.steered`). No pause/acknowledgment semantics — the agent picks it up on its own cadence, same as any other turn. See [`docs/superpowers/specs/2026-07-17-home-queue-steering-budgets-design.md`](./superpowers/specs/2026-07-17-home-queue-steering-budgets-design.md).
@@ -125,8 +125,7 @@ Fleet-fix their own repos (dependency bumps, CI migrations). Sensitive to cost �
 - If the agent produced no diff → `abandoned`.
 - If diff exists → open PR via GitHub API with standardized title/body, link to the session, set status `awaiting_ci`.
 - On CI completion (poll Checks API in v1, webhook in v2):
-  - **Success** + auto-merge policy allows → `merging` → `merged`.
-  - **Success** + policy requires review → `awaiting_review`.
+  - **Success** → routed by the Mission's gate config: self-verify enabled (and the Task has acceptance criteria) → `awaiting_verify`; else AI review enabled → `awaiting_ai_review`; else straight to `ready_to_merge`. `awaiting_verify`/`awaiting_ai_review` each either advance the Task on to the next gate (or `ready_to_merge` if none remain) or escalate to `needs_human` after repeated failure. `ready_to_merge` is where the Mission's auto-merge policy takes over — `merging` → `merged`, or `needs_human` if it can't (see §10 on the no-merge-without-policy constraint).
   - **Failure** + `retry_count < max` → follow-up turn with the CI log, status back to `running`.
   - **Failure** + `retry_count >= max` → `failed` with a review-requested comment.
 - Gate decisions are recorded in the Ledger with full reasoning (which policy, which checks, which log excerpt).
@@ -413,7 +412,7 @@ No filtering UI in v1; the table is sortable by created-at descending and that's
 │                        │                                 │         │
 │ ┌──────────────────┐   │ ▸ forge: planner.emitted        │ Goal    │
 │ │ acme/api         │   │ ▸ forge: mission.started        │ ━━━━━   │
-│ │ awaiting_review  │   │ ▾ Task 1 acme/api               │ Budget  │
+│ │ awaiting_verify  │   │ ▾ Task 1 acme/api               │ Budget  │
 │ │ 42 events 12/30  │   │   ▸ session: status_running     │ ▓▓▓░    │
 │ │ branch · PR #14  │   │   ▸ agent: tool_use bash        │ Backend │
 │ └──────────────────┘   │   ▾ agent: message              │ GitHub  │

@@ -213,6 +213,59 @@ describe('dispatchFromGithub — plan-approval gate', () => {
     expect(events.some((e) => e.eventType === 'mission.started')).toBe(true);
   });
 
+  // I4: unit-level isolation of dispatchFromGithub's own gate logic, distinct
+  // from the end-to-end check_suite webhook test (route.test.ts) which
+  // additionally proves handleCheckSuite actually passes the flag. This test
+  // instead pins that dispatchFromGithub itself honours the flag when
+  // called directly — reverting `gated = policy.requirePlanApproval &&
+  // !input.bypassPlanApprovalGate` back to `gated = policy.requirePlanApproval`
+  // fails only this one, not the route-level test (which would still pass
+  // if some OTHER caller forgot to set the flag on a repo that happens to
+  // already be ungated).
+  describe('bypassPlanApprovalGate (I4 — self-healing CI exemption)', () => {
+    it('runs immediately even though the repo defaults to plan-approval-gated', async () => {
+      const { mission, taskId } = await dispatchFromGithub({
+        repoFullName: 'a/ci-fix',
+        goal: 'fix the lint errors',
+        defaultBranch: 'main',
+        triggeredBy: 'ci-fix (github)',
+        bypassPlanApprovalGate: true,
+      });
+      expect((await missionRow(mission.id))?.status).toBe('running');
+      expect((await missionRow(mission.id))?.startedAt).not.toBeNull();
+      expect(taskId).toBeTruthy();
+
+      const tasks = await tasksFor(mission.id);
+      expect(tasks).toHaveLength(1);
+      expect(tasks[0]?.status).toBe('queued');
+    });
+
+    it('does not post a plan-approval comment when bypassed (there is no plan to approve)', async () => {
+      process.env.GITHUB_APP_TOKEN = 'ghp_test';
+      process.env.BETTER_AUTH_URL = 'https://forge.example.com';
+      await dispatchFromGithub({
+        repoFullName: 'a/ci-fix-2',
+        goal: 'fix the lint errors',
+        defaultBranch: 'main',
+        issueRef: 'a/ci-fix-2#5',
+        triggeredBy: 'ci-fix (github)',
+        bypassPlanApprovalGate: true,
+      });
+      expect(octokitMocks.createComment).not.toHaveBeenCalled();
+    });
+
+    it('still gates normally when the flag is left unset (default @forge comment behaviour is unaffected)', async () => {
+      const { mission } = await dispatchFromGithub({
+        repoFullName: 'a/still-gated',
+        goal: 'fix it',
+        defaultBranch: 'main',
+        triggeredBy: 'octocat',
+      });
+      expect((await missionRow(mission.id))?.status).toBe('planning');
+      expect((await missionRow(mission.id))?.startedAt).toBeNull();
+    });
+  });
+
   it('creates exactly one Task for a gated mission (planned by runPlanner, not a leftover placeholder)', async () => {
     const { mission, taskId } = await dispatchFromGithub({
       repoFullName: 'a/b',

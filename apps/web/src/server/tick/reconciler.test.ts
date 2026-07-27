@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 
 import { migrate } from 'drizzle-orm/libsql/migrator';
 import { eq } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import type { LibSQLDatabase } from 'drizzle-orm/libsql';
 
@@ -13,6 +13,15 @@ import {
   DEPENDENCY_FAILED_STATUSES,
   missionTerminalStatusesFor,
 } from './reconciler';
+
+// Only the merging-sweep CAS test below ever drives a `merging` Task through
+// the reconciler, so it's the only test that reaches `getOctokit().pulls.get`
+// — every other test in this file has no armed Task and never touches
+// GitHub at all. Mocked exactly like auto-merge.test.ts's Octokit mock.
+const reconOctokitMocks = vi.hoisted(() => ({ pullsGet: vi.fn() }));
+vi.mock('@octokit/rest', () => ({
+  Octokit: vi.fn(() => ({ pulls: { get: reconOctokitMocks.pullsGet } })),
+}));
 
 describe('MISSION_TERMINAL_TASK_STATUSES', () => {
   it('includes merged as terminal', () => {
@@ -281,6 +290,101 @@ describe('runReconciler — standing mission exemption', () => {
     await runReconciler(noopLog);
 
     expect((await getMission(missionId))!.status).toBe('running');
+  });
+
+  // Merging sweep's merged branch (reconciler.ts, ~line 352-ish per the
+  // review): a claimed sweep/webhook race guard with zero prior coverage.
+  // GitHub reports the PR merged, and the sweep CAS-guards its own write on
+  // `eq(tasks.status, 'merging')` so a concurrent settle (e.g. the fast-path
+  // webhook handler observing the identical fact first) can't be clobbered.
+  // We can't rely on real thread interleaving in a single-process test, so —
+  // same technique as the webhook route test's CAS race test — we intercept
+  // the sweep's own `db.update(tasks)` call, perform the "concurrent" write
+  // first, then let the real CAS-guarded write run against the now-changed
+  // row. Drop `eq(tasks.status, 'merging')` from that guard and this test
+  // fails: the sweep's write would match on id alone and clobber the
+  // concurrent transition.
+  describe('merging sweep — merged branch CAS guard', () => {
+    const prevToken = process.env.GITHUB_APP_TOKEN;
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+      reconOctokitMocks.pullsGet.mockReset();
+      if (prevToken === undefined) delete process.env.GITHUB_APP_TOKEN;
+      else process.env.GITHUB_APP_TOKEN = prevToken;
+    });
+
+    it('does not clobber a Task a concurrent write already moved out of `merging`', async () => {
+      process.env.GITHUB_APP_TOKEN = 'ghp_test';
+      reconOctokitMocks.pullsGet.mockResolvedValue({
+        data: { merged: true, state: 'closed' },
+      });
+
+      const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+      await insertMission(missionId, {
+        workspaceRepo: 'acme/api',
+        issueRef: 'acme/api#55',
+        parentMissionId: null,
+      });
+      const taskId = `tsk_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+      const now = new Date();
+      await db.insert(schema.tasks).values({
+        id: taskId,
+        missionId,
+        repo: 'acme/api',
+        baseBranch: 'main',
+        kind: 'fix',
+        status: 'merging',
+        prUrl: 'https://github.com/acme/api/pull/55',
+        prNumber: 55,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      const realUpdate = db.update.bind(db);
+      const updateSpy = vi.spyOn(db, 'update').mockImplementationOnce((table: unknown) => {
+        let setVals: Record<string, unknown> = {};
+        let whereCond: unknown;
+        return {
+          set(vals: Record<string, unknown>) {
+            setVals = vals;
+            return this;
+          },
+          where(cond: unknown) {
+            whereCond = cond;
+            return this;
+          },
+          returning: () =>
+            (async () => {
+              // The "concurrent" write: something else (e.g. the fast-path
+              // webhook handler) already settled this Task away from
+              // `merging` before the sweep's own guarded write executes.
+              await realUpdate(schema.tasks)
+                .set({ status: 'needs_human', updatedAt: new Date() })
+                .where(eq(schema.tasks.id, taskId));
+
+              return realUpdate(table as typeof schema.tasks)
+                .set(setVals)
+                .where(whereCond as never)
+                .returning();
+            })(),
+        } as never;
+      });
+
+      await runReconciler(noopLog);
+      updateSpy.mockRestore();
+
+      const [row] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId)).limit(1);
+      // The race's own write landed...
+      expect(row!.status).toBe('needs_human');
+      // ...but the sweep's `merged` write did not, because its CAS guard no
+      // longer matched the (now-changed) current status.
+      const events = await db
+        .select()
+        .from(schema.ledgerEvents)
+        .where(eq(schema.ledgerEvents.taskId, taskId));
+      expect(events.some((e) => e.eventType === 'auto_merge.merged')).toBe(false);
+    });
   });
 });
 

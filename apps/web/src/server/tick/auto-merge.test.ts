@@ -175,6 +175,7 @@ function amTask(overrides: Partial<Task> = {}): Task {
     escalationReason: null,
     reviewDecision: null,
     approvedBy: null,
+    approvedHeadSha: null,
     acceptanceCriteria: null,
     lastError: null,
     costUsd: 0,
@@ -284,6 +285,7 @@ describe('tryMerge — native auto-merge gating (via runAutoMerge)', () => {
         title: 'Fix the thing',
         node_id: PR_NODE_ID,
         base: { ref: 'main' },
+        head: { sha: 'sha_default' },
       },
     });
     requiredChecksSpy.mockReset();
@@ -396,5 +398,159 @@ describe('tryMerge — native auto-merge gating (via runAutoMerge)', () => {
     // to a human — any earlier approval covered a merge that never happened
     // and must not survive to authorize whatever comes out of this rollback.
     expect(rollbackCall?.approvedBy).toBeNull();
+  });
+
+  // `policy?.enabled` gate (runAutoMerge, the `for` loop's first check).
+  // Distinct from "skips unapproved tasks when requireHumanApproval" above:
+  // this guards the outer gate itself, not the human-approval sub-check —
+  // a candidate whose Mission has no enabled auto-merge policy at all must
+  // never even reach `tryMerge` (no GitHub calls of any kind).
+  it('never calls GitHub for a candidate whose mission has no enabled auto-merge policy', async () => {
+    await seedTask({ id: 'tsk_disabled', status: 'ready_to_merge', prUrl: PR_URL });
+    await setPolicy(null);
+    const res = await runAutoMerge(log);
+    expect(res.merged).toBe(0);
+    expect(res.blocked).toBe(0);
+    expect(amMocks.octokit.pulls.get).not.toHaveBeenCalled();
+    expect(graphqlSpy).not.toHaveBeenCalled();
+  });
+
+  it('never calls GitHub for a candidate whose mission has an explicitly disabled auto-merge policy', async () => {
+    await seedTask({ id: 'tsk_disabled2', status: 'ready_to_merge', prUrl: PR_URL });
+    await setPolicy({ enabled: false });
+    const res = await runAutoMerge(log);
+    expect(res.merged).toBe(0);
+    expect(res.blocked).toBe(0);
+    expect(amMocks.octokit.pulls.get).not.toHaveBeenCalled();
+  });
+
+  // `pr.state !== 'open'` (tryMerge). A closed/merged-elsewhere PR must block
+  // WITHOUT going through markBlocked (no lastError rewrite, no ledger
+  // event) — it isn't a policy violation on an open PR, it's "there is
+  // nothing here to merge any more".
+  it('blocks without writing a ledger event when the PR is no longer open', async () => {
+    await seedTask({ id: 'tsk_closed_pr', status: 'ready_to_merge', prUrl: PR_URL });
+    amMocks.octokit.pulls.get.mockResolvedValueOnce({
+      data: { state: 'closed', head: { sha: 'sha_default' }, base: { ref: 'main' } },
+    });
+    const res = await runAutoMerge(log);
+    expect(res.merged).toBe(0);
+    expect(res.blocked).toBe(1);
+    expect(graphqlSpy).not.toHaveBeenCalled();
+    expect(amMocks.state.ledgerInserts).toHaveLength(0);
+    expect(amMocks.state.taskUpdateCalls).toHaveLength(0);
+  });
+
+  // --- I5: requireHumanApproval is scoped to the approved diff (head SHA),
+  // not just the Task id ---
+  describe('requireHumanApproval re-checks the approved head SHA', () => {
+    it('blocks — approval no longer applies — when the PR head has moved since Approve (force-push)', async () => {
+      await seedTask({
+        id: 'tsk_sha_stale',
+        status: 'ready_to_merge',
+        prUrl: PR_URL,
+        approvedBy: 'u1',
+        approvedHeadSha: 'sha_when_approved',
+      });
+      amMocks.octokit.pulls.get.mockResolvedValueOnce({
+        data: {
+          state: 'open',
+          additions: 5,
+          deletions: 2,
+          changed_files: 1,
+          node_id: PR_NODE_ID,
+          base: { ref: 'main' },
+          head: { sha: 'sha_after_force_push' },
+        },
+      });
+      await setPolicy({ enabled: true, requireHumanApproval: true });
+
+      const res = await runAutoMerge(log);
+
+      expect(res.merged).toBe(0);
+      expect(res.blocked).toBe(1);
+      expect(graphqlSpy).not.toHaveBeenCalled();
+      expect(lastBlockedReasons()).toEqual(
+        expect.arrayContaining([expect.stringContaining('approval no longer applies')]),
+      );
+    });
+
+    it('blocks when no head SHA was recorded at approval time (approvedHeadSha null)', async () => {
+      await seedTask({
+        id: 'tsk_sha_missing',
+        status: 'ready_to_merge',
+        prUrl: PR_URL,
+        approvedBy: 'u1',
+        approvedHeadSha: null,
+      });
+      await setPolicy({ enabled: true, requireHumanApproval: true });
+
+      const res = await runAutoMerge(log);
+
+      expect(res.merged).toBe(0);
+      expect(res.blocked).toBe(1);
+      expect(graphqlSpy).not.toHaveBeenCalled();
+    });
+
+    it('proceeds to merge when the PR head still matches the approved head SHA', async () => {
+      await seedTask({
+        id: 'tsk_sha_match',
+        status: 'ready_to_merge',
+        prUrl: PR_URL,
+        approvedBy: 'u1',
+        approvedHeadSha: 'sha_default',
+      });
+      await setPolicy({ enabled: true, requireHumanApproval: true });
+
+      const res = await runAutoMerge(log);
+
+      expect(res.blocked).toBe(0);
+      expect(res.merged).toBe(1);
+      expect(graphqlSpy).toHaveBeenCalled();
+    });
+  });
+
+  // markBlocked idempotency: `auto-merge.ts`'s comment claims a single
+  // ledger event even though the sweep re-evaluates the same blocked Task
+  // every tick. Verify the claim rather than trusting the comment.
+  describe('markBlocked idempotency', () => {
+    it('does not re-write lastError or re-append a ledger event when the blocked reason is unchanged from the last tick', async () => {
+      await seedTask({ id: 'tsk_idempotent', status: 'ready_to_merge', prUrl: PR_URL });
+      requiredChecksSpy.mockResolvedValue([]); // deterministic single reason: "no required checks"
+
+      const res1 = await runAutoMerge(log);
+      expect(res1.blocked).toBe(1);
+      const blockedAfterFirst = amMocks.state.ledgerInserts.filter(
+        (e) => e.eventType === 'auto_merge.blocked',
+      );
+      expect(blockedAfterFirst).toHaveLength(1);
+
+      // Mirror what markBlocked's own db.update just wrote back onto the
+      // seeded task — exactly what a fresh `db.select` at the top of the
+      // next tick would return, so this exercises real idempotency rather
+      // than a mock artifact.
+      const written = amMocks.state.taskUpdateCalls[amMocks.state.taskUpdateCalls.length - 1];
+      amMocks.state.candidateRows[0]!.task.lastError = written?.lastError as string;
+
+      const res2 = await runAutoMerge(log);
+      expect(res2.blocked).toBe(1);
+      const blockedAfterSecond = amMocks.state.ledgerInserts.filter(
+        (e) => e.eventType === 'auto_merge.blocked',
+      );
+      // Still just the one ledger event — the second tick's identical
+      // reason set did not append another.
+      expect(blockedAfterSecond).toHaveLength(1);
+      expect(amMocks.state.taskUpdateCalls).toHaveLength(1);
+
+      // A genuinely different reason set must still write normally.
+      amMocks.state.candidateRows[0]!.task.lastError = written?.lastError as string;
+      await setPolicy({ enabled: true, requiredChecks: ['e2e'] });
+      requiredChecksSpy.mockResolvedValue(['build']);
+      await runAutoMerge(log);
+      const blockedAfterThird = amMocks.state.ledgerInserts.filter(
+        (e) => e.eventType === 'auto_merge.blocked',
+      );
+      expect(blockedAfterThird).toHaveLength(2);
+    });
   });
 });

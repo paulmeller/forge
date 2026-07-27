@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 
 import { migrate } from 'drizzle-orm/libsql/migrator';
 import { eq } from 'drizzle-orm';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { LibSQLDatabase } from 'drizzle-orm/libsql';
 
@@ -63,6 +63,21 @@ afterAll(() => {
 afterEach(() => {
   vi.clearAllMocks();
   delete process.env.MERGE_STALL_MS;
+});
+
+// Pre-existing test-isolation gap (independent of this branch's changes,
+// reproduces identically without them): the "leaves a fresh ready_to_merge
+// Task alone" test below deliberately leaves its Task sitting in
+// `ready_to_merge` at a real wall-clock `updatedAt`. With no per-test
+// cleanup, that row was still present — and, once a full suite run's CPU
+// contention made a few milliseconds pass between tests, occasionally stale
+// enough — for the NEXT test's `MERGE_STALL_MS = '10'` to also sweep it up,
+// double-counting `mergeStallsEscalated`. Each test in this file seeds its
+// own Mission/Task, so a full delete between tests is safe and makes the
+// suite's outcome independent of how much wall-clock time elapses between
+// `it` blocks.
+beforeEach(async () => {
+  await db.delete(schema.missions);
 });
 
 async function insertMission(id: string, over: Record<string, unknown> = {}) {

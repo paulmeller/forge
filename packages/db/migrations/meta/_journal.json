@@ -134,6 +134,13 @@
       "when": 1785169971060,
       "tag": "0018_ambitious_lilandra",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1785189610267,
+      "tag": "0019_futuristic_cable",
+      "breakpoints": true
     }
   ]
 }

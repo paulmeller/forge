@@ -10,8 +10,40 @@ import { ledgerEvents, tasks } from '@forge/db';
 import { db } from '@/lib/db';
 import { getTask } from '@/lib/tasks';
 import { withAuth } from '@/lib/with-auth';
+import { PR_URL_RE, client as getOctokit } from '@/server/tick/auto-merge';
 
 export type ReviewActionState = { error?: string; ok?: boolean };
+
+/**
+ * I5: the PR's current head SHA at the moment Approve is clicked, so the
+ * approval can be scoped to the diff a human actually looked at rather than
+ * to the Task id forever (see `approvedHeadSha` on schema.ts's `tasks`
+ * table and the `AutoMergePolicy.requireHumanApproval` doc comment).
+ *
+ * Best-effort: if the PR URL doesn't parse or GitHub can't be reached right
+ * now, this returns null rather than failing the Approve click outright.
+ * `null` is not treated as "any SHA is fine" — auto-merge.ts's `tryMerge`
+ * requires an exact match against the PR's live head SHA, so a null here
+ * just means the next auto-merge pass blocks with a clear reason instead of
+ * trusting an approval it can't verify.
+ */
+async function currentPrHeadSha(prUrl: string | null): Promise<string | null> {
+  if (!prUrl) return null;
+  const m = PR_URL_RE.exec(prUrl);
+  if (!m) return null;
+  const [, owner, repo, pullStr] = m;
+  if (!owner || !repo || !pullStr) return null;
+  try {
+    const { data: pr } = await getOctokit().pulls.get({
+      owner,
+      repo,
+      pull_number: Number(pullStr),
+    });
+    return pr.head.sha;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Clears a Task out of `needs_human` — the exit the review queue never had.
@@ -40,6 +72,7 @@ export async function reviewAction(formData: FormData): Promise<ReviewActionStat
   }
 
   const now = new Date();
+  const approvedHeadSha = operation === 'approve' ? await currentPrHeadSha(task.prUrl) : null;
   const [updated] =
     operation === 'approve'
       ? await db
@@ -48,6 +81,7 @@ export async function reviewAction(formData: FormData): Promise<ReviewActionStat
             status: 'ready_to_merge',
             escalationReason: null,
             approvedBy: user.id,
+            approvedHeadSha,
             lastError: null,
             updatedAt: now,
           })
@@ -63,6 +97,7 @@ export async function reviewAction(formData: FormData): Promise<ReviewActionStat
             // approval and sailing straight through requireHumanApproval on
             // a PR nobody has looked at (see mission-transitions.ts).
             approvedBy: null,
+            approvedHeadSha: null,
             // Also stale the moment the task is dismissed: the reason it was
             // escalated described the needs_human row, not a dead abandoned
             // one. Harmless to leave (nothing reads escalationReason off an

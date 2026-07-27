@@ -218,6 +218,38 @@ describe('reviewOne reject path (via runAiReview)', () => {
 // escalate to a human rather than retry again. This guards the
 // status/escalationReason mapping `escalateTask` writes — a reviewer
 // verified it by reading source, but nothing encoded it until now.
+// --- reviewOne's approve path (private, exercised through runAiReview) ---
+//
+// This is the spec's own P0 claim: "AI review approved -> ready to merge".
+// Nothing pinned it before — a change to `ready_to_merge` in approveTask
+// (ai-review.ts) could be silently reverted to e.g. `needs_human` and no
+// test anywhere would fail. Guards the status write and the ai_review.approved
+// ledger event's payload shape.
+describe('reviewOne approve path (via runAiReview)', () => {
+  const log = { info: vi.fn(), warn: vi.fn() };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    arMocks.reset();
+    mocks.generateObject.mockReset();
+    arMocks.octokit.pulls.get.mockResolvedValue({ data: '+diff content' });
+    mocks.generateObject.mockResolvedValue({
+      object: { decision: 'approve', feedback: 'looks good' },
+      usage: { inputTokens: 10, outputTokens: 5 },
+    });
+  });
+
+  it('moves the task to ready_to_merge and records ai_review.approved', async () => {
+    arMocks.state.awaitingTasks = [arTask()];
+
+    const result = await runAiReview(log);
+
+    expect(result.approved).toBe(1);
+    const approveCall = arMocks.state.taskUpdateCalls.find((call) => 'status' in call);
+    expect(approveCall?.status).toBe('ready_to_merge');
+  });
+});
+
 describe('reviewOne escalate path (via runAiReview)', () => {
   const log = { info: vi.fn(), warn: vi.fn() };
 

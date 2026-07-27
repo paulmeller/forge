@@ -1,0 +1,1 @@
+ALTER TABLE `tasks` ADD `approved_head_sha` text;

@@ -165,6 +165,14 @@ The PR already exists — just push the fix commit. Do not open a new PR.`;
     goal,
     issueRef: pr.number ? `${repo}#${pr.number}` : undefined,
     triggeredBy: `ci-fix (${payload.sender?.login ?? 'github'})`,
+    // I4: this dispatch is Forge reacting to its own PR's CI going red, not
+    // a human asking for new work — the plan-approval gate's scope (per the
+    // spec) is `@forge` comments. Gating this too would silently turn every
+    // CI failure into a draft mission that never runs and a repeated
+    // "approve this" comment on the PR. See the doc comment on
+    // `bypassPlanApprovalGate` (dispatch-from-github.ts) for the full
+    // reasoning and the guardrail against widening this exemption.
+    bypassPlanApprovalGate: true,
   });
 
   return NextResponse.json(
@@ -205,6 +213,18 @@ type PullRequestPayload = {
  * its PR are stale — by definition something already closed the loop
  * (this handler on a prior delivery, the reconciler sweep, or a human) —
  * and must not be allowed to touch it again.
+ *
+ * EXCEPTION: `needs_human` in `handlePullRequest` specifically, when the PR
+ * merged. `needs_human` is not "closed" the way the other four members of
+ * this set are — it is the review queue Approve/Dismiss exist to drain, and
+ * the most common way a human actually clears it is by merging the PR
+ * directly on GitHub rather than clicking Approve in Forge first. Treating
+ * a merge as "already settled, ignore" on a `needs_human` row would leave
+ * Forge showing merged work as still needing a human forever, with Dismiss
+ * (which records it `abandoned`) as the only exit — see the carve-out below
+ * where `handlePullRequest` reads this set. `handlePullRequestReview` has no
+ * such carve-out: a review event landing on an escalated Task is genuinely
+ * stale there, since nothing about a review submission settles the escalation.
  */
 const TERMINAL_TASK_STATUSES = new Set<TaskStatus>([
   'merged',
@@ -279,7 +299,14 @@ async function handlePullRequest(rawBody: string) {
   const task = await taskByPrUrl(prUrl);
   if (!task) return NextResponse.json({ ignored: true, reason: 'unknown pr' }, { status: 200 });
 
-  if (TERMINAL_TASK_STATUSES.has(task.status)) {
+  // I3: a merged PR settles a `needs_human` Task same as any other — see the
+  // EXCEPTION note on TERMINAL_TASK_STATUSES above. Closed-unmerged from
+  // `needs_human` is deliberately NOT carved out here: the Task is already
+  // escalated and awaiting a human either way, so leaving it in
+  // `needs_human` (falling through to the generic terminal block below) is
+  // the correct, defensible outcome rather than a gap.
+  const isMergedEscalation = task.status === 'needs_human' && payload.pull_request?.merged === true;
+  if (!isMergedEscalation && TERMINAL_TASK_STATUSES.has(task.status)) {
     return NextResponse.json(
       { ok: true, status: task.status, reason: 'already settled' },
       { status: 200 },

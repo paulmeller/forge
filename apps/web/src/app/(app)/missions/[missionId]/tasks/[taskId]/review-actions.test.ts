@@ -17,9 +17,14 @@ process.env.DATABASE_URL = `file:${DB_FILE}`;
 const mocks = vi.hoisted(() => ({
   withAuth: vi.fn(),
   getTask: vi.fn(),
+  pullsGet: vi.fn(),
 }));
 vi.mock('@/lib/with-auth', () => ({ withAuth: mocks.withAuth }));
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
+// Approving now fetches the PR's current head SHA (I5) — mocked exactly
+// like auto-merge.test.ts's Octokit mock. Every test that doesn't seed a
+// prUrl never reaches this (currentPrHeadSha short-circuits on `!prUrl`).
+vi.mock('@octokit/rest', () => ({ Octokit: vi.fn(() => ({ pulls: { get: mocks.pullsGet } })) }));
 // Defaults to the real getTask (call-through) for every test. The one test
 // that needs to force a genuine lost race overrides this with
 // mockImplementationOnce to mutate the row between the read and the write.
@@ -55,6 +60,8 @@ afterAll(() => {
 beforeEach(() => {
   // Default caller for every test unless a test overrides it below.
   mocks.withAuth.mockResolvedValue({ id: 'u1', name: 'Owner', email: 'u1@x.com' });
+  mocks.pullsGet.mockReset();
+  process.env.GITHUB_APP_TOKEN = 'ghp_test';
 });
 
 afterEach(() => {
@@ -73,6 +80,7 @@ async function seedTask(over: {
   escalationReason?: EscalationReason | null;
   userId?: string;
   approvedBy?: string | null;
+  prUrl?: string | null;
 }): Promise<void> {
   const now = new Date();
   const missionId = `msn_${over.id}`;
@@ -98,6 +106,7 @@ async function seedTask(over: {
     status: over.status,
     escalationReason: over.escalationReason ?? null,
     approvedBy: over.approvedBy ?? null,
+    prUrl: over.prUrl ?? null,
     createdAt: now,
     updatedAt: now,
   });
@@ -118,6 +127,82 @@ describe('reviewAction', () => {
     expect(t.status).toBe('ready_to_merge');
     expect(t.escalationReason).toBeNull();
     expect(t.approvedBy).toBe('u1');
+  });
+
+  // I5: an approval must be scoped to the diff reviewed, not the Task id
+  // forever. Recording the PR's head SHA at Approve time is what lets
+  // auto-merge.ts's requireHumanApproval gate later detect a force-push and
+  // refuse a stale approval — see auto-merge.test.ts's
+  // "requireHumanApproval re-checks the approved head SHA" describe block
+  // for the read side of this.
+  describe('approve records the PR head SHA at approval time (I5)', () => {
+    it('fetches and stores the current PR head SHA on approve', async () => {
+      await seedTask({
+        id: 'tsk_sha_1',
+        status: 'needs_human',
+        prUrl: 'https://github.com/acme/api/pull/9',
+      });
+      mocks.pullsGet.mockResolvedValueOnce({ data: { head: { sha: 'sha_at_approval' } } });
+
+      const result = await reviewAction(formData({ taskId: 'tsk_sha_1', op: 'approve' }));
+
+      expect(result).toEqual({ ok: true });
+      expect(mocks.pullsGet).toHaveBeenCalledWith(
+        expect.objectContaining({ owner: 'acme', repo: 'api', pull_number: 9 }),
+      );
+      const t = await getTaskRow('tsk_sha_1');
+      expect(t.approvedHeadSha).toBe('sha_at_approval');
+    });
+
+    it('stores null when the task has no PR yet (nothing to fetch)', async () => {
+      await seedTask({ id: 'tsk_sha_2', status: 'needs_human', prUrl: null });
+
+      const result = await reviewAction(formData({ taskId: 'tsk_sha_2', op: 'approve' }));
+
+      expect(result).toEqual({ ok: true });
+      expect(mocks.pullsGet).not.toHaveBeenCalled();
+      const t = await getTaskRow('tsk_sha_2');
+      expect(t.approvedHeadSha).toBeNull();
+    });
+
+    it('approves anyway (best-effort) with a null SHA when GitHub cannot be reached', async () => {
+      await seedTask({
+        id: 'tsk_sha_3',
+        status: 'needs_human',
+        prUrl: 'https://github.com/acme/api/pull/11',
+      });
+      mocks.pullsGet.mockRejectedValueOnce(new Error('GitHub API down'));
+
+      const result = await reviewAction(formData({ taskId: 'tsk_sha_3', op: 'approve' }));
+
+      expect(result).toEqual({ ok: true });
+      const t = await getTaskRow('tsk_sha_3');
+      expect(t.status).toBe('ready_to_merge');
+      expect(t.approvedHeadSha).toBeNull();
+    });
+
+    it('clears approvedHeadSha on dismiss, same as approvedBy', async () => {
+      await seedTask({
+        id: 'tsk_sha_4',
+        status: 'needs_human',
+        prUrl: 'https://github.com/acme/api/pull/12',
+      });
+      mocks.pullsGet.mockResolvedValueOnce({ data: { head: { sha: 'sha_x' } } });
+      await reviewAction(formData({ taskId: 'tsk_sha_4', op: 'approve' }));
+      // Re-escalate it back to needs_human the way a real rollback would,
+      // then dismiss, so this exercises dismiss's own clear rather than
+      // passing vacuously.
+      await db
+        .update(schema.tasks)
+        .set({ status: 'needs_human' })
+        .where(eq(schema.tasks.id, 'tsk_sha_4'));
+
+      const result = await reviewAction(formData({ taskId: 'tsk_sha_4', op: 'dismiss' }));
+
+      expect(result).toEqual({ ok: true });
+      const t = await getTaskRow('tsk_sha_4');
+      expect(t.approvedHeadSha).toBeNull();
+    });
   });
 
   it('dismiss abandons the task', async () => {
@@ -167,7 +252,14 @@ describe('reviewAction', () => {
   it('refuses to approve a task that is not awaiting a human, and leaves it untouched', async () => {
     await seedTask({ id: 'tsk_4', status: 'running' });
     const res = await reviewAction(formData({ taskId: 'tsk_4', op: 'approve' }));
-    expect(res.error).toBeDefined();
+    // Exact message, not just "an error occurred": the CAS guard on the
+    // write below would ALSO refuse this (producing 'task is no longer
+    // awaiting a human') even if this early precheck were deleted entirely,
+    // so asserting only `res.error` truthy can't tell the two apart — that
+    // gap is exactly why this precheck had no test of its own. Pinning the
+    // exact message is what actually distinguishes "precheck fired" from
+    // "fell through to the CAS and lost there instead".
+    expect(res.error).toBe('task is running, not awaiting a human');
     const row = await getTaskRow('tsk_4');
     expect(row.status).toBe('running');
     expect(row.approvedBy).toBeNull();

@@ -114,6 +114,25 @@ async function tryMerge(
   const { data: pr } = await gh.pulls.get({ owner, repo, pull_number: pullNumber });
   if (pr.state !== 'open') return 'blocked';
 
+  // I5: re-check the approval against the PR's CURRENT head SHA, not just
+  // whether `approvedBy` is set. `runAutoMerge` already filtered out tasks
+  // where `policy.requireHumanApproval` is true and `approvedBy` is unset,
+  // so reaching here with `requireHumanApproval` true means `approvedBy` is
+  // non-null — but that only proves *a* diff was approved once, not that
+  // it's *this* diff. A force-push to the PR head after Approve was clicked
+  // changes the diff without moving the Task's status, so nothing else
+  // would ever catch it. Refuse rather than silently arming a merge on work
+  // nobody actually reviewed.
+  if (policy.requireHumanApproval) {
+    if (!task.approvedHeadSha || task.approvedHeadSha !== pr.head.sha) {
+      await markBlocked(task, mission, pullNumber, [
+        `approval no longer applies — PR head is ${pr.head.sha}, approved diff was ` +
+          `${task.approvedHeadSha ?? 'unknown (no SHA recorded at approval time)'}; re-approve to merge`,
+      ]);
+      return 'blocked';
+    }
+  }
+
   // Diff-shape gate. We trust the PR object's additions/deletions/changed_files
   // — Octokit returns them on `pulls.get`.
   const reasons = evaluatePolicy({
@@ -279,14 +298,23 @@ async function markBlocked(
   prNumber: number,
   reasons: string[],
 ): Promise<void> {
-  // Don't change task status; just append a single ledger event so it
-  // doesn't keep firing on every tick. We keep the most recent reasons in
-  // lastError so the operator sees them in the Console.
+  // Don't change task status; just write lastError + a ledger event so the
+  // operator sees why. Genuinely idempotent, not merely commented as such:
+  // `task` is the row `runAutoMerge` selected fresh at the top of THIS tick,
+  // so if the reason set hasn't changed since the last tick that blocked
+  // this same Task, `task.lastError` already equals what we're about to
+  // write — skip both writes rather than re-appending an identical
+  // `auto_merge.blocked` ledger event and re-touching `updatedAt` on every
+  // tick for as long as the Task sits blocked. A real change in the reason
+  // set (a new/different violation) still writes normally.
+  const message = `auto-merge blocked: ${reasons.join('; ')}`;
+  if (task.lastError === message) return;
+
   const now = new Date();
   await db
     .update(tasks)
     .set({
-      lastError: `auto-merge blocked: ${reasons.join('; ')}`,
+      lastError: message,
       updatedAt: now,
     })
     .where(eq(tasks.id, task.id));
