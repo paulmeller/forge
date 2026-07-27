@@ -12,7 +12,8 @@ describe('statusLabel', () => {
   });
 
   it('spot-checks the spec table', () => {
-    expect(statusLabel('awaiting_review')).toBe('Needs review');
+    expect(statusLabel('ready_to_merge')).toBe('Ready to merge');
+    expect(statusLabel('needs_human')).toBe('Needs you');
     expect(statusLabel('fix_review')).toBe('Reviewing fix');
     expect(statusLabel('awaiting_ci')).toBe('Waiting on CI');
     expect(statusLabel('opening_pr')).toBe('Opening PR');

@@ -53,7 +53,8 @@ export const taskStatus = [
   'awaiting_ci',
   'awaiting_verify',
   'awaiting_ai_review',
-  'awaiting_review',
+  'ready_to_merge',
+  'needs_human',
   'merging',
   'merged',
   'resolved',
@@ -70,6 +71,22 @@ export const haltReason = [
   'manual_abort',
 ] as const;
 export type HaltReason = (typeof haltReason)[number];
+
+/**
+ * Why a Task landed in `needs_human`. Diagnostic only — the gate is the
+ * status. Auto-merge must never key on this column.
+ */
+export const escalationReason = [
+  'ai_review_rejected',
+  'verify_incomplete',
+  'gate_stall',
+  'auto_merge_failed',
+] as const;
+export type EscalationReason = (typeof escalationReason)[number];
+
+/** A human's decision on the PR, mirrored from GitHub review events. */
+export const reviewDecision = ['approved', 'changes_requested', 'commented'] as const;
+export type ReviewDecision = (typeof reviewDecision)[number];
 
 /** Loop policy carried by a skill (authored in SKILL.md frontmatter). */
 export type LoopPolicy = {
@@ -195,6 +212,8 @@ export const tasks = sqliteTable(
     verifyRetryCount: integer('verify_retry_count').notNull().default(0),
     lastVerifiedSha: text('last_verified_sha'),
     haltReason: text('halt_reason', { enum: haltReason }),
+    escalationReason: text('escalation_reason', { enum: escalationReason }),
+    reviewDecision: text('review_decision', { enum: reviewDecision }),
     acceptanceCriteria: text('acceptance_criteria'),
     lastError: text('last_error'),
     costUsd: integer('cost_usd').notNull().default(0),

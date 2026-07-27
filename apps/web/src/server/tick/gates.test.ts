@@ -2,58 +2,28 @@ import { describe, expect, it } from 'vitest';
 
 import { afterVerifyStatus, postCiStatus } from './gates';
 
-describe('afterVerifyStatus', () => {
-  it('routes to AI review when enabled, else human review', () => {
-    expect(afterVerifyStatus(true)).toBe('awaiting_ai_review');
-    expect(afterVerifyStatus(false)).toBe('awaiting_review');
+describe('gate routing', () => {
+  it('routes a clean verify pass to ready_to_merge, not a human queue', () => {
+    expect(afterVerifyStatus(false)).toBe('ready_to_merge');
   });
-});
 
-describe('postCiStatus (green-CI routing)', () => {
-  it('routes to verify when self-verify is on AND the task has criteria', () => {
-    expect(
-      postCiStatus({
-        selfVerifyEnabled: true,
-        hasAcceptanceCriteria: true,
-        aiReviewEnabled: false,
-      }),
-    ).toBe('awaiting_verify');
+  it('routes to AI review when it is enabled', () => {
+    expect(afterVerifyStatus(true)).toBe('awaiting_ai_review');
+  });
+
+  it('routes green CI to self-verify when enabled and criteria exist', () => {
     expect(
       postCiStatus({ selfVerifyEnabled: true, hasAcceptanceCriteria: true, aiReviewEnabled: true }),
     ).toBe('awaiting_verify');
   });
 
-  it('falls through when self-verify is on but there are no criteria', () => {
-    expect(
-      postCiStatus({
-        selfVerifyEnabled: true,
-        hasAcceptanceCriteria: false,
-        aiReviewEnabled: true,
-      }),
-    ).toBe('awaiting_ai_review');
-    expect(
-      postCiStatus({
-        selfVerifyEnabled: true,
-        hasAcceptanceCriteria: false,
-        aiReviewEnabled: false,
-      }),
-    ).toBe('awaiting_review');
-  });
-
-  it('uses the existing AI-review/human choice when self-verify is off', () => {
+  it('routes green CI straight to ready_to_merge when both gates are off', () => {
     expect(
       postCiStatus({
         selfVerifyEnabled: false,
-        hasAcceptanceCriteria: true,
-        aiReviewEnabled: true,
-      }),
-    ).toBe('awaiting_ai_review');
-    expect(
-      postCiStatus({
-        selfVerifyEnabled: false,
-        hasAcceptanceCriteria: true,
+        hasAcceptanceCriteria: false,
         aiReviewEnabled: false,
       }),
-    ).toBe('awaiting_review');
+    ).toBe('ready_to_merge');
   });
 });

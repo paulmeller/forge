@@ -337,13 +337,14 @@ async function escalate(
   payload: Record<string, unknown>,
 ): Promise<void> {
   const now = new Date();
-  // Escalation hands off to a human (awaiting_review) — never silently fail
+  // Escalation hands off to a human (needs_human) — never silently fail
   // possibly-good work, and a verify *escalation* specifically means "a human
-  // should look", so we route to awaiting_review regardless of the AI-review flag.
+  // should look", so we route to needs_human regardless of the AI-review flag.
   await db
     .update(tasks)
     .set({
-      status: 'awaiting_review',
+      status: 'needs_human',
+      escalationReason: 'verify_incomplete',
       costTokens: newCostTokens,
       lastError: reason,
       updatedAt: now,

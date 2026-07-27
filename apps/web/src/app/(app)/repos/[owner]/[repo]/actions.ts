@@ -124,7 +124,7 @@ export async function createIssue(
 }
 
 // Terminal Task statuses (mirrors apps/tick/src/reconciler.ts's
-// MISSION_TERMINAL_TASK_STATUSES, minus 'awaiting_review' which is
+// MISSION_TERMINAL_TASK_STATUSES, minus 'needs_human' which is
 // mission-terminal but not Task-terminal — no cross-app import needed for
 // this small a check).
 const TERMINAL_TASK_STATUSES: TaskStatus[] = ['merged', 'resolved', 'abandoned', 'failed'];

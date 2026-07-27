@@ -201,7 +201,7 @@ async function reviewOne(task: Task, log: Logger): Promise<ReviewOutcome> {
   );
 
   if (review.decision === 'approve') {
-    // 6a. Approve: transition to awaiting_review
+    // 6a. Approve: transition to ready_to_merge
     await approveTask(task, newCostTokens, { pullNumber, feedback: review.feedback });
     return 'approved';
   }
@@ -250,7 +250,7 @@ async function approveTask(
   const now = new Date();
   await db
     .update(tasks)
-    .set({ status: 'awaiting_review', costTokens: newCostTokens, updatedAt: now })
+    .set({ status: 'ready_to_merge', costTokens: newCostTokens, updatedAt: now })
     .where(eq(tasks.id, task.id));
   await db.insert(ledgerEvents).values({
     id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
@@ -299,7 +299,8 @@ async function escalateTask(
   await db
     .update(tasks)
     .set({
-      status: 'awaiting_review',
+      status: 'needs_human',
+      escalationReason: 'ai_review_rejected',
       costTokens: newCostTokens,
       lastError: feedback,
       updatedAt: now,

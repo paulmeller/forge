@@ -15,8 +15,8 @@ describe('MISSION_TERMINAL_TASK_STATUSES', () => {
     expect(MISSION_TERMINAL_TASK_STATUSES).toContain('merged');
   });
 
-  it('includes awaiting_review as terminal (human takes over)', () => {
-    expect(MISSION_TERMINAL_TASK_STATUSES).toContain('awaiting_review');
+  it('includes needs_human as terminal (human takes over)', () => {
+    expect(MISSION_TERMINAL_TASK_STATUSES).toContain('needs_human');
   });
 
   it('includes abandoned as terminal', () => {
@@ -36,6 +36,7 @@ describe('MISSION_TERMINAL_TASK_STATUSES', () => {
     expect(MISSION_TERMINAL_TASK_STATUSES).not.toContain('awaiting_ci');
     expect(MISSION_TERMINAL_TASK_STATUSES).not.toContain('awaiting_ai_review');
     expect(MISSION_TERMINAL_TASK_STATUSES).not.toContain('merging');
+    expect(MISSION_TERMINAL_TASK_STATUSES).not.toContain('ready_to_merge');
   });
 
   it('includes resolved as terminal (reproduce verdict recorded, no PR)', () => {
@@ -158,5 +159,15 @@ describe('runReconciler — standing mission exemption', () => {
     expect((await getMission(containerId))!.status).toBe('running');
     expect((await getMission(issueLeafId))!.status).toBe('completed');
     expect((await getMission(campaignId))!.status).toBe('completed');
+  });
+});
+
+describe('mission terminality', () => {
+  it('does not treat ready_to_merge as terminal — unmerged work keeps a mission open', () => {
+    expect(MISSION_TERMINAL_TASK_STATUSES).not.toContain('ready_to_merge');
+  });
+
+  it('treats needs_human as terminal — the mission has done all it can alone', () => {
+    expect(MISSION_TERMINAL_TASK_STATUSES).toContain('needs_human');
   });
 });

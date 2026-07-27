@@ -17,8 +17,8 @@ describe('deriveMergeStepper', () => {
     });
   });
 
-  it('shows CI done, merge upcoming, and needsAttention for awaiting_review', () => {
-    expect(deriveMergeStepper('awaiting_review', 'https://github.com/o/r/pull/1')).toEqual({
+  it('shows CI done, merge upcoming, and needsAttention for needs_human', () => {
+    expect(deriveMergeStepper('needs_human', 'https://github.com/o/r/pull/1')).toEqual({
       kind: 'steps',
       ci: 'done',
       merge: 'upcoming',
@@ -34,6 +34,12 @@ describe('deriveMergeStepper', () => {
       needsAttention: false,
     });
     expect(deriveMergeStepper('awaiting_ai_review', 'https://github.com/o/r/pull/1')).toEqual({
+      kind: 'steps',
+      ci: 'done',
+      merge: 'upcoming',
+      needsAttention: false,
+    });
+    expect(deriveMergeStepper('ready_to_merge', 'https://github.com/o/r/pull/1')).toEqual({
       kind: 'steps',
       ci: 'done',
       merge: 'upcoming',

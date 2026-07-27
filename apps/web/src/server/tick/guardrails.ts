@@ -31,10 +31,10 @@ export type GuardrailsResult = {
 
 /**
  * Guardrails only evaluate Tasks where new *agent* spend accrues. A Task parked
- * in a gate state (`awaiting_ci`/`awaiting_verify`/`awaiting_review`/...) accrued
- * its turns legitimately and burns only bounded gate-validator tokens — halting
- * it there would wrongly fail a Task sitting correctly in a review/CI queue
- * (spec §1).
+ * in a gate state (`awaiting_ci`/`awaiting_verify`/`ready_to_merge`/`needs_human`/...)
+ * accrued its turns legitimately and burns only bounded gate-validator tokens —
+ * halting it there would wrongly fail a Task sitting correctly in a
+ * review/CI queue (spec §1).
  */
 export const AGENT_ACTIVE_STATUSES: TaskStatus[] = [
   'dispatching',

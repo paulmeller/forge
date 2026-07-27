@@ -23,7 +23,7 @@ const NOW_RUNNING_STATUSES = [
   'merging',
 ] as const;
 
-const NEEDS_YOU_STATUSES = ['awaiting_review', 'failed'] as const;
+const NEEDS_YOU_STATUSES = ['needs_human', 'failed'] as const;
 
 const RECENT_OUTCOME_STATUSES = ['merged', 'resolved', 'abandoned'] as const;
 

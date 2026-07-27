@@ -123,11 +123,11 @@ describe('countMissionsThisMonth', () => {
 });
 
 describe('countBlockedTasksByRepo', () => {
-  it('counts tasks in awaiting_review status, grouped by repo, for a user', async () => {
+  it('counts tasks in needs_human status, grouped by repo, for a user', async () => {
     const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
     await insertMission(missionId, { targetRepos: ['owner/repo'] });
-    await insertTask('tsk_blocked0000000001', missionId, 'owner/repo', { status: 'awaiting_review' });
-    await insertTask('tsk_blocked0000000002', missionId, 'owner/repo', { status: 'awaiting_review' });
+    await insertTask('tsk_blocked0000000001', missionId, 'owner/repo', { status: 'needs_human' });
+    await insertTask('tsk_blocked0000000002', missionId, 'owner/repo', { status: 'needs_human' });
     await insertTask('tsk_running00000000003', missionId, 'owner/repo', { status: 'running' });
 
     const result = await countBlockedTasksByRepo('user_1');

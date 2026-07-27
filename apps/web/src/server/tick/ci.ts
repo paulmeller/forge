@@ -240,7 +240,7 @@ async function retryWithFeedback(
 async function transitionToReview(
   task: Task,
   payload: Record<string, unknown>,
-  targetStatus: 'awaiting_review' | 'awaiting_ai_review' | 'awaiting_verify' = 'awaiting_review',
+  targetStatus: 'ready_to_merge' | 'awaiting_ai_review' | 'awaiting_verify' = 'ready_to_merge',
 ): Promise<void> {
   const now = new Date();
   await db.update(tasks).set({ status: targetStatus, updatedAt: now }).where(eq(tasks.id, task.id));

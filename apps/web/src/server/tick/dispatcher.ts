@@ -20,7 +20,8 @@ export const INFLIGHT_STATUSES: TaskStatus[] = [
   'awaiting_ci',
   'awaiting_verify',
   'awaiting_ai_review',
-  'awaiting_review',
+  'ready_to_merge',
+  'needs_human',
   'merging',
 ];
 

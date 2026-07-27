@@ -153,7 +153,7 @@ describe('groupTasksByIssue', () => {
     const fix2 = task({
       issueRef: 'acme/api#2',
       kind: 'fix',
-      status: 'awaiting_review',
+      status: 'needs_human',
       createdAt: t2,
     });
 

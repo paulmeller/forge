@@ -74,7 +74,7 @@ export async function rollupMissions(missionIds: string[]): Promise<Map<string, 
     c.total += n;
     c.spentTokens += Number(row.tokens);
     if (IN_FLIGHT.includes(row.status as TaskStatus)) c.inFlight += n;
-    else if (row.status === 'awaiting_review') c.awaitingReview += n;
+    else if (row.status === 'needs_human') c.awaitingReview += n;
     else if (row.status === 'merged') c.merged += n;
     else if (row.status === 'resolved') c.resolved += n;
     else if (row.status === 'abandoned') c.abandoned += n;

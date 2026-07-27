@@ -40,9 +40,9 @@ export function computeBudgetPct(opts: {
 }
 
 // Tasks contribute to budget while they're pre-terminal — once they're
-// failed/abandoned/merged/awaiting_review/cancelled, no new spend accrues
-// from them, but they DO count toward the running total. The total used
-// here is "all cost ever spent on this Mission's Tasks", which matches
+// failed/abandoned/merged/ready_to_merge/needs_human/cancelled, no new spend
+// accrues from them, but they DO count toward the running total. The total
+// used here is "all cost ever spent on this Mission's Tasks", which matches
 // what the operator expects: a budget is a total, not just a leak rate.
 const ALL_TASK_STATUSES: TaskStatus[] = [
   'queued',
@@ -53,7 +53,8 @@ const ALL_TASK_STATUSES: TaskStatus[] = [
   'awaiting_ci',
   'awaiting_verify',
   'awaiting_ai_review',
-  'awaiting_review',
+  'ready_to_merge',
+  'needs_human',
   'merging',
   'merged',
   'abandoned',

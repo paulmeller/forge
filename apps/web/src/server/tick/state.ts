@@ -44,7 +44,12 @@ export function transition(current: TaskStatus, event: BackendEvent): StateTrans
 
     case 'session.status_terminated':
       // Terminated without a PR → abandoned; with a PR → let CI path handle it.
-      if (current === 'awaiting_ci' || current === 'awaiting_review' || current === 'merged') {
+      if (
+        current === 'awaiting_ci' ||
+        current === 'ready_to_merge' ||
+        current === 'needs_human' ||
+        current === 'merged'
+      ) {
         return null;
       }
       return { status: 'abandoned', completed: true };

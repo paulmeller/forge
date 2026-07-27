@@ -114,7 +114,7 @@ export function headlineFor(reproduce: Task | null, fix: Task | null): TriageHea
   // Fix outcomes take precedence once the fix stage has settled or is moving.
   if (fix) {
     if (fix.status === 'merged') return 'fixed';
-    if (fix.status === 'awaiting_review') return 'fix_review';
+    if (fix.status === 'needs_human') return 'fix_review';
     if (fix.status === 'abandoned') return 'fix_skipped';
     if (fix.status === 'failed') return 'failed';
     // A fix that's been claimed, or is queued behind a positive verdict, is "fixing".

@@ -10,7 +10,8 @@ const mocks = vi.hoisted(() => {
     'awaiting_ci',
     'awaiting_verify',
     'awaiting_ai_review',
-    'awaiting_review',
+    'ready_to_merge',
+    'needs_human',
     'merging',
   ];
 
@@ -226,6 +227,8 @@ function task(id: string, overrides: Partial<Task> = {}): Task {
     verifyRetryCount: 0,
     lastVerifiedSha: null,
     haltReason: null,
+    escalationReason: null,
+    reviewDecision: null,
     acceptanceCriteria: null,
     lastError: null,
     costUsd: 0,
@@ -260,7 +263,8 @@ describe('INFLIGHT_STATUSES', () => {
       'awaiting_ci',
       'awaiting_verify',
       'awaiting_ai_review',
-      'awaiting_review',
+      'ready_to_merge',
+      'needs_human',
       'merging',
     ]);
   });

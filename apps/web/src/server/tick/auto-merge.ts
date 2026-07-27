@@ -39,8 +39,10 @@ function client(): Octokit {
 }
 
 /**
- * For each Mission with an auto-merge policy, find awaiting_review Tasks
- * whose PR shape matches the policy, merge them.
+ * For each Mission with an auto-merge policy, find ready_to_merge Tasks
+ * whose PR shape matches the policy, merge them. `ready_to_merge` means every
+ * enabled gate already passed — this must never key on `needs_human`, which
+ * is reserved for Tasks that were escalated to a person.
  *
  * PRD §7.5: success + auto-merge policy allows → merging → merged.
  * PRD §11 Phase 1 was no-auto-merge; this is the Phase 2 wiring.
@@ -53,7 +55,7 @@ export async function runAutoMerge(log: Logger): Promise<AutoMergeResult> {
     })
     .from(tasks)
     .innerJoin(missions, eq(missions.id, tasks.missionId))
-    .where(and(eq(tasks.status, 'awaiting_review'), isNotNull(tasks.prUrl)));
+    .where(and(eq(tasks.status, 'ready_to_merge'), isNotNull(tasks.prUrl)));
 
   let merged = 0;
   let blocked = 0;
@@ -170,11 +172,16 @@ async function tryMerge(
     return 'merged';
   }
 
-  // Roll back to awaiting_review so the operator can intervene.
+  // Roll back to needs_human so the operator can intervene.
   const errAt = new Date();
   await db
     .update(tasks)
-    .set({ status: 'awaiting_review', lastError: `auto-merge failed: ${mergeError ?? 'unknown'}`, updatedAt: errAt })
+    .set({
+      status: 'needs_human',
+      escalationReason: 'auto_merge_failed',
+      lastError: `auto-merge failed: ${mergeError ?? 'unknown'}`,
+      updatedAt: errAt,
+    })
     .where(eq(tasks.id, task.id));
   await db.insert(ledgerEvents).values({
     id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,

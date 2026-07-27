@@ -31,7 +31,7 @@ export const DEPENDENCY_FAILED_STATUSES: TaskStatus[] = ['failed', 'abandoned'];
  * Gate states a Task can wedge in if its validator persistently errors. They are
  * driven by the verify / ai-review subsystems (not by backend events), so a
  * validator that keeps failing never advances the Task and never increments its
- * retry counter. The stall sweep escalates such a Task to `awaiting_review` so it
+ * retry counter. The stall sweep escalates such a Task to `needs_human` so it
  * can't hold a concurrency slot or block Mission completion forever (spec §3.2).
  */
 const GATE_STALL_STATUSES: TaskStatus[] = ['awaiting_verify', 'awaiting_ai_review'];
@@ -49,10 +49,13 @@ const REPRODUCE_SETTLE_STATUSES: TaskStatus[] = [
   'awaiting_ai_review',
 ];
 
-const MISSION_TERMINAL_TASK_STATUSES: TaskStatus[] = [
+// `ready_to_merge` is deliberately absent: a Mission must not call itself
+// complete while a Task is merge-eligible but unmerged. `needs_human` stays
+// terminal — the Mission has done everything it can without a person.
+export const MISSION_TERMINAL_TASK_STATUSES: TaskStatus[] = [
   'merged',
   'resolved',
-  'awaiting_review',
+  'needs_human',
   'abandoned',
   'failed',
 ];
@@ -263,7 +266,7 @@ export async function runReconciler(log: Logger): Promise<ReconcileResult> {
   }
 
   // (1.5) Gate stall sweep: escalate Tasks wedged in a gate state past
-  // GATE_STALL_MS (validator persistently erroring) to awaiting_review.
+  // GATE_STALL_MS (validator persistently erroring) to needs_human.
   let gatesEscalated = 0;
   const staleCutoff = new Date(Date.now() - env.GATE_STALL_MS);
   const stalledGates = await db
@@ -276,7 +279,8 @@ export async function runReconciler(log: Logger): Promise<ReconcileResult> {
     const [updated] = await db
       .update(tasks)
       .set({
-        status: 'awaiting_review',
+        status: 'needs_human',
+        escalationReason: 'gate_stall',
         lastError: `gate stalled in ${task.status} for >${env.GATE_STALL_MS}ms`,
         updatedAt: now,
       })
@@ -500,7 +504,7 @@ async function completeMission(mission: Mission): Promise<void> {
   const [counts] = await db
     .select({
       merged: sql<number>`sum(case when ${tasks.status} = 'merged' then 1 else 0 end)`,
-      awaitingReview: sql<number>`sum(case when ${tasks.status} = 'awaiting_review' then 1 else 0 end)`,
+      needsHuman: sql<number>`sum(case when ${tasks.status} = 'needs_human' then 1 else 0 end)`,
       abandoned: sql<number>`sum(case when ${tasks.status} = 'abandoned' then 1 else 0 end)`,
       failed: sql<number>`sum(case when ${tasks.status} = 'failed' then 1 else 0 end)`,
     })
@@ -513,13 +517,10 @@ async function completeMission(mission: Mission): Promise<void> {
     eventType: 'mission.completed',
     payload: {
       merged: Number(counts?.merged ?? 0),
-      awaitingReview: Number(counts?.awaitingReview ?? 0),
+      needsHuman: Number(counts?.needsHuman ?? 0),
       abandoned: Number(counts?.abandoned ?? 0),
       failed: Number(counts?.failed ?? 0),
     },
     createdAt: now,
   });
 }
-
-// Re-exported for test visibility.
-export { MISSION_TERMINAL_TASK_STATUSES }; // DEPENDENCY_FAILED_STATUSES is already exported above

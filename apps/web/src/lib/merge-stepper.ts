@@ -10,7 +10,8 @@ export type MergeStepperState =
 const PAST_CI = new Set<TaskStatus>([
   'awaiting_verify',
   'awaiting_ai_review',
-  'awaiting_review',
+  'ready_to_merge',
+  'needs_human',
   'merging',
   'merged',
 ]);
@@ -19,7 +20,7 @@ const PAST_CI = new Set<TaskStatus>([
  * Derives an honest 2-step CI -> Merge display from the task's real status.
  * Deliberately excludes a "Review" step: Forge does not fetch GitHub's
  * review_decision/mergeable_state anywhere, so there is no real signal to
- * show one. `awaiting_review` (Forge's internal "escalated to a human for
+ * show one. `needs_human` (Forge's internal "escalated to a human for
  * any reason" state) surfaces via `needsAttention` instead of a fake step.
  */
 export function deriveMergeStepper(status: TaskStatus, prUrl: string | null): MergeStepperState {
@@ -34,7 +35,7 @@ export function deriveMergeStepper(status: TaskStatus, prUrl: string | null): Me
       kind: 'steps',
       ci: 'done',
       merge: status === 'merged' ? 'done' : status === 'merging' ? 'active' : 'upcoming',
-      needsAttention: status === 'awaiting_review',
+      needsAttention: status === 'needs_human',
     };
   }
 
