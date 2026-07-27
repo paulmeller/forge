@@ -64,10 +64,12 @@ beforeEach(async () => {
   await db.delete(schema.githubInstallations);
   octokitMocks.createComment.mockClear();
   delete process.env.GITHUB_APP_TOKEN;
+  delete process.env.BETTER_AUTH_URL;
 });
 
 afterEach(() => {
   delete process.env.GITHUB_APP_TOKEN;
+  delete process.env.BETTER_AUTH_URL;
 });
 
 const log = { info: () => {}, warn: () => {}, error: () => {} };
@@ -223,7 +225,67 @@ describe('dispatchFromGithub — plan-approval gate', () => {
     expect(taskId).toBe(tasks[0]?.id);
   });
 
-  it('does not post a GitHub comment when the trigger has no issueRef', async () => {
+  it('propagates a non-main baseBranch to the gated Task, matching the ungated path (Finding 1)', async () => {
+    const { mission, taskId } = await dispatchFromGithub({
+      repoFullName: 'a/b',
+      goal: 'fix it',
+      defaultBranch: 'develop',
+      triggeredBy: 'octocat',
+    });
+    const tasks = await tasksFor(mission.id);
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0]?.id).toBe(taskId);
+    expect(tasks[0]?.baseBranch).toBe('develop');
+  });
+
+  it('propagates issueRef to the gated Task, matching the ungated path (Finding 1)', async () => {
+    const { mission, taskId } = await dispatchFromGithub({
+      repoFullName: 'a/b',
+      goal: 'fix it',
+      defaultBranch: 'develop',
+      issueRef: 'a/b#123',
+      triggeredBy: 'octocat',
+    });
+    const tasks = await tasksFor(mission.id);
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0]?.id).toBe(taskId);
+    expect(tasks[0]?.issueRef).toBe('a/b#123');
+  });
+
+  it('gated and ungated paths agree on baseBranch/issueRef for the same input', async () => {
+    await setRepoPolicy('a/ungated', { requirePlanApproval: false });
+
+    const gated = await dispatchFromGithub({
+      repoFullName: 'a/gated',
+      goal: 'fix it',
+      defaultBranch: 'develop',
+      issueRef: 'a/gated#9',
+      triggeredBy: 'octocat',
+    });
+    const ungated = await dispatchFromGithub({
+      repoFullName: 'a/ungated',
+      goal: 'fix it',
+      defaultBranch: 'develop',
+      issueRef: 'a/ungated#9',
+      triggeredBy: 'octocat',
+    });
+
+    const [gatedTask] = await tasksFor(gated.mission.id);
+    const [ungatedTask] = await tasksFor(ungated.mission.id);
+    expect(gatedTask?.baseBranch).toBe('develop');
+    expect(ungatedTask?.baseBranch).toBe('develop');
+    expect(gatedTask?.issueRef).toBe('a/gated#9');
+    expect(ungatedTask?.issueRef).toBe('a/ungated#9');
+  });
+
+  it('does not post a GitHub comment when the trigger has no issueRef, even with a token and URL configured', async () => {
+    // GITHUB_APP_TOKEN and BETTER_AUTH_URL are both valid here so this test
+    // exercises only the `!input.issueRef` clause — if that clause were
+    // deleted, execution would reach the Octokit call and this would fail
+    // (Finding 4: the old version of this test left GITHUB_APP_TOKEN unset
+    // too, so it couldn't distinguish the two guards).
+    process.env.GITHUB_APP_TOKEN = 'ghp_test';
+    process.env.BETTER_AUTH_URL = 'https://forge.example.com';
     await dispatchFromGithub({
       repoFullName: 'a/b',
       goal: 'fix it',
@@ -235,6 +297,7 @@ describe('dispatchFromGithub — plan-approval gate', () => {
 
   it('posts an approval-link comment on the triggering issue when gated', async () => {
     process.env.GITHUB_APP_TOKEN = 'ghp_test';
+    process.env.BETTER_AUTH_URL = 'https://forge.example.com';
     const { mission } = await dispatchFromGithub({
       repoFullName: 'a/c',
       goal: 'fix it',
@@ -249,10 +312,34 @@ describe('dispatchFromGithub — plan-approval gate', () => {
     >;
     const call = calls[0]![0];
     expect(call).toMatchObject({ owner: 'a', repo: 'c', issue_number: 42 });
+    expect(call.body).toContain('https://forge.example.com');
     expect(call.body).toContain(`/missions/${mission.id}/plan`);
   });
 
-  it('does not post a comment (and does not throw) when GITHUB_APP_TOKEN is unset', async () => {
+  it('does not post a comment (and does not throw) when GITHUB_APP_TOKEN is unset, even with issueRef and BETTER_AUTH_URL configured', async () => {
+    // BETTER_AUTH_URL is configured and issueRef is present here so this
+    // test exercises only the `!env.GITHUB_APP_TOKEN` clause — if that
+    // clause were deleted, execution would reach the Octokit call and this
+    // would fail (Finding 4 applied symmetrically).
+    process.env.BETTER_AUTH_URL = 'https://forge.example.com';
+    const { mission } = await dispatchFromGithub({
+      repoFullName: 'a/c',
+      goal: 'fix it',
+      defaultBranch: 'main',
+      issueRef: 'a/c#42',
+      triggeredBy: 'octocat',
+    });
+    expect(octokitMocks.createComment).not.toHaveBeenCalled();
+    expect((await missionRow(mission.id))?.status).toBe('planning');
+  });
+
+  it('does not post a comment when BETTER_AUTH_URL is left at its localhost default (Finding 2)', async () => {
+    // issueRef and GITHUB_APP_TOKEN are both valid; BETTER_AUTH_URL is
+    // deliberately left unset (the beforeEach hook already deletes it), so
+    // env.BETTER_AUTH_URL resolves to the truthy 'http://localhost:3000'
+    // fallback. A guard that merely checks `!env.BETTER_AUTH_URL` cannot
+    // catch this — it must check BETTER_AUTH_URL_IS_CONFIGURED instead.
+    process.env.GITHUB_APP_TOKEN = 'ghp_test';
     const { mission } = await dispatchFromGithub({
       repoFullName: 'a/c',
       goal: 'fix it',
@@ -266,6 +353,7 @@ describe('dispatchFromGithub — plan-approval gate', () => {
 
   it('does not fail the dispatch when posting the GitHub comment throws (best-effort)', async () => {
     process.env.GITHUB_APP_TOKEN = 'ghp_test';
+    process.env.BETTER_AUTH_URL = 'https://forge.example.com';
     octokitMocks.createComment.mockRejectedValueOnce(new Error('GitHub API down'));
 
     const result = await dispatchFromGithub({
@@ -278,6 +366,7 @@ describe('dispatchFromGithub — plan-approval gate', () => {
 
     // The Mission still exists, planned, despite the comment failure.
     expect((await missionRow(result.mission.id))?.status).toBe('planning');
+    expect(octokitMocks.createComment).toHaveBeenCalledTimes(1);
     const tasks = await tasksFor(result.mission.id);
     expect(tasks).toHaveLength(1);
   });

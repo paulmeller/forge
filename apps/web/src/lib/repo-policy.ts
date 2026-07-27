@@ -18,5 +18,15 @@ export async function getRepoPolicy(repoFullName: string): Promise<RepoPolicy> {
     .from(githubInstallationRepos)
     .where(eq(githubInstallationRepos.repo, repoFullName))
     .limit(1);
-  return { ...DEFAULT_REPO_POLICY, ...(row?.policy ?? {}) };
+
+  // Fail closed. A security-relevant default must not be overridable by a
+  // falsy-but-present value: only a literal `false` opts a repo out of plan
+  // approval. Anything else — no row, no policy, a missing key, `null`, or
+  // some other malformed value — is treated as gated. (A naive
+  // `{ ...DEFAULT_REPO_POLICY, ...row?.policy }` spread would let e.g.
+  // `{ requirePlanApproval: null }` silently ungate the repo.)
+  if (row?.policy?.requirePlanApproval === false) {
+    return { requirePlanApproval: false };
+  }
+  return DEFAULT_REPO_POLICY;
 }

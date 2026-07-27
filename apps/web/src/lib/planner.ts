@@ -27,6 +27,17 @@ export type PlanResult = {
 };
 
 /**
+ * Optional overrides for the rule-based Planner path, used by callers that
+ * already know a Task's real `baseBranch`/`issueRef` (currently: GitHub
+ * dispatch) rather than falling back to the generic 'main'/null. Ignored by
+ * the 'llm' and 'triage' strategies, which derive these per-Task themselves.
+ */
+export type PlannerOverrides = {
+  baseBranch?: string;
+  issueRef?: string | null;
+};
+
+/**
  * Rule-based Planner (v1, PRD §7.3):
  *   one Task per target repo, prompt is the Mission's goal template with
  *   {{repo}} and {{base_branch}} substituted. Task status starts as
@@ -36,7 +47,10 @@ export type PlanResult = {
  * exactly once — transitioning the Mission to 'planning' and writing a
  * single ledger event ('planner.emitted') capturing the Task IDs.
  */
-export async function runPlanner(missionId: string): Promise<PlanResult> {
+export async function runPlanner(
+  missionId: string,
+  overrides: PlannerOverrides = {},
+): Promise<PlanResult> {
   // Peek at the strategy before committing to a path.
   const [peek] = await db
     .select({ plannerStrategy: missions.plannerStrategy })
@@ -75,13 +89,16 @@ export async function runPlanner(missionId: string): Promise<PlanResult> {
     }
 
     const now = new Date();
+    const baseBranch = overrides.baseBranch ?? 'main';
+    const issueRef = overrides.issueRef ?? null;
     const rows: NewTask[] = repos.map((repo) => ({
       id: `tsk_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
       missionId: mission.id,
       repo,
-      baseBranch: 'main',
+      baseBranch,
+      issueRef,
       status: 'queued',
-      promptVars: { repo, base_branch: 'main' },
+      promptVars: { repo, base_branch: baseBranch },
       createdAt: now,
       updatedAt: now,
     }));

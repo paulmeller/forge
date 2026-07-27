@@ -27,6 +27,17 @@ export const env = {
   get BETTER_AUTH_URL(): string {
     return optional('BETTER_AUTH_URL') ?? 'http://localhost:3000';
   },
+  /**
+   * True only when an operator actually set BETTER_AUTH_URL. `BETTER_AUTH_URL`
+   * itself always returns a value (falling back to localhost) so `next build`
+   * and same-origin dev usage don't need it set — but that means callers who
+   * are about to hand the URL to a *third party* (e.g. a link posted in a
+   * GitHub comment) cannot use `!env.BETTER_AUTH_URL` to detect a forgotten
+   * config: the fallback is truthy. Use this instead for that check.
+   */
+  get BETTER_AUTH_URL_IS_CONFIGURED(): boolean {
+    return Boolean(optional('BETTER_AUTH_URL'));
+  },
   get FORGE_BACKEND(): 'managed-agents' | 'gateway' {
     return (optional('FORGE_BACKEND') ?? 'managed-agents') as 'managed-agents' | 'gateway';
   },

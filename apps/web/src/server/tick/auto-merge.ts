@@ -13,7 +13,7 @@ import {
 } from '@forge/db';
 
 import { db } from '@/lib/db';
-import { env } from '@/lib/env';
+import { getOctokitClient } from '@/lib/octokit';
 
 type Logger = {
   info: (o: object, m?: string) => void;
@@ -29,17 +29,13 @@ export type AutoMergeResult = {
 
 export const PR_URL_RE = /github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/;
 
-// Shared across the tick modules that need to talk to GitHub as the Forge
-// App (currently auto-merge's own sweep and the reconciler's merging sweep).
-// One singleton, one auth path — don't add another `new Octokit(...)`
-// call elsewhere; import this instead.
-let octokit: Octokit | undefined;
+// Re-exported for existing callers (`import { client as getOctokit } from
+// './auto-merge'`); the singleton itself now lives in `@/lib/octokit` so
+// `lib/` modules (e.g. GitHub-dispatch's plan-link comment) can share it too
+// without importing from `server/tick/`. One singleton, one auth path —
+// don't add another `new Octokit(...)` call elsewhere; import that instead.
 export function client(): Octokit {
-  if (!octokit) {
-    if (!env.GITHUB_APP_TOKEN) throw new Error('GITHUB_APP_TOKEN not configured');
-    octokit = new Octokit({ auth: env.GITHUB_APP_TOKEN });
-  }
-  return octokit;
+  return getOctokitClient();
 }
 
 /**

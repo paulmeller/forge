@@ -1,12 +1,12 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 
-import { Octokit } from '@octokit/rest';
 import { eq } from 'drizzle-orm';
 
 import { githubInstallationRepos, githubInstallations, ledgerEvents, missions, tasks, type Mission } from '@forge/db';
 
 import { db } from './db';
 import { env } from './env';
+import { getOctokitClient } from './octokit';
 import { runPlanner } from './planner';
 import { getRepoPolicy } from './repo-policy';
 
@@ -158,8 +158,14 @@ export async function dispatchFromGithub(
   }
 
   // Plan now so the operator reviews real Tasks rather than an empty
-  // mission; startMission() remains the only path to `running`.
-  const plan = await runPlanner(created.mission.id);
+  // mission; startMission() remains the only path to `running`. Pass the
+  // same baseBranch/issueRef the ungated path writes directly — otherwise
+  // the rule-based Planner's generic defaults ('main', no issue) silently
+  // diverge from what the webhook payload actually said.
+  const plan = await runPlanner(created.mission.id, {
+    baseBranch: input.defaultBranch,
+    issueRef: input.issueRef ?? null,
+  });
   const [task] = await db
     .select({ id: tasks.id })
     .from(tasks)
@@ -178,12 +184,19 @@ const ISSUE_REF_RE = /^([^/]+)\/([^#]+)#(\d+)$/;
  * swallows errors rather than throwing into the dispatch path.
  */
 async function commentPlanLink(input: GithubDispatchInput, missionId: string): Promise<void> {
-  if (!input.issueRef || !env.GITHUB_APP_TOKEN || !env.BETTER_AUTH_URL) return;
+  if (!input.issueRef) return;
+  if (!env.GITHUB_APP_TOKEN) return;
+  // BETTER_AUTH_URL always resolves to *something* (it falls back to
+  // localhost so unrelated code paths don't need it configured), so it can
+  // never be falsy here — checking truthiness can't detect a forgotten
+  // config. A comment built from the localhost fallback would ship a dead
+  // link to a real GitHub user, so require it to have actually been set.
+  if (!env.BETTER_AUTH_URL_IS_CONFIGURED) return;
   const m = ISSUE_REF_RE.exec(input.issueRef);
   if (!m) return;
   const [, owner, repo, numStr] = m;
   try {
-    await new Octokit({ auth: env.GITHUB_APP_TOKEN }).issues.createComment({
+    await getOctokitClient().issues.createComment({
       owner: owner!,
       repo: repo!,
       issue_number: Number(numStr),
