@@ -216,4 +216,14 @@ describe('headlineFor', () => {
   it('is failed when the reproduce Task failed with no verdict', () => {
     expect(headlineFor(reproduce({ status: 'abandoned' }), null)).toBe('failed');
   });
+
+  // C1 visibility fix: a fix sitting in ready_to_merge is awaiting a human
+  // or the next tick's runAutoMerge, not still being worked — it must not
+  // render as "fixing" (the generic in-progress fallback). Revert the
+  // ready_to_merge branch in headlineFor and this test fails: it falls
+  // through to the `fix.status !== 'queued'` fallback and reports 'fixing'.
+  it('is fix_review — not fixing — when the fix is ready_to_merge', () => {
+    const r = reproduce({ status: 'resolved', verdict: { reproduced: true, summary: 'x' } });
+    expect(headlineFor(r, fix({ status: 'ready_to_merge' }))).toBe('fix_review');
+  });
 });

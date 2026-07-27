@@ -66,6 +66,22 @@ describe('transition', () => {
     expect(t).toEqual({ status: 'failed', lastError: 'model refused', completed: true });
   });
 
+  // Mirrors the session.status_terminated guard just above: a Task already
+  // past the backend's reach (awaiting_ci, ready_to_merge, needs_human,
+  // merged) must not be regressed to `failed` — `failed` is what
+  // retryMission selects from, so this guard is a closed exploit path, not
+  // just tidiness. POLLABLE_STATUSES (poller.ts) doesn't include any of
+  // these today, so this is currently unreachable in practice; the guard
+  // exists so widening POLLABLE_STATUSES later can't silently reopen it.
+  // Revert the SETTLED_STATUSES guard on session.error and this test fails:
+  // it comes back { status: 'failed', ... } instead of null.
+  it('does not regress a settled Task to failed on a late session.error', () => {
+    for (const current of ['awaiting_ci', 'ready_to_merge', 'needs_human', 'merged'] as const) {
+      const t = transition(current, event('session.error', { message: 'late error' }));
+      expect(t).toBeNull();
+    }
+  });
+
   it('captures PR URL from agent.mcp_tool_result content', () => {
     const t = transition(
       'running',

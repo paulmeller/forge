@@ -7,7 +7,7 @@ import { ledgerEvents, missions, tasks, type Mission, type TaskStatus } from '@f
 
 import { db } from '@/lib/db';
 import { env } from '@/lib/env';
-import { client as getOctokit, PR_URL_RE } from './auto-merge';
+import { client as getOctokit, hasEnabledAutoMergePolicy, PR_URL_RE } from './auto-merge';
 import { extractVerdictFromLedger } from './triage-verdict';
 
 type Logger = {
@@ -26,6 +26,7 @@ export type ReconcileResult = {
   fixesGated: number;
   mergesCompleted: number;
   mergesEscalated: number;
+  mergeStallsEscalated: number;
 };
 
 export const DEPENDENCY_FAILED_STATUSES: TaskStatus[] = ['failed', 'abandoned'];
@@ -40,6 +41,22 @@ export const DEPENDENCY_FAILED_STATUSES: TaskStatus[] = ['failed', 'abandoned'];
 const GATE_STALL_STATUSES: TaskStatus[] = ['awaiting_verify', 'awaiting_ai_review'];
 
 /**
+ * Merge-side states a Task can wedge in forever with no other exit:
+ *  - `ready_to_merge` when every candidate hand-off to `runAutoMerge`
+ *    (auto-merge.ts) keeps erroring (its outer catch just logs and
+ *    increments a counter, never moving the Task) or keeps getting
+ *    `markBlocked` (which only ever touches `lastError`, never `status`).
+ *  - `merging` when the merging sweep's `pulls.get` call keeps failing
+ *    (revoked token, renamed/deleted repo, ...) — that catch path logs and
+ *    continues with no attempt counter and no escalation.
+ * The stall sweep below (step 1.8) is the one mechanism that rescues both:
+ * age past MERGE_STALL_MS, on `updatedAt`, means genuinely stuck, not just
+ * "still legitimately waiting" (see that sweep's comment for why neither
+ * status's no-op paths bump `updatedAt`, which is what makes this safe).
+ */
+const MERGE_STALL_STATUSES: TaskStatus[] = ['ready_to_merge', 'merging'];
+
+/**
  * Post-turn states a `reproduce` Task may be found in when the reconciler settles
  * it to a verdict. Normally just `turn_ended`; the PR-gate states are a defensive
  * belt in case a reproduce agent opened a PR despite its narrowed toolset.
@@ -52,9 +69,11 @@ const REPRODUCE_SETTLE_STATUSES: TaskStatus[] = [
   'awaiting_ai_review',
 ];
 
-// `ready_to_merge` is deliberately absent: a Mission must not call itself
-// complete while a Task is merge-eligible but unmerged. `needs_human` stays
-// terminal — the Mission has done everything it can without a person.
+// `ready_to_merge` is deliberately absent from this bare list: whether it
+// counts as terminal depends on the owning Mission's auto-merge policy — see
+// `missionTerminalStatusesFor` below, which is what step (2) actually
+// queries against. `needs_human` stays terminal — the Mission has done
+// everything it can without a person.
 export const MISSION_TERMINAL_TASK_STATUSES: TaskStatus[] = [
   'merged',
   'resolved',
@@ -62,6 +81,28 @@ export const MISSION_TERMINAL_TASK_STATUSES: TaskStatus[] = [
   'abandoned',
   'failed',
 ];
+
+/**
+ * The terminal-status set for one Mission's completion check, conditional
+ * on whether anything will actually act on a `ready_to_merge` Task:
+ *
+ *  - No enabled auto-merge policy: nothing but a human clicking merge on
+ *    GitHub directly will ever move this Task again — exactly the same
+ *    situation as `needs_human` — so it must not hold the Mission open
+ *    forever (C1: before this, `ready_to_merge` was mission-terminal, and
+ *    the branch regressed that).
+ *  - An enabled policy: `runAutoMerge` (and, once armed, the merging sweep)
+ *    are expected to resolve this Task soon. Keep the Mission open until
+ *    they do, or it could complete out from under an in-flight merge.
+ *
+ * Pure given a Mission row — exported for testing.
+ */
+export function missionTerminalStatusesFor(
+  mission: Pick<Mission, 'autoMergePolicy'>,
+): TaskStatus[] {
+  if (hasEnabledAutoMergePolicy(mission)) return MISSION_TERMINAL_TASK_STATUSES;
+  return [...MISSION_TERMINAL_TASK_STATUSES, 'ready_to_merge'];
+}
 
 /**
  * Close out Missions whose Tasks have all settled, and clean up Tasks that
@@ -348,7 +389,18 @@ export async function runReconciler(log: Logger): Promise<ReconcileResult> {
       // moved this Task on, don't clobber it.
       const [updated] = await db
         .update(tasks)
-        .set({ status: 'merged', completedAt: now, updatedAt: now })
+        .set({
+          status: 'merged',
+          completedAt: now,
+          updatedAt: now,
+          // Believed inert today (nothing currently reads approvedBy off a
+          // merged Task), but every other exit from `merging`/`ready_to_merge`
+          // clears it — leaving it set here is the one path the invariant
+          // scan never actually drives a row through, so it's the one place
+          // that gap would go unnoticed if something later started trusting
+          // approvedBy past a merge.
+          approvedBy: null,
+        })
         .where(and(eq(tasks.id, task.id), eq(tasks.status, 'merging')))
         .returning();
       if (!updated) continue;
@@ -402,6 +454,51 @@ export async function runReconciler(log: Logger): Promise<ReconcileResult> {
     // PR still open — legitimately waiting on required checks. Leave it alone.
   }
 
+  // (1.8) Merge-stall sweep: escalate Tasks wedged in `ready_to_merge` or
+  // `merging` past MERGE_STALL_MS to needs_human. See MERGE_STALL_STATUSES
+  // above for why both need this: `ready_to_merge` because `runAutoMerge`
+  // never moves a persistently-erroring or persistently-blocked candidate
+  // off that status, and `merging` because the sweep just above leaves a
+  // Task exactly where it found it whenever `pulls.get` keeps failing or the
+  // PR is genuinely still open — neither of those no-op paths bumps
+  // `updatedAt`, so age here reflects real elapsed time in the status, not
+  // how many times this sweep has looked at it.
+  let mergeStallsEscalated = 0;
+  const mergeStaleCutoff = new Date(Date.now() - env.MERGE_STALL_MS);
+  const stalledMerges = await db
+    .select()
+    .from(tasks)
+    .where(and(inArray(tasks.status, MERGE_STALL_STATUSES), lt(tasks.updatedAt, mergeStaleCutoff)));
+
+  for (const task of stalledMerges) {
+    const now = new Date();
+    const [updated] = await db
+      .update(tasks)
+      .set({
+        status: 'needs_human',
+        escalationReason: 'merge_stall',
+        // Re-escalating to a human: whatever approval or armed-merge state
+        // got this Task here does not cover whatever a human decides to do
+        // about a Task that's been stuck this long.
+        approvedBy: null,
+        lastError: `merge stalled in ${task.status} for >${env.MERGE_STALL_MS}ms`,
+        updatedAt: now,
+      })
+      .where(and(eq(tasks.id, task.id), eq(tasks.status, task.status)))
+      .returning();
+    if (!updated) continue;
+    await db.insert(ledgerEvents).values({
+      id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
+      missionId: task.missionId,
+      taskId: task.id,
+      eventType: 'merge.stalled',
+      payload: { from: task.status, stalledMs: env.MERGE_STALL_MS },
+      createdAt: now,
+    });
+    mergeStallsEscalated += 1;
+    log.info({ taskId: task.id, from: task.status }, 'reconciler:merge_stalled');
+  }
+
   // (2) Complete Missions whose tasks are all in terminal states. A repo's
   // container Mission (workspaceRepo set, issueRef null, parentMissionId
   // null) is fed by neither a planner nor "Work on it" directly — it owns
@@ -420,7 +517,7 @@ export async function runReconciler(log: Logger): Promise<ReconcileResult> {
       .where(
         and(
           eq(tasks.missionId, mission.id),
-          notInArray(tasks.status, MISSION_TERMINAL_TASK_STATUSES),
+          notInArray(tasks.status, missionTerminalStatusesFor(mission)),
         ),
       );
     const remaining = Number(nonTerminal[0]?.count ?? 0);
@@ -448,6 +545,7 @@ export async function runReconciler(log: Logger): Promise<ReconcileResult> {
     fixesGated,
     mergesCompleted,
     mergesEscalated,
+    mergeStallsEscalated,
   };
 }
 

@@ -137,6 +137,9 @@ export const env = {
   get GATE_STALL_MS(): number {
     return Number(optional('GATE_STALL_MS') ?? 1_800_000); // 30 min gate stall sweep
   },
+  get MERGE_STALL_MS(): number {
+    return Number(optional('MERGE_STALL_MS') ?? 1_800_000); // 30 min merge stall sweep
+  },
   get LOG_LEVEL(): string {
     return optional('LOG_LEVEL') ?? 'info';
   },

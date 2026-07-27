@@ -25,6 +25,19 @@ export type StateTransition = {
   turnCompleted?: boolean;
 };
 
+/**
+ * Statuses that already reflect a settled/gated outcome the backend session
+ * has moved past — a late or duplicate session-level event for one of these
+ * must not be allowed to move the Task backwards. Shared by
+ * `session.status_terminated` and `session.error` below.
+ */
+const SETTLED_STATUSES = new Set<TaskStatus>([
+  'awaiting_ci',
+  'ready_to_merge',
+  'needs_human',
+  'merged',
+]);
+
 export function transition(current: TaskStatus, event: BackendEvent): StateTransition | null {
   switch (event.type) {
     case 'session.status_running':
@@ -44,17 +57,23 @@ export function transition(current: TaskStatus, event: BackendEvent): StateTrans
 
     case 'session.status_terminated':
       // Terminated without a PR → abandoned; with a PR → let CI path handle it.
-      if (
-        current === 'awaiting_ci' ||
-        current === 'ready_to_merge' ||
-        current === 'needs_human' ||
-        current === 'merged'
-      ) {
+      if (SETTLED_STATUSES.has(current)) {
         return null;
       }
       return { status: 'abandoned', completed: true };
 
     case 'session.error':
+      // Same guard as session.status_terminated above: a late/duplicate
+      // error event for a Task that already settled past the backend's
+      // reach must not regress it to `failed` — `failed` is what
+      // retryMission selects, so this guard is a closed exploit path, not
+      // just tidiness. POLLABLE_STATUSES (poller.ts) doesn't currently
+      // include any of these, so this is currently unreachable in
+      // practice — but that's exactly why it needs its own guard rather
+      // than relying on POLLABLE_STATUSES never widening to include them.
+      if (SETTLED_STATUSES.has(current)) {
+        return null;
+      }
       return {
         status: 'failed',
         lastError: readErrorMessage(event) ?? 'session error',

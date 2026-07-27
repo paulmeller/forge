@@ -134,6 +134,23 @@ describe('countBlockedTasksByRepo', () => {
     expect(result.get('owner/repo')).toBe(2);
   });
 
+  // C1 visibility fix: ready_to_merge belongs in this "needs attention"
+  // count alongside needs_human — a Task sitting there is waiting on either
+  // a human or the next tick's runAutoMerge, not invisible in-flight work.
+  // Revert the inArray(...) back to eq(tasks.status, 'needs_human') and
+  // this test fails: the ready_to_merge task is dropped from the count.
+  it('also counts tasks in ready_to_merge status', async () => {
+    const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    await insertMission(missionId, { targetRepos: ['owner/repo2'] });
+    await insertTask('tsk_rtm00000000000001', missionId, 'owner/repo2', {
+      status: 'ready_to_merge',
+    });
+    await insertTask('tsk_running00000000004', missionId, 'owner/repo2', { status: 'running' });
+
+    const result = await countBlockedTasksByRepo('user_1');
+    expect(result.get('owner/repo2')).toBe(1);
+  });
+
   it('omits repos with zero blocked tasks from the map', async () => {
     const result = await countBlockedTasksByRepo('user_with_no_blockers');
     expect(result.has('owner/repo')).toBe(false);

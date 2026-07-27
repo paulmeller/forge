@@ -74,7 +74,13 @@ export async function rollupMissions(missionIds: string[]): Promise<Map<string, 
     c.total += n;
     c.spentTokens += Number(row.tokens);
     if (IN_FLIGHT.includes(row.status as TaskStatus)) c.inFlight += n;
-    else if (row.status === 'needs_human') c.awaitingReview += n;
+    // `ready_to_merge` belongs in the same bucket as `needs_human`: whether
+    // or not the Mission has an auto-merge policy, a Task sitting here is
+    // waiting on either a human or the next tick's runAutoMerge — visible
+    // "awaiting review" work, not silently in-flight (see home.ts's
+    // NEEDS_YOU_STATUSES and reconciler.ts's missionTerminalStatusesFor for
+    // the same distinction made elsewhere).
+    else if (row.status === 'needs_human' || row.status === 'ready_to_merge') c.awaitingReview += n;
     else if (row.status === 'merged') c.merged += n;
     else if (row.status === 'resolved') c.resolved += n;
     else if (row.status === 'abandoned') c.abandoned += n;

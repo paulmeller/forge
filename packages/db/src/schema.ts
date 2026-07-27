@@ -81,6 +81,7 @@ export const escalationReason = [
   'verify_incomplete',
   'gate_stall',
   'auto_merge_failed',
+  'merge_stall',
 ] as const;
 export type EscalationReason = (typeof escalationReason)[number];
 

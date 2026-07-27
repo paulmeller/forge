@@ -1,6 +1,6 @@
 import { randomUUID, createHmac, timingSafeEqual } from 'node:crypto';
 
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, notInArray } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
 
 import { ledgerEvents, tasks, type ReviewDecision, type TaskStatus } from '@forge/db';
@@ -214,6 +214,17 @@ const TERMINAL_TASK_STATUSES = new Set<TaskStatus>([
   'failed',
 ]);
 
+// A Task in any of these statuses has no PR yet by construction (`prUrl` is
+// only ever set alongside the transition into `awaiting_ci`, see state.ts
+// and reconciler.ts's tryOpenPr) — so it cannot be the Task a real
+// pull_request(_review) event is about. `retryMission` (mission-transitions.ts)
+// now clears `prUrl` on every retry specifically so a re-queued Task's row
+// no longer matches its previous PR's URL at all; this exclusion is
+// defence in depth on top of that fix, not a substitute for it — it guards
+// against any other path that might someday leave a stale prUrl on an
+// early-stage Task, not just the retry path already closed.
+const PRE_PR_TASK_STATUSES: TaskStatus[] = ['queued', 'dispatching', 'running', 'turn_ended', 'opening_pr'];
+
 /**
  * Tasks are keyed by the PR URL Forge recorded when it opened the PR.
  *
@@ -230,7 +241,7 @@ async function taskByPrUrl(prUrl: string) {
   const rows = await db
     .select()
     .from(tasks)
-    .where(eq(tasks.prUrl, prUrl))
+    .where(and(eq(tasks.prUrl, prUrl), notInArray(tasks.status, PRE_PR_TASK_STATUSES)))
     .orderBy(desc(tasks.createdAt))
     .limit(2);
 
@@ -280,7 +291,17 @@ async function handlePullRequest(rawBody: string) {
   if (payload.pull_request?.merged) {
     const [updated] = await db
       .update(tasks)
-      .set({ status: 'merged', updatedAt: now, completedAt: now })
+      .set({
+        status: 'merged',
+        updatedAt: now,
+        completedAt: now,
+        // The fast-path twin of the reconciler merging-sweep's identical
+        // clear (reconciler.ts): believed inert today, but every other exit
+        // from `merging`/`ready_to_merge` clears approvedBy, and this is the
+        // one path an invariant scan wouldn't catch since no existing test
+        // drives a row to `merged` through it.
+        approvedBy: null,
+      })
       .where(and(eq(tasks.id, task.id), eq(tasks.status, task.status)))
       .returning();
     if (!updated) {

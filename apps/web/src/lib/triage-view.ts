@@ -114,7 +114,12 @@ export function headlineFor(reproduce: Task | null, fix: Task | null): TriageHea
   // Fix outcomes take precedence once the fix stage has settled or is moving.
   if (fix) {
     if (fix.status === 'merged') return 'fixed';
-    if (fix.status === 'needs_human') return 'fix_review';
+    // `ready_to_merge` belongs with `needs_human` here, not with the
+    // generic "fixing" fallback below: whether or not the mission has an
+    // auto-merge policy, a fix sitting here is waiting on a human or the
+    // next tick's runAutoMerge, not still being worked — the same
+    // "awaiting review" distinction home.ts's NEEDS_YOU_STATUSES makes.
+    if (fix.status === 'needs_human' || fix.status === 'ready_to_merge') return 'fix_review';
     if (fix.status === 'abandoned') return 'fix_skipped';
     if (fix.status === 'failed') return 'failed';
     // A fix that's been claimed, or is queued behind a positive verdict, is "fixing".

@@ -106,6 +106,7 @@ export async function runTick(log: Logger): Promise<TickResult> {
       fixesGated: 0,
       mergesCompleted: 0,
       mergesEscalated: 0,
+      mergeStallsEscalated: 0,
     };
   });
 

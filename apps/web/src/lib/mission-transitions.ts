@@ -103,6 +103,15 @@ export async function retryMission(
         // on a PR nobody ever reviewed.
         approvedBy: null,
         escalationReason: null,
+        // Same logic applies to the previous attempt's PR identity: leaving
+        // prUrl/prNumber/reviewDecision set is what let a `pull_request.closed`
+        // webhook for the DEAD PR settle this freshly re-queued Task (the
+        // webhook's taskByPrUrl matches on URL alone) — a `merged` outcome
+        // for work that never ran, which also falsely satisfies
+        // dispatcher.ts's depsSatisfied for anything depending on this Task.
+        prUrl: null,
+        prNumber: null,
+        reviewDecision: null,
         updatedAt: now,
       })
       .where(and(eq(tasks.missionId, missionId), inArray(tasks.status, ['failed', 'abandoned'])))

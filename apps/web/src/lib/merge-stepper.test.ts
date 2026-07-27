@@ -74,6 +74,22 @@ describe('deriveMergeStepper', () => {
     });
   });
 
+  // A task can merge while `changes_requested` still stood (e.g. a human
+  // merged anyway, or the review event arrived after the merge sweep had
+  // already settled the task) — a settled, positive `merged` outcome must
+  // never be flagged for attention on that account. Revert the `status !==
+  // 'merged'` guard in merge-stepper.ts and this test fails: needsAttention
+  // comes back true alongside review: 'done'.
+  it('does not flag a merged task for attention even when changes_requested was the last review event', () => {
+    expect(deriveMergeStepper('merged', PR, 'changes_requested')).toEqual({
+      kind: 'steps',
+      ci: 'done',
+      review: 'done',
+      merge: 'done',
+      needsAttention: false,
+    });
+  });
+
   it('is a distinct failed state for failed status, not attributed to a specific step', () => {
     expect(deriveMergeStepper('failed', PR, null)).toEqual({ kind: 'failed' });
   });

@@ -8,7 +8,11 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import type { LibSQLDatabase } from 'drizzle-orm/libsql';
 
-import { MISSION_TERMINAL_TASK_STATUSES, DEPENDENCY_FAILED_STATUSES } from './reconciler';
+import {
+  MISSION_TERMINAL_TASK_STATUSES,
+  DEPENDENCY_FAILED_STATUSES,
+  missionTerminalStatusesFor,
+} from './reconciler';
 
 describe('MISSION_TERMINAL_TASK_STATUSES', () => {
   it('includes merged as terminal', () => {
@@ -204,14 +208,108 @@ describe('runReconciler — standing mission exemption', () => {
     expect(row!.escalationReason).toBe('gate_stall');
     expect(row!.approvedBy).toBeNull();
   });
+
+  // C1: before this fix, `ready_to_merge` was unconditionally excluded from
+  // MISSION_TERMINAL_TASK_STATUSES, so a Mission whose only PR-eligible Task
+  // sat in `ready_to_merge` with no auto-merge policy configured (the
+  // overwhelming common case — nothing writes missions.autoMergePolicy
+  // anywhere in the app) never completed. Revert missionTerminalStatusesFor
+  // to always return the bare MISSION_TERMINAL_TASK_STATUSES and this test
+  // fails: the mission stays 'running' forever.
+  it('completes a mission whose only Task is ready_to_merge when the mission has no enabled auto-merge policy', async () => {
+    const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    await insertMission(missionId, {
+      workspaceRepo: 'acme/api',
+      issueRef: 'acme/api#7',
+      parentMissionId: null,
+      autoMergePolicy: null,
+    });
+
+    const taskId = `tsk_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const now = new Date();
+    await db.insert(schema.tasks).values({
+      id: taskId,
+      missionId,
+      repo: 'acme/api',
+      baseBranch: 'main',
+      kind: 'fix',
+      status: 'ready_to_merge',
+      prUrl: 'https://github.com/acme/api/pull/9',
+      prNumber: 9,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await runReconciler(noopLog);
+
+    expect((await getMission(missionId))!.status).toBe('completed');
+  });
+
+  // Mirror of the test above with the opposite precondition: an ENABLED
+  // auto-merge policy means runAutoMerge (and, once armed, the merging
+  // sweep) are expected to resolve this Task soon — the mission must stay
+  // open until they do, or it could complete out from under an in-flight
+  // merge. Revert missionTerminalStatusesFor to unconditionally exclude
+  // ready_to_merge (i.e. restore the old bare-list behaviour everywhere)
+  // and this test still passes; revert it to unconditionally INCLUDE
+  // ready_to_merge instead (over-correcting the fix above) and this test
+  // fails: the mission would wrongly complete here too.
+  it('does not complete a mission whose only Task is ready_to_merge when the mission has an enabled auto-merge policy', async () => {
+    const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    await insertMission(missionId, {
+      workspaceRepo: 'acme/api',
+      issueRef: 'acme/api#8',
+      parentMissionId: null,
+      autoMergePolicy: { enabled: true },
+    });
+
+    const taskId = `tsk_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const now = new Date();
+    await db.insert(schema.tasks).values({
+      id: taskId,
+      missionId,
+      repo: 'acme/api',
+      baseBranch: 'main',
+      kind: 'fix',
+      status: 'ready_to_merge',
+      prUrl: 'https://github.com/acme/api/pull/10',
+      prNumber: 10,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await runReconciler(noopLog);
+
+    expect((await getMission(missionId))!.status).toBe('running');
+  });
 });
 
 describe('mission terminality', () => {
-  it('does not treat ready_to_merge as terminal — unmerged work keeps a mission open', () => {
-    expect(MISSION_TERMINAL_TASK_STATUSES).not.toContain('ready_to_merge');
-  });
-
   it('treats needs_human as terminal — the mission has done all it can alone', () => {
     expect(MISSION_TERMINAL_TASK_STATUSES).toContain('needs_human');
+  });
+
+  describe('missionTerminalStatusesFor — ready_to_merge is conditional on the auto-merge policy', () => {
+    it('treats ready_to_merge as terminal when the mission has no enabled auto-merge policy — nothing but a human will ever move it, same as needs_human', () => {
+      const noPolicy = { autoMergePolicy: null };
+      expect(missionTerminalStatusesFor(noPolicy)).toContain('ready_to_merge');
+
+      const disabledPolicy = { autoMergePolicy: { enabled: false } };
+      expect(missionTerminalStatusesFor(disabledPolicy)).toContain('ready_to_merge');
+    });
+
+    it('does not treat ready_to_merge as terminal when the mission has an enabled auto-merge policy — unmerged work keeps the mission open until runAutoMerge/the merging sweep resolve it', () => {
+      const enabledPolicy = { autoMergePolicy: { enabled: true } };
+      expect(missionTerminalStatusesFor(enabledPolicy)).not.toContain('ready_to_merge');
+    });
+
+    it('always includes the bare MISSION_TERMINAL_TASK_STATUSES regardless of policy', () => {
+      const noPolicy = { autoMergePolicy: null };
+      const enabledPolicy = { autoMergePolicy: { enabled: true } };
+      for (const status of MISSION_TERMINAL_TASK_STATUSES) {
+        expect(missionTerminalStatusesFor(noPolicy)).toContain(status);
+        expect(missionTerminalStatusesFor(enabledPolicy)).toContain(status);
+      }
+    });
   });
 });

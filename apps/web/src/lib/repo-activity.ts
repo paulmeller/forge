@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 
 import { missions, tasks, type Task } from '@forge/db';
 
@@ -54,16 +54,20 @@ export async function countMissionsThisMonth(userId: string, repo: string): Prom
   return rows.filter((m) => (m.targetRepos ?? []).includes(repo)).length;
 }
 
-/** Maps repo -> count of that repo's tasks currently in `needs_human`
- *  ("escalated to a human for any reason" — see merge-stepper.ts for why
- *  this is the one real proxy Forge has for "this needs attention today").
+/** Maps repo -> count of that repo's tasks currently in `needs_human` or
+ *  `ready_to_merge` ("escalated to a human, or waiting on one, for any
+ *  reason" — see merge-stepper.ts for why this is the one real proxy Forge
+ *  has for "this needs attention today"; `ready_to_merge` belongs alongside
+ *  `needs_human` for the same reason it's in home.ts's NEEDS_YOU_STATUSES).
  *  Repos with zero such tasks are omitted from the returned map. */
 export async function countBlockedTasksByRepo(userId: string): Promise<Map<string, number>> {
   const rows = await db
     .select({ repo: tasks.repo, count: sql<number>`count(*)` })
     .from(tasks)
     .innerJoin(missions, eq(tasks.missionId, missions.id))
-    .where(and(eq(missions.userId, userId), eq(tasks.status, 'needs_human')))
+    .where(
+      and(eq(missions.userId, userId), inArray(tasks.status, ['needs_human', 'ready_to_merge'])),
+    )
     .groupBy(tasks.repo);
 
   return new Map(rows.map((r) => [r.repo, Number(r.count)]));

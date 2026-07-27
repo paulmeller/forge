@@ -195,6 +195,23 @@ describe('POST /api/forge/github/webhook — pull_request', () => {
     expect(events.find((e) => e.eventType === 'pr.merged')).toBeDefined();
   });
 
+  // Cheap hardening: the fast-path twin of the reconciler merging-sweep's
+  // identical clear — every other exit from `merging`/`ready_to_merge`
+  // clears approvedBy, and this success path was the one no prior
+  // invariant test drove a row through. Revert the `approvedBy: null` here
+  // and this test fails: the stale approval survives onto the merged row.
+  it('clears a stale approvedBy when marking the task merged', async () => {
+    const prUrl = await seedTask({ id: 'tsk_1_approved', status: 'ready_to_merge', approvedBy: 'u1' });
+    const res = await postSigned('pull_request', {
+      action: 'closed',
+      pull_request: { html_url: prUrl, merged: true },
+    });
+    expect(res.status).toBe(200);
+    const task = await getTask('tsk_1_approved');
+    expect(task?.status).toBe('merged');
+    expect(task?.approvedBy).toBeNull();
+  });
+
   it('abandons the task when the PR is closed unmerged and nothing was armed', async () => {
     const prUrl = await seedTask({ id: 'tsk_2', status: 'ready_to_merge' });
     const res = await postSigned('pull_request', {
@@ -286,6 +303,29 @@ describe('POST /api/forge/github/webhook — pull_request', () => {
       pull_request: { html_url: 'https://github.com/x/y/pull/999999', merged: true },
     });
     expect(res.status).toBe(200);
+  });
+
+  // I2: a retried task must not be settled by an event about its previous
+  // PR. retryMission (mission-transitions.ts) now clears prUrl on every
+  // retry, which is the primary fix — a re-queued task's row no longer
+  // matches the old PR's URL at all. This test exercises the defence-in-depth
+  // half of that fix directly: taskByPrUrl excludes pre-PR statuses
+  // (`queued` among them) from matching, so even a task that somehow still
+  // carries a stale prUrl while queued cannot be settled by a webhook for
+  // it. Revert that exclusion and this test fails: the queued task flips to
+  // `merged` for work that never ran.
+  it('does not let a stale prUrl on a re-queued task be settled by a webhook for its dead PR', async () => {
+    const prUrl = await seedTask({ id: 'tsk_stale_retry', status: 'queued' });
+
+    const res = await postSigned('pull_request', {
+      action: 'closed',
+      pull_request: { html_url: prUrl, merged: true },
+    });
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { reason?: string };
+    expect(body.reason).toBe('unknown pr');
+    expect(await statusOf('tsk_stale_retry')).toBe('queued');
   });
 
   it('ignores non-closed actions without touching the task', async () => {

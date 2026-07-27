@@ -132,6 +132,26 @@ describe('runReconciler — merging sweep (armed auto-merge reconciliation)', ()
     expect(merged?.payload).toMatchObject({ prNumber: 42 });
   });
 
+  // Cheap hardening: every other exit from `merging`/`ready_to_merge`
+  // clears approvedBy — this is the one success path no prior invariant
+  // test drove a row through, so the scan gave false assurance exactly
+  // where it was unfixed. Revert the `approvedBy: null` on this branch and
+  // this test fails: the stale approval survives onto the merged row.
+  it('clears a stale approvedBy when the sweep confirms the PR merged', async () => {
+    const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const taskId = `tsk_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    await insertMission(missionId);
+    await insertMergingTask(taskId, missionId, { approvedBy: 'u1' });
+
+    mockOctokit.pulls.get.mockResolvedValue({ data: { state: 'closed', merged: true } });
+
+    await runReconciler(noopLog);
+
+    const task = await getTask(taskId);
+    expect(task?.status).toBe('merged');
+    expect(task?.approvedBy).toBeNull();
+  });
+
   it('escalates to needs_human with escalationReason auto_merge_failed when the PR closed without merging', async () => {
     const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
     const taskId = `tsk_${randomUUID().replaceAll('-', '').slice(0, 12)}`;

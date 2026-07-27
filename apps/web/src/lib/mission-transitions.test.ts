@@ -125,6 +125,35 @@ describe('retryMission', () => {
     expect(row.escalationReason).toBeNull();
   });
 
+  // I2: a retried task kept its previous PR's identity (prUrl/prNumber/
+  // reviewDecision), so a `pull_request.closed{merged:true}` webhook for
+  // that DEAD PR could still match this freshly re-queued task by URL alone
+  // (taskByPrUrl in the webhook route matches on prUrl, and `queued` was
+  // never in that route's TERMINAL_TASK_STATUSES) and settle it `merged` —
+  // work that never ran, which also falsely satisfies dispatcher.ts's
+  // depsSatisfied for anything depending on this task. Revert this clearing
+  // and this test fails: prUrl (and prNumber/reviewDecision) survive the
+  // retry.
+  it('clears prUrl, prNumber and reviewDecision when resetting a task to queued', async () => {
+    const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const taskId = `tsk_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    await insertMission(missionId);
+    await insertTask(taskId, missionId, {
+      status: 'failed',
+      prUrl: 'https://github.com/acme/api/pull/42',
+      prNumber: 42,
+      reviewDecision: 'changes_requested',
+    });
+
+    await retryMission(missionId);
+
+    const row = await getTaskRow(taskId);
+    expect(row.status).toBe('queued');
+    expect(row.prUrl).toBeNull();
+    expect(row.prNumber).toBeNull();
+    expect(row.reviewDecision).toBeNull();
+  });
+
   it('does not touch tasks outside failed/abandoned', async () => {
     const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
     const taskId = `tsk_${randomUUID().replaceAll('-', '').slice(0, 12)}`;

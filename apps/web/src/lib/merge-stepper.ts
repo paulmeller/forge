@@ -62,7 +62,12 @@ export function deriveMergeStepper(
       ci: 'done',
       review: status === 'merged' ? 'done' : review,
       merge: status === 'merged' ? 'done' : status === 'merging' ? 'active' : 'upcoming',
-      needsAttention: status === 'needs_human' || reviewDecision === 'changes_requested',
+      // A merged Task is a settled, positive outcome — never flag it for
+      // attention, even if `changes_requested` was the last review event
+      // recorded before it merged (e.g. a human merged anyway, or the
+      // review arrived after the merge sweep already settled the Task).
+      needsAttention:
+        status !== 'merged' && (status === 'needs_human' || reviewDecision === 'changes_requested'),
     };
   }
 

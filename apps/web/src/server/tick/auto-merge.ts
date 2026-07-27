@@ -29,6 +29,20 @@ export type AutoMergeResult = {
 
 export const PR_URL_RE = /github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/;
 
+/**
+ * Whether a Mission has an auto-merge policy that will actually act on a
+ * `ready_to_merge` Task. `runAutoMerge` above already gates on this same
+ * check per-candidate; this is the shared predicate other call sites (the
+ * reconciler's mission-completion check, Home's "Needs You" surface, ...)
+ * use to answer "will anything besides a human move this Task off
+ * ready_to_merge?" without duplicating the `policy?.enabled` shape check.
+ */
+export function hasEnabledAutoMergePolicy(mission: {
+  autoMergePolicy: AutoMergePolicy | null;
+}): boolean {
+  return Boolean((mission.autoMergePolicy as AutoMergePolicy | null)?.enabled);
+}
+
 // Re-exported for existing callers (`import { client as getOctokit } from
 // './auto-merge'`); the singleton itself now lives in `@/lib/octokit` so
 // `lib/` modules (e.g. GitHub-dispatch's plan-link comment) can share it too

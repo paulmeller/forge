@@ -23,7 +23,13 @@ const NOW_RUNNING_STATUSES = [
   'merging',
 ] as const;
 
-const NEEDS_YOU_STATUSES = ['needs_human', 'failed'] as const;
+// `ready_to_merge` belongs here alongside `needs_human`/`failed`: whether or
+// not the owning Mission has an auto-merge policy, a Task sitting here is
+// either waiting on a human to merge it (no policy, or requireHumanApproval)
+// or waiting on the next tick's runAutoMerge to act — either way it's work a
+// human can usefully see now, not invisible in-flight work (see reconciler.ts's
+// missionTerminalStatusesFor for the mission-completion side of this same gap).
+const NEEDS_YOU_STATUSES = ['needs_human', 'failed', 'ready_to_merge'] as const;
 
 const RECENT_OUTCOME_STATUSES = ['merged', 'resolved', 'abandoned'] as const;
 
