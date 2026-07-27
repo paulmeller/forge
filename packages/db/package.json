@@ -12,6 +12,7 @@
     "./orm": "./src/orm.ts"
   },
   "scripts": {
+    "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/migrate.ts",
@@ -22,8 +23,11 @@
     "drizzle-orm": "^0.45.2"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.4",
     "drizzle-kit": "^0.31.0",
+    "eslint": "^9.39.4",
     "tsx": "^4.19.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.64.0"
   }
 }
