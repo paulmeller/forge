@@ -160,6 +160,45 @@ describe('runReconciler — standing mission exemption', () => {
     expect((await getMission(issueLeafId))!.status).toBe('completed');
     expect((await getMission(campaignId))!.status).toBe('completed');
   });
+
+  // GATE_STALL_MS is fixed to '999999999' for the whole describe block (see
+  // top of file) so the stall sweep doesn't interfere with the completion
+  // test above. This test needs the sweep to actually fire, so it overrides
+  // the env var for its own duration only (env.GATE_STALL_MS is read live at
+  // call time — see apps/web/src/lib/env.ts) and restores it afterwards.
+  it('gate-stall sweep escalates a Task wedged in a gate state to needs_human with escalationReason gate_stall', async () => {
+    const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    await insertMission(missionId, {
+      workspaceRepo: 'acme/api',
+      issueRef: 'acme/api#99',
+      parentMissionId: null,
+    });
+
+    const taskId = `tsk_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const staleAt = new Date(Date.now() - 60_000); // 60s ago
+    await db.insert(schema.tasks).values({
+      id: taskId,
+      missionId,
+      repo: 'acme/api',
+      baseBranch: 'main',
+      kind: 'standard',
+      status: 'awaiting_verify',
+      createdAt: staleAt,
+      updatedAt: staleAt,
+    });
+
+    const prevGateStallMs = process.env.GATE_STALL_MS;
+    process.env.GATE_STALL_MS = '10'; // 10ms — the task above is 60s stale
+    try {
+      await runReconciler(noopLog);
+    } finally {
+      process.env.GATE_STALL_MS = prevGateStallMs;
+    }
+
+    const [row] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId)).limit(1);
+    expect(row!.status).toBe('needs_human');
+    expect(row!.escalationReason).toBe('gate_stall');
+  });
 });
 
 describe('mission terminality', () => {

@@ -210,3 +210,36 @@ describe('reviewOne reject path (via runAiReview)', () => {
     }
   });
 });
+
+// --- reviewOne's retries-exhausted escalation branch (private, exercised
+// through runAiReview) ---
+//
+// Once aiReviewRetryCount has hit the retry cap, a further rejection must
+// escalate to a human rather than retry again. This guards the
+// status/escalationReason mapping `escalateTask` writes — a reviewer
+// verified it by reading source, but nothing encoded it until now.
+describe('reviewOne escalate path (via runAiReview)', () => {
+  const log = { info: vi.fn(), warn: vi.fn() };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    arMocks.reset();
+    mocks.generateObject.mockReset();
+    arMocks.octokit.pulls.get.mockResolvedValue({ data: '+diff content' });
+    mocks.generateObject.mockResolvedValue({
+      object: { decision: 'reject', feedback: 'still not good enough' },
+      usage: { inputTokens: 10, outputTokens: 5 },
+    });
+  });
+
+  it('escalates to needs_human with escalationReason ai_review_rejected once retries are exhausted', async () => {
+    arMocks.state.awaitingTasks = [arTask({ aiReviewRetryCount: 3 })];
+
+    const result = await runAiReview(log);
+
+    expect(result.escalated).toBe(1);
+    const escalateCall = arMocks.state.taskUpdateCalls.find((call) => call.status === 'needs_human');
+    expect(escalateCall?.status).toBe('needs_human');
+    expect(escalateCall?.escalationReason).toBe('ai_review_rejected');
+  });
+});

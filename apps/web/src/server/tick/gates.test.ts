@@ -26,4 +26,22 @@ describe('gate routing', () => {
       }),
     ).toBe('ready_to_merge');
   });
+
+  it('falls through to afterVerifyStatus when self-verify is enabled but there are no acceptance criteria', () => {
+    expect(
+      postCiStatus({ selfVerifyEnabled: true, hasAcceptanceCriteria: false, aiReviewEnabled: true }),
+    ).toBe('awaiting_ai_review');
+  });
+
+  it('falls through to afterVerifyStatus when acceptance criteria exist but self-verify is disabled', () => {
+    expect(
+      postCiStatus({ selfVerifyEnabled: false, hasAcceptanceCriteria: true, aiReviewEnabled: true }),
+    ).toBe('awaiting_ai_review');
+  });
+
+  it('routes the direct fallthrough (both self-verify off, AI review on) to awaiting_ai_review', () => {
+    expect(
+      postCiStatus({ selfVerifyEnabled: false, hasAcceptanceCriteria: false, aiReviewEnabled: true }),
+    ).toBe('awaiting_ai_review');
+  });
 });

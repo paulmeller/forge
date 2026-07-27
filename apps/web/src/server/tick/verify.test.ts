@@ -228,3 +228,64 @@ describe('verifyOne retry path (via runVerify)', () => {
     }
   });
 });
+
+// --- verifyOne's escalation branches (private, exercised through runVerify) ---
+//
+// All three call sites that escalate a Task (no acceptance criteria, no new
+// push since the last verify feedback, and retries exhausted) funnel through
+// the same `escalate` helper, which must always write
+// status: 'needs_human' + escalationReason: 'verify_incomplete'. A reviewer
+// verified this by reading source; nothing encoded it until now.
+describe('verifyOne escalate paths (via runVerify)', () => {
+  const log = { info: vi.fn(), warn: vi.fn() };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vfMocks.reset();
+    mocks.generateObject.mockReset();
+    // mockReset (not just clearAllMocks) drains any queued mockResolvedValueOnce
+    // values left over from a previous test in this describe — the
+    // "no acceptance criteria" case never calls pulls.get, so without this its
+    // queued once-values would bleed into a later test's call sequence.
+    vfMocks.octokit.pulls.get.mockReset();
+    vfMocks.octokit.pulls.get
+      .mockResolvedValueOnce({ data: { head: { sha: 'sha_1' } } })
+      .mockResolvedValueOnce({ data: '+diff content' });
+    vfMocks.octokit.checks.listForRef.mockResolvedValue({ data: { total_count: 0, check_runs: [] } });
+    mocks.generateObject.mockResolvedValue({
+      object: { verdict: 'incomplete', missing: 'lockfile not updated' },
+      usage: { inputTokens: 20, outputTokens: 5 },
+    });
+  });
+
+  function expectEscalatedWithVerifyIncomplete(result: { escalated: number }) {
+    expect(result.escalated).toBe(1);
+    const escalateCall = vfMocks.state.taskUpdateCalls.find((call) => call.status === 'needs_human');
+    expect(escalateCall?.status).toBe('needs_human');
+    expect(escalateCall?.escalationReason).toBe('verify_incomplete');
+  }
+
+  it('escalates when the task has no acceptance criteria', async () => {
+    vfMocks.state.awaitingTasks = [vfTask({ acceptanceCriteria: null })];
+
+    const result = await runVerify(log);
+
+    expectEscalatedWithVerifyIncomplete(result);
+  });
+
+  it('escalates when HEAD has not moved since the last verify pass (no new push)', async () => {
+    vfMocks.state.awaitingTasks = [vfTask({ lastVerifiedSha: 'sha_1' })];
+
+    const result = await runVerify(log);
+
+    expectEscalatedWithVerifyIncomplete(result);
+  });
+
+  it('escalates once verify retries are exhausted', async () => {
+    vfMocks.state.awaitingTasks = [vfTask({ verifyRetryCount: 3 })];
+
+    const result = await runVerify(log);
+
+    expectEscalatedWithVerifyIncomplete(result);
+  });
+});
