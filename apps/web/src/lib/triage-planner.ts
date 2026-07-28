@@ -6,6 +6,7 @@ import { ledgerEvents, missions, tasks, type NewTask } from '@forge/db';
 
 import { db } from './db';
 import { env } from './env';
+import { userCanAccessRepo } from './mission-defaults-db';
 import { PlannerError, type PlanResult } from './planner';
 
 /**
@@ -58,7 +59,11 @@ export async function runTriagePlanner(
   // Fetch issues before opening the transaction — the search is a network call
   // and we don't want it holding a write lock.
   const [pre] = await db
-    .select({ status: missions.status, issueQuery: missions.issueQuery })
+    .select({
+      userId: missions.userId,
+      status: missions.status,
+      issueQuery: missions.issueQuery,
+    })
     .from(missions)
     .where(eq(missions.id, missionId))
     .limit(1);
@@ -76,8 +81,33 @@ export async function runTriagePlanner(
   }
 
   const search = await deps.listIssues(query);
-  const issues = search.issues.slice(0, MAX_ISSUES);
-  const truncated = search.totalCount > issues.length;
+
+  // THE authorization gate for this Planner. `issueQuery` is caller-supplied
+  // and is executed verbatim against GitHub's search API with the server-wide
+  // GITHUB_APP_TOKEN, so the repos it returns are chosen by the caller, not by
+  // anything Forge validated: `issueQuery: 'repo:other-tenant/private is:issue'`
+  // matches a repo this user has no installation for at all. Every returned
+  // repo therefore has to clear the same check
+  // repos/[owner]/[repo]/actions.ts's workOnIssue applies to its own
+  // caller-supplied `repo` — nothing earlier in the flow can: createMission's
+  // gate keys on `targetRepos`, which a triage Mission leaves empty, and the
+  // repos are not knowable until this search has run.
+  //
+  // Without it the rows built below carry `repo: issue.repo`, and the next
+  // tick's dispatcher clones `https://github.com/${task.repo}` with the App
+  // token and tells an agent to push a branch and open a PR on it.
+  //
+  // Fails closed: a throwing lookup is not caught here, so it propagates
+  // before the transaction below is ever opened — no Task row can be written
+  // while any repo's access is unproven.
+  const access = await partitionIssuesByRepoAccess(pre.userId, search.issues);
+  const issues = access.allowed.slice(0, MAX_ISSUES);
+  // Unchanged meaning: "GitHub matched more issues than we planned from",
+  // measured against the RAW search result. Denials are reported separately
+  // (deniedIssueCount below) so the two very different reasons a caller sees
+  // fewer Tasks than expected never blur into one flag.
+  const truncated =
+    search.totalCount > search.issues.length || search.issues.length > MAX_ISSUES;
 
   return db.transaction(async (tx) => {
     // Re-read inside the tx and re-check the guard to stay race-safe with a
@@ -121,6 +151,14 @@ export async function runTriagePlanner(
         truncated,
         maxIssues: MAX_ISSUES,
         repos: [...new Set(issues.map((i) => i.repo))],
+        // The access filter's drops, recorded in the audit ledger so the
+        // filter is never silent: a plan that quietly emits fewer Tasks than
+        // the query matched has told the operator something false about what
+        // their query did. Readable through the public API via
+        // GET /api/v1/missions/{missionId}/ledger, and echoed back
+        // immediately in this call's own PlanResult.skipped.
+        deniedIssueCount: access.deniedIssueCount,
+        deniedRepos: access.deniedRepos,
       },
       createdAt: now,
     });
@@ -129,8 +167,62 @@ export async function runTriagePlanner(
       throw new PlannerError('mission update returned no rows', 'MISSION_NOT_FOUND');
     }
 
-    return { mission: updated, taskCount: rows.length };
+    return {
+      mission: updated,
+      taskCount: rows.length,
+      skipped: { issueCount: access.deniedIssueCount, repos: access.deniedRepos },
+    };
   });
+}
+
+/**
+ * Split search results into the issues whose repo `userId` genuinely holds a
+ * GitHub App installation for, and a report of what was dropped.
+ *
+ * DROP, NOT FAIL — the deliberate choice, and the opposite of
+ * `createMissionForUser`'s all-or-nothing rejection (missions.ts). The
+ * difference is what the caller actually named. There, the caller enumerated
+ * `targetRepos` explicitly, so quietly planning a subset would misdescribe an
+ * explicit list. Here the caller named a *search query*: `org:acme is:issue`
+ * legitimately spans an org where the installation covers only some repos, and
+ * which repos it matches is decided by GitHub at search time and changes
+ * between runs. Failing the whole plan would make a Mission that is fully
+ * legitimate over the caller's own repos unrunnable because of a single
+ * unrelated match the caller never named and cannot see in advance — and the
+ * only remedy would be to keep narrowing the query by trial and error against
+ * an error that must not say which repo was refused (that would leak whether
+ * some other account's private repo exists).
+ *
+ * A drop is not a silence: `deniedIssueCount`/`deniedRepos` land in the
+ * `planner.emitted` ledger event AND come back on the PlanResult, so an
+ * operator sees "20 matched, 12 planned, 8 dropped across 2 repos" rather
+ * than an unexplained short plan.
+ *
+ * `deniedRepos` is safe to name back: it echoes repo strings the caller
+ * themselves put in the query, and says only "your installation doesn't cover
+ * this" — the same non-answer `userCanAccessRepo` gives for "doesn't exist"
+ * and "belongs to someone else" alike, so it distinguishes neither.
+ *
+ * Queried once per DISTINCT repo, not once per issue: a 50-issue backlog in
+ * one repo is one lookup.
+ */
+async function partitionIssuesByRepoAccess(
+  userId: string,
+  issues: TriageIssue[],
+): Promise<{ allowed: TriageIssue[]; deniedRepos: string[]; deniedIssueCount: number }> {
+  const repos = [...new Set(issues.map((i) => i.repo))];
+  const decisions = await Promise.all(
+    repos.map(async (repo) => [repo, await userCanAccessRepo(userId, repo)] as const),
+  );
+
+  const accessible = new Set(decisions.filter(([, allowed]) => allowed).map(([repo]) => repo));
+  const allowed = issues.filter((i) => accessible.has(i.repo));
+
+  return {
+    allowed,
+    deniedRepos: decisions.filter(([, ok]) => !ok).map(([repo]) => repo).sort(),
+    deniedIssueCount: issues.length - allowed.length,
+  };
 }
 
 /**

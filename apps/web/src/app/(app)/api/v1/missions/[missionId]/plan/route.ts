@@ -14,7 +14,14 @@ export const POST = withApiAuth<{ params: Promise<{ missionId: string }> }>(
 
     try {
       const result = await runPlanner(missionId);
-      return ok({ mission: result.mission, taskCount: result.taskCount });
+      // `skipped` is always present (null when nothing was dropped) so a CLI
+      // can read one field unconditionally instead of inferring a filter ran
+      // from a taskCount it has no baseline for. See PlanResult (lib/planner.ts).
+      return ok({
+        mission: result.mission,
+        taskCount: result.taskCount,
+        skipped: result.skipped ?? null,
+      });
     } catch (err) {
       if (err instanceof PlannerError) {
         const status = err.code === 'MISSION_NOT_FOUND' ? 404 : 409;
