@@ -1,7 +1,7 @@
-import { NextResponse } from 'next/server';
 import { headers } from 'next/headers';
 import pino from 'pino';
 
+import { fail } from './api/respond';
 import { auth } from './auth';
 import { env } from './env';
 
@@ -13,9 +13,23 @@ export type ApiUser = {
 
 const log = pino({ level: env.LOG_LEVEL });
 
-const unauthorized = (): [null, NextResponse] => [
+/**
+ * The 401 body every `/api/v1` route emits — `withApiAuth` (lib/api/auth.ts)
+ * returns this rejection verbatim, so this is the single most common error a
+ * CLI will ever parse.
+ *
+ * It MUST go through `fail()` (lib/api/respond.ts) rather than being
+ * hand-rolled, because the OpenAPI contract (docs/api/openapi.json's
+ * `components.schemas.Error`, referenced by every operation's `default`
+ * response) declares `error` as an OBJECT with required `code` and `message`.
+ * This used to return `{ error: 'unauthorized' }` — `error` as a bare string —
+ * so a client doing `body.error.code === 'unauthorized'` silently read
+ * `undefined` and could not distinguish an expired session from any other
+ * failure. One helper, one envelope, no second shape to drift.
+ */
+const unauthorized = (): [null, Response] => [
   null,
-  NextResponse.json({ error: 'unauthorized' }, { status: 401 }),
+  fail('unauthorized', 'Authentication required', 401),
 ];
 
 /**
@@ -70,7 +84,7 @@ function withBearerAlias(incoming: Headers): Headers {
  * pages beside them (on withAuth, which never had a bypass) redirected to
  * /login. A gate that only engages in production is a gate you never test.
  */
-export async function apiAuth(): Promise<[ApiUser, null] | [null, NextResponse]> {
+export async function apiAuth(): Promise<[ApiUser, null] | [null, Response]> {
   let session: Awaited<ReturnType<typeof auth.api.getSession>>;
   try {
     session = await auth.api.getSession({ headers: withBearerAlias(await headers()) });

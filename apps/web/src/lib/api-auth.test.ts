@@ -36,8 +36,15 @@ describe('apiAuth', () => {
     expect(response).not.toBeNull();
     expect(response!.status).toBe(401);
 
+    // The documented envelope (docs/api/openapi.json's components.schemas.Error,
+    // referenced by every operation's `default` response): `error` is an OBJECT
+    // with `code` and `message`. This used to assert `body.error ===
+    // 'unauthorized'` — a bare string — which pinned the exact bug a CLI hits
+    // when it reads `body.error.code`.
     const body = await response!.json();
-    expect(body.error).toBe('unauthorized');
+    expect(body.error.code).toBe('unauthorized');
+    expect(typeof body.error.message).toBe('string');
+    expect(body.error.message.length).toBeGreaterThan(0);
   });
 
   it('returns user when session exists', async () => {
