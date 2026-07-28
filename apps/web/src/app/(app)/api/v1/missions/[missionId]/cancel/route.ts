@@ -14,7 +14,7 @@ export const POST = withApiAuth<{ params: Promise<{ missionId: string }> }>(
 
     try {
       const updated = await cancelMission(missionId);
-      return ok(updated);
+      return ok({ mission: updated });
     } catch (err) {
       if (err instanceof MissionTransitionError) {
         const status = err.code === 'NOT_FOUND' ? 404 : 409;

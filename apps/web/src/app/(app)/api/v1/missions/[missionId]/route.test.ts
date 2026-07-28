@@ -95,6 +95,6 @@ describe('GET /api/v1/missions/[missionId]', () => {
     authAs('u1');
     const res = await GET(new Request('http://x'), params(missionId));
     expect(res.status).toBe(200);
-    expect((await res.json()).id).toBe(missionId);
+    expect((await res.json()).mission.id).toBe(missionId);
   });
 });

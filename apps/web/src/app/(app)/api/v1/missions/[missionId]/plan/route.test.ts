@@ -105,6 +105,8 @@ describe('POST /api/v1/missions/[missionId]/plan', () => {
     const res = await POST(new Request('http://x', { method: 'POST' }), params(missionId));
     expect(res.status).toBe(200);
     const body = await res.json();
+    // Envelope: resource under `mission`, metadata as sibling keys.
+    expect(body.mission.id).toBe(missionId);
     expect(body.taskCount).toBe(1);
     expect(await statusOf(missionId)).toBe('planning');
     expect(await taskCountFor(missionId)).toBe(1);

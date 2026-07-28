@@ -30,7 +30,7 @@ export const GET = withApiAuth<Ctx>(async (user, _req, { params }) => {
   // request's own ownership check just verified — is what's read, not the
   // raw path segments.
   const policy = await getRepoPolicyForUser(found.workspaceRepo!, user.id);
-  return ok(policy);
+  return ok({ policy });
 });
 
 export const PUT = withApiAuth<Ctx>(async (user, req, { params }) => {
@@ -97,5 +97,5 @@ export const PUT = withApiAuth<Ctx>(async (user, req, { params }) => {
   // stored row still say `false` means agents keep dispatching unapproved.
   if (written === 0) return notFound('Repo policy');
 
-  return ok({ requirePlanApproval });
+  return ok({ policy: { requirePlanApproval } });
 });

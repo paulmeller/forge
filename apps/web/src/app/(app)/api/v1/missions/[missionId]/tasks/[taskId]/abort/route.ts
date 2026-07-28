@@ -34,6 +34,6 @@ export const POST = withApiAuth<{ params: Promise<{ missionId: string; taskId: s
     // resource's post-mutation state rather than a bare acknowledgement.
     // `result.task` comes straight from the mutation's own `.returning()` —
     // no second `getTask` round trip, and nothing to null-check (Finding 6).
-    return ok(result.task);
+    return ok({ task: result.task });
   },
 );

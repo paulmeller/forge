@@ -13,6 +13,6 @@ export const GET = withApiAuth<{ params: Promise<{ missionId: string }> }>(
     if (!mission) return notFound('Mission');
 
     const tasks = await listTasksForMission(missionId);
-    return ok(tasks);
+    return ok({ tasks });
   },
 );

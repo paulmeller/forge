@@ -136,7 +136,7 @@ describe('GET /api/v1/repos/[owner]/[repo]/policy', () => {
     const res = await GET(new Request('http://x'), params('acme', 'api'));
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ requirePlanApproval: false });
+    expect(await res.json()).toEqual({ policy: { requirePlanApproval: false } });
   });
 
   it('defaults to gated (requirePlanApproval: true) when no policy row exists yet', async () => {
@@ -146,7 +146,7 @@ describe('GET /api/v1/repos/[owner]/[repo]/policy', () => {
     const res = await GET(new Request('http://x'), params('acme', 'unset'));
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ requirePlanApproval: true });
+    expect(await res.json()).toEqual({ policy: { requirePlanApproval: true } });
   });
 
   it("404s for a repo the caller has no container mission for — never distinguishable from another account's", async () => {
@@ -177,7 +177,7 @@ describe('PUT /api/v1/repos/[owner]/[repo]/policy', () => {
     const res = await PUT(putRequest({ requirePlanApproval: false }), params('acme', 'api'));
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ requirePlanApproval: false });
+    expect(await res.json()).toEqual({ policy: { requirePlanApproval: false } });
     expect((await repoRow('acme/api')).repoPolicy).toEqual({ requirePlanApproval: false });
   });
 

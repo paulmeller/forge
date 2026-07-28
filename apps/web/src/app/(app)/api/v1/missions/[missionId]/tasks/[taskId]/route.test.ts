@@ -91,7 +91,7 @@ describe('GET /api/v1/missions/[missionId]/tasks/[taskId]', () => {
     const res = await GET(new Request('http://x'), params('m_mine', 't1'));
 
     expect(res.status).toBe(200);
-    expect((await res.json()).id).toBe('t1');
+    expect((await res.json()).task.id).toBe('t1');
   });
 
   it("404s for another user's task", async () => {

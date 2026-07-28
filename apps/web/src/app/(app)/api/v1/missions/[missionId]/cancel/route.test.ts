@@ -98,6 +98,8 @@ describe('POST /api/v1/missions/[missionId]/cancel', () => {
     authAs('owner_1');
     const res = await POST(new Request('http://x', { method: 'POST' }), params(missionId));
     expect(res.status).toBe(200);
+    // Envelope: the mission is under `mission`, exactly as on retry/plan/get.
+    expect((await res.json()).mission.id).toBe(missionId);
     expect(await statusOf(missionId)).toBe('cancelled');
   });
 

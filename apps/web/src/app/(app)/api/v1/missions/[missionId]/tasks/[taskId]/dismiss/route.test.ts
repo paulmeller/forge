@@ -108,6 +108,8 @@ describe('POST /api/v1/missions/[missionId]/tasks/[taskId]/dismiss', () => {
     const res = await POST(new Request('http://x', { method: 'POST' }), params('m_mine', 't1'));
 
     expect(res.status).toBe(200);
+    // Envelope: the task is under `task`, exactly as on GET/steer/abort.
+    expect((await res.json()).task.id).toBe('t1');
     const row = await taskRow('t1');
     expect(row.status).toBe('abandoned');
     expect(row.approvedBy).toBeNull();

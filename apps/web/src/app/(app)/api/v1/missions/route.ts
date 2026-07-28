@@ -21,7 +21,7 @@ export const GET = withApiAuth(async (user, req) => {
   }
 
   const missions = await listMissionsForUser(user.id, status);
-  return ok(missions);
+  return ok({ missions });
 });
 
 export const POST = withApiAuth(async (user, req) => {
@@ -35,7 +35,7 @@ export const POST = withApiAuth(async (user, req) => {
   try {
     const input = schemas['missions.create'].body.parse(body);
     const mission = await createMissionForUser(user.id, input);
-    return ok(mission, 201);
+    return ok({ mission }, 201);
   } catch (err) {
     if (err instanceof ZodError) {
       return fail('invalid_request', err.issues.map((i) => i.message).join('; '), 400);

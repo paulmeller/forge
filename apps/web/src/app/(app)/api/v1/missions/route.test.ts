@@ -99,7 +99,7 @@ describe('GET /api/v1/missions', () => {
     const res = await GET(new Request('http://x'), {});
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.map((m: { id: string }) => m.id)).toEqual([mine]);
+    expect(body.missions.map((m: { id: string }) => m.id)).toEqual([mine]);
   });
 
   it('honours the ?status= query filter declared in the schema registry', async () => {
@@ -113,7 +113,7 @@ describe('GET /api/v1/missions', () => {
     const res = await GET(new Request('http://x?status=cancelled'), {});
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.map((m: { id: string }) => m.id)).toEqual([cancelled]);
+    expect(body.missions.map((m: { id: string }) => m.id)).toEqual([cancelled]);
   });
 
   it('400s on an unrecognised ?status= value rather than silently ignoring it', async () => {
@@ -141,8 +141,8 @@ describe('POST /api/v1/missions', () => {
     );
     expect(res.status).toBe(201);
     const body = await res.json();
-    expect(body.userId).toBe('u1');
-    expect(body.name).toBe('My mission');
+    expect(body.mission.userId).toBe('u1');
+    expect(body.mission.name).toBe('My mission');
   });
 
   it('400s on invalid JSON body', async () => {

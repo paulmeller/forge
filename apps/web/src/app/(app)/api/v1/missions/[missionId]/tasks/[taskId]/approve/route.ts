@@ -29,6 +29,6 @@ export const POST = withApiAuth<{ params: Promise<{ missionId: string; taskId: s
       if (result.code === 'NOT_FOUND') return notFound('Task');
       return fail('invalid_state', result.error, 409);
     }
-    return ok(result.task);
+    return ok({ task: result.task });
   },
 );

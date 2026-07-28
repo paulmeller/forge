@@ -92,8 +92,8 @@ describe('GET /api/v1/missions/[missionId]/tasks', () => {
     const res = await GET(new Request('http://x'), params('m_mine'));
 
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { id: string }[];
-    expect(body.map((t) => t.id).sort()).toEqual(['t1', 't2']);
+    const body = (await res.json()) as { tasks: { id: string }[] };
+    expect(body.tasks.map((t) => t.id).sort()).toEqual(['t1', 't2']);
   });
 
   it("404s for another user's mission", async () => {

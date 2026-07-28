@@ -120,8 +120,8 @@ describe('POST /api/v1/missions/[missionId]/tasks/[taskId]/steer', () => {
     );
     // Finding 6: the body must be the actual task, never a bare 200/null.
     const body = await res.json();
-    expect(body).not.toBeNull();
-    expect(body.id).toBe('t1');
+    expect(body.task).not.toBeNull();
+    expect(body.task.id).toBe('t1');
   });
 
   it("404s and writes nothing for another user's task", async () => {

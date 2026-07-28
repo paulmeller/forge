@@ -113,6 +113,10 @@ describe('POST /api/v1/missions/[missionId]/retry', () => {
     authAs('owner_1');
     const res = await POST(new Request('http://x', { method: 'POST' }), params(missionId));
     expect(res.status).toBe(200);
+    const body = await res.json();
+    // Envelope: resource under `mission`, metadata as a sibling key.
+    expect(body.mission.id).toBe(missionId);
+    expect(body.retriedCount).toBe(1);
     expect(await statusOf(missionId)).toBe('running');
     expect(await taskStatusOf(taskId)).toBe('queued');
   });

@@ -18,6 +18,6 @@ export const GET = withApiAuth<{ params: Promise<{ missionId: string; taskId: st
     const task = await getTask(taskId, user.id);
     if (!task || task.missionId !== missionId) return notFound('Task');
 
-    return ok(task);
+    return ok({ task });
   },
 );

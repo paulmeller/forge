@@ -10,6 +10,6 @@ export const GET = withApiAuth<{ params: Promise<{ missionId: string }> }>(
     const { missionId } = await params;
     const mission = await getMission(missionId, user.id);
     if (!mission) return notFound('Mission');
-    return ok(mission);
+    return ok({ mission });
   },
 );
