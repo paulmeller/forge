@@ -86,6 +86,26 @@ export const env = {
   get ANTHROPIC_BASE_URL(): string {
     return optional('ANTHROPIC_BASE_URL') ?? 'https://api.anthropic.com';
   },
+  /**
+   * Base URL for the *chat* surface's Anthropic-compatible model provider,
+   * separate from ANTHROPIC_BASE_URL.
+   *
+   * These address two different APIs. ANTHROPIC_BASE_URL points at a Managed
+   * Agents engine, which serves `/v1/sessions/*` and — in the self-hosted
+   * case — no `/v1/messages` route at all. Chat needs `/v1/messages`. Sharing
+   * one variable meant pointing Forge at a self-hosted engine silently broke
+   * chat, and pointing chat at a plain model endpoint silently broke dispatch.
+   *
+   * Falls back to ANTHROPIC_BASE_URL so existing single-endpoint setups (where
+   * one host serves both) keep working untouched.
+   */
+  get FORGE_CHAT_BASE_URL(): string {
+    return optional('FORGE_CHAT_BASE_URL') ?? this.ANTHROPIC_BASE_URL;
+  },
+  /** API key for the chat provider; falls back to ANTHROPIC_API_KEY. */
+  get FORGE_CHAT_API_KEY(): string | undefined {
+    return optional('FORGE_CHAT_API_KEY') ?? optional('ANTHROPIC_API_KEY');
+  },
   get GATEWAY_API_KEY(): string | undefined {
     return optional('GATEWAY_API_KEY');
   },

@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 
-import { anthropic } from '@ai-sdk/anthropic';
+import { createAnthropic } from '@ai-sdk/anthropic';
 import { google } from '@ai-sdk/google';
 import { openai } from '@ai-sdk/openai';
 import { convertToModelMessages, isStepCount, streamText } from 'ai';
@@ -35,13 +35,27 @@ When a user asks you to do something to their codebase, create a mission for it.
 
 If the user hasn't connected any repos yet, suggest they visit /setup first.`;
 
+/**
+ * Chat's Anthropic provider is constructed explicitly rather than using the
+ * bare `anthropic()` factory, which reads ANTHROPIC_BASE_URL from the
+ * environment. That variable points at a Managed Agents engine serving
+ * `/v1/sessions/*` — a self-hosted one has no `/v1/messages` route at all —
+ * so inheriting it silently broke chat whenever Forge was pointed at a local
+ * engine. FORGE_CHAT_BASE_URL falls back to ANTHROPIC_BASE_URL, so setups
+ * where one host serves both APIs are unaffected.
+ */
+const chatAnthropic = createAnthropic({
+  baseURL: `${env.FORGE_CHAT_BASE_URL.replace(/\/+$/, '')}`,
+  apiKey: env.FORGE_CHAT_API_KEY,
+});
+
 function getChatModel() {
   const id = process.env.FORGE_CHAT_MODEL ?? 'anthropic:claude-sonnet-4-6';
   const [provider, ...rest] = id.split(':');
   const model = rest.join(':');
   if (provider === 'openai') return openai(model || 'gpt-5.5');
   if (provider === 'google') return google(model || 'gemini-2.5-pro-preview-05-06');
-  return anthropic(model || 'claude-sonnet-4-6');
+  return chatAnthropic(model || 'claude-sonnet-4-6');
 }
 
 export async function POST(req: Request) {
