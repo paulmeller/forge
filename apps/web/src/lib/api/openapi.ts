@@ -18,8 +18,10 @@ type SchemaDef = {
   body?: z.ZodTypeAny;
 };
 
+type JsonSchemaProperty = { default?: unknown };
+
 type JsonSchemaObject = {
-  properties?: Record<string, unknown>;
+  properties?: Record<string, JsonSchemaProperty>;
   required?: string[];
 };
 
@@ -28,6 +30,15 @@ type JsonSchemaObject = {
  * OpenAPI `parameters` entry. Path params are always `required: true` (the
  * only thing OpenAPI allows for `in: 'path'`); query params are required
  * only when the object schema itself lists them as required.
+ *
+ * `z.toJSONSchema` puts a field in `required` even when the Zod schema gave
+ * it a `.default(...)` — the field can still be *omitted* by a caller, it
+ * just won't come out `undefined`. Left unchecked, that told a CLI author
+ * `limit` (schemas.ts's `ledger.mission`/`ledger.task` query, default 200)
+ * was mandatory when it is not (Task 7 finding). A defaulted property is
+ * therefore never required, regardless of what `required` says — checked
+ * before consulting `required` at all, so it can't be overridden back to
+ * `true` by that array.
  */
 function toParameters(
   schema: z.ZodTypeAny,
@@ -36,12 +47,15 @@ function toParameters(
 ): Record<string, unknown>[] {
   const json = z.toJSONSchema(schema) as JsonSchemaObject;
   const required = new Set(json.required ?? []);
-  return Object.entries(json.properties ?? {}).map(([name, propSchema]) => ({
-    name,
-    in: location,
-    required: allRequired || required.has(name),
-    schema: propSchema,
-  }));
+  return Object.entries(json.properties ?? {}).map(([name, propSchema]) => {
+    const hasDefault = propSchema !== null && typeof propSchema === 'object' && 'default' in propSchema;
+    return {
+      name,
+      in: location,
+      required: !hasDefault && (allRequired || required.has(name)),
+      schema: propSchema,
+    };
+  });
 }
 
 /**

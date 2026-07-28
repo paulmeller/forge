@@ -84,15 +84,27 @@ export const schemas = {
     params: z.object({ missionId: z.string(), taskId: z.string() }),
     query: z.object({ limit: z.coerce.number().int().min(1).max(500).default(200) }),
   },
-  // repos.* have no routes yet (Task 7 will add them) — deliberately no
-  // `path`/`method` here so buildOpenApiDocument (lib/api/openapi.ts) skips
-  // them. A spec must describe what exists, not what's planned; advertising
-  // an operation with no backing route is worse than not documenting it at
-  // all.
-  'repos.list': {},
-  'repos.getPolicy': { params: z.object({ repo: z.string() }) },
+  'repos.list': { method: 'GET', path: '/api/v1/repos' },
+  'repos.getPolicy': {
+    method: 'GET',
+    path: '/api/v1/repos/{owner}/{repo}/policy',
+    params: z.object({ owner: z.string(), repo: z.string() }),
+  },
+  // Deliberately narrower than the interactive Settings page's
+  // updateRepoSettings (settings-actions.ts), which also sets
+  // concurrencyCap/budgetUsd/aiReviewEnabled/selfVerifyEnabled/autoMerge on
+  // the container mission itself. Those live on a Mission row that a v1
+  // caller has no id for (the route's only handle is {owner}/{repo}), and
+  // are a separate concern from the plan-approval gate this endpoint's name
+  // is about. requirePlanApproval is the one field that lives on the repo's
+  // github_installation_repos row rather than a mission, so it's the one
+  // this route can set without inventing a way to address a container by
+  // repo path for fields that aren't about "policy" at all. Narrower is fine
+  // here — advertising a field the route ignores would not be.
   'repos.setPolicy': {
-    params: z.object({ repo: z.string() }),
+    method: 'PUT',
+    path: '/api/v1/repos/{owner}/{repo}/policy',
+    params: z.object({ owner: z.string(), repo: z.string() }),
     body: z.object({ requirePlanApproval: z.boolean() }),
   },
 } as const;

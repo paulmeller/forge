@@ -80,14 +80,14 @@ describe('openapi spec', () => {
     }
   });
 
-  // repos.* is registered in schemas.ts for future use but has no routes yet
-  // (Task 7). It must not appear in the spec. ledger.* shipped its routes in
-  // Task 6, so it's no longer in this "not yet" bucket — see the dedicated
-  // assertion below.
-  it('does not advertise operations with no route yet', () => {
+  // Task 7: repos.* shipped its routes, so it's no longer in the "not yet"
+  // bucket either — see the dedicated assertion below for what it now
+  // advertises.
+  it('advertises all three repo endpoints', () => {
     const doc = buildOpenApiDocument() as OpenApiDoc;
-    const urlPaths = Object.keys(doc.paths);
-    expect(urlPaths.some((p) => p.includes('repos'))).toBe(false);
+    expect(doc.paths['/api/v1/repos']?.get).toBeDefined();
+    expect(doc.paths['/api/v1/repos/{owner}/{repo}/policy']?.get).toBeDefined();
+    expect(doc.paths['/api/v1/repos/{owner}/{repo}/policy']?.put).toBeDefined();
   });
 
   // Task 6: the audit trail is the highest-value part of this API. Pin the
@@ -97,5 +97,30 @@ describe('openapi spec', () => {
     const doc = buildOpenApiDocument() as OpenApiDoc;
     expect(doc.paths['/api/v1/missions/{missionId}/ledger']?.get).toBeDefined();
     expect(doc.paths['/api/v1/missions/{missionId}/tasks/{taskId}/ledger']?.get).toBeDefined();
+  });
+
+  // Task 7 fix: toParameters (the parameter-lifting helper) used to mark a
+  // query parameter `required: true` whenever the Zod schema's own JSON
+  // Schema output listed it in `required` — but z.toJSONSchema lists a field
+  // with `.default(...)` there too, even though the caller may omit it. That
+  // told a CLI author `limit` was mandatory when it is not. Path params stay
+  // `required: true` unconditionally (the only legal value OpenAPI allows
+  // for `in: 'path'`) — this pins both directions so a fix that flips path
+  // params to `false` too would also be caught.
+  it('marks a defaulted query parameter required: false, and a path parameter required: true', () => {
+    const doc = buildOpenApiDocument() as {
+      paths: Record<
+        string,
+        Record<string, { parameters?: { name: string; in: string; required: boolean }[] }>
+      >;
+    };
+    const op = doc.paths['/api/v1/missions/{missionId}/ledger']?.get;
+    const limitParam = op?.parameters?.find((p) => p.name === 'limit');
+    const missionIdParam = op?.parameters?.find((p) => p.name === 'missionId');
+
+    expect(limitParam?.in).toBe('query');
+    expect(limitParam?.required).toBe(false);
+    expect(missionIdParam?.in).toBe('path');
+    expect(missionIdParam?.required).toBe(true);
   });
 });
