@@ -131,4 +131,33 @@ describe('POST /api/v1/missions/[missionId]/plan', () => {
     expect(res.status).toBe(404);
     expect(mocks.runPlannerSpy).not.toHaveBeenCalled();
   });
+
+  // PlannerError has four codes; three of them are 409s that used to reach
+  // the wire verbatim, so handling "conflict" meant matching WRONG_STATUS,
+  // NO_TARGET_REPOS and ALREADY_PLANNED as well as invalid_state. They now
+  // all map onto invalid_state, and the message is the only thing that still
+  // distinguishes them — which is exactly what these two pin.
+  it('maps NO_TARGET_REPOS onto invalid_state and keeps the cause in the message', async () => {
+    const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    await insertMission(missionId, 'owner_1', { targetRepos: [] });
+
+    authAs('owner_1');
+    const res = await POST(new Request('http://x', { method: 'POST' }), params(missionId));
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error.code).toBe('invalid_state');
+    expect(body.error.message).toBe('mission has no target repos');
+  });
+
+  it('maps ALREADY_PLANNED onto the same invalid_state, distinguished only by message', async () => {
+    const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    await insertMission(missionId, 'owner_1', { status: 'planning' });
+
+    authAs('owner_1');
+    const res = await POST(new Request('http://x', { method: 'POST' }), params(missionId));
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error.code).toBe('invalid_state');
+    expect(body.error.message).toBe('mission is planning; planner only runs on draft');
+  });
 });

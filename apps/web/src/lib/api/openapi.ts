@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { apiErrorCodes } from './errors';
 import { schemas } from './schemas';
 
 // Each registry entry declares a different subset of method/path/params/
@@ -143,7 +144,12 @@ export function buildOpenApiDocument(): unknown {
             error: {
               type: 'object',
               properties: {
-                code: { type: 'string' },
+                // Generated from apiErrorCodes (lib/api/errors.ts) — the
+                // same array `fail()` is typed against, so the enum cannot
+                // list a code no route can emit, nor omit one that a route
+                // can. A CLI reads this instead of grepping route handlers
+                // to learn that "not found" is one string and not three.
+                code: { type: 'string', enum: [...apiErrorCodes] },
                 message: { type: 'string' },
               },
               required: ['code', 'message'],

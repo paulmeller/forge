@@ -867,7 +867,15 @@
             "type": "object",
             "properties": {
               "code": {
-                "type": "string"
+                "type": "string",
+                "enum": [
+                  "invalid_request",
+                  "unauthorized",
+                  "forbidden",
+                  "not_found",
+                  "invalid_state",
+                  "bad_gateway"
+                ]
               },
               "message": {
                 "type": "string"

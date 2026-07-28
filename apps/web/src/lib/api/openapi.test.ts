@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { apiErrorCodes } from './errors';
 import { buildOpenApiDocument } from './openapi';
 
 // apps/web/src/lib/api → repo root is five levels up. Count carefully: this
@@ -97,6 +98,22 @@ describe('openapi spec', () => {
     const doc = buildOpenApiDocument() as OpenApiDoc;
     expect(doc.paths['/api/v1/missions/{missionId}/ledger']?.get).toBeDefined();
     expect(doc.paths['/api/v1/missions/{missionId}/tasks/{taskId}/ledger']?.get).toBeDefined();
+  });
+
+  // The Error schema used to declare `code: { type: 'string' }`, which told a
+  // CLI author nothing — and was true of three different vocabularies at
+  // once. Enumerating the closed set is what makes it discoverable without
+  // reading route handlers, so the enum must stay tied to apiErrorCodes.
+  it('enumerates the closed error-code set in components.schemas.Error', () => {
+    const doc = buildOpenApiDocument() as {
+      components: {
+        schemas: {
+          Error: { properties: { error: { properties: { code: { enum?: string[] } } } } };
+        };
+      };
+    };
+    const codeSchema = doc.components.schemas.Error.properties.error.properties.code;
+    expect(codeSchema.enum).toEqual([...apiErrorCodes]);
   });
 
   // Task 7 fix: toParameters (the parameter-lifting helper) used to mark a

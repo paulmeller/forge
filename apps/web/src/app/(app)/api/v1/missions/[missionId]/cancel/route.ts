@@ -1,5 +1,6 @@
 import { withApiAuth } from '@/lib/api/auth';
-import { fail, notFound, ok } from '@/lib/api/respond';
+import { missionTransitionFailure } from '@/lib/api/errors';
+import { failWith, notFound, ok } from '@/lib/api/respond';
 import { MissionTransitionError, cancelMission } from '@/lib/mission-transitions';
 import { getMission } from '@/lib/missions';
 
@@ -16,10 +17,10 @@ export const POST = withApiAuth<{ params: Promise<{ missionId: string }> }>(
       const updated = await cancelMission(missionId);
       return ok({ mission: updated });
     } catch (err) {
-      if (err instanceof MissionTransitionError) {
-        const status = err.code === 'NOT_FOUND' ? 404 : 409;
-        return fail(err.code, err.message, status);
-      }
+      // MissionTransitionError's own codes (NOT_FOUND/WRONG_STATUS) never
+      // reach the wire — missionTransitionFailure maps them onto the closed
+      // set in lib/api/errors.ts, keeping the domain message verbatim.
+      if (err instanceof MissionTransitionError) return failWith(missionTransitionFailure(err));
       throw err;
     }
   },

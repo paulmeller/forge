@@ -129,6 +129,11 @@ describe('POST /api/v1/missions/[missionId]/start', () => {
     authAs('owner_1');
     const res = await POST(new Request('http://x', { method: 'POST' }), params(missionId));
     expect(res.status).toBe(409);
-    expect((await res.json()).error.code).toBe('WRONG_STATUS');
+    // MissionTransitionError's WRONG_STATUS is mapped, not forwarded: the
+    // wire only ever carries the closed set from lib/api/errors.ts, and the
+    // domain message is what keeps the specific cause legible.
+    const body = await res.json();
+    expect(body.error.code).toBe('invalid_state');
+    expect(body.error.message).toMatch(/expected mission in/);
   });
 });

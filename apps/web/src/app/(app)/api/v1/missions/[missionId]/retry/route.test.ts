@@ -67,7 +67,11 @@ function params(missionId: string) {
   return { params: Promise.resolve({ missionId }) };
 }
 
-async function insertMissionWithFailedTask(missionId: string, userId: string) {
+async function insertMissionWithFailedTask(
+  missionId: string,
+  userId: string,
+  over: Record<string, unknown> = {},
+) {
   const now = new Date();
   await db.insert(schema.missions).values({
     id: missionId,
@@ -81,6 +85,7 @@ async function insertMissionWithFailedTask(missionId: string, userId: string) {
     webhookSecret: 'secret',
     createdAt: now,
     updatedAt: now,
+    ...over,
   });
   const taskId = `tsk_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
   await db.insert(schema.tasks).values({
@@ -139,5 +144,17 @@ describe('POST /api/v1/missions/[missionId]/retry', () => {
     const res = await POST(new Request('http://x', { method: 'POST' }), params('msn_does_not_exist'));
     expect(res.status).toBe(404);
     expect(mocks.retryMissionSpy).not.toHaveBeenCalled();
+  });
+
+  it('409s with the mapped invalid_state, never MissionTransitionError\'s raw WRONG_STATUS', async () => {
+    const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    await insertMissionWithFailedTask(missionId, 'owner_1', { status: 'running' });
+
+    authAs('owner_1');
+    const res = await POST(new Request('http://x', { method: 'POST' }), params(missionId));
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error.code).toBe('invalid_state');
+    expect(body.error.message).toMatch(/expected mission in completed/);
   });
 });

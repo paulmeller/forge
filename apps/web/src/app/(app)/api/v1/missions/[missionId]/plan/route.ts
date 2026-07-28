@@ -1,5 +1,6 @@
 import { withApiAuth } from '@/lib/api/auth';
-import { fail, notFound, ok } from '@/lib/api/respond';
+import { plannerFailure } from '@/lib/api/errors';
+import { failWith, notFound, ok } from '@/lib/api/respond';
 import { getMission } from '@/lib/missions';
 import { PlannerError, runPlanner } from '@/lib/planner';
 
@@ -23,10 +24,12 @@ export const POST = withApiAuth<{ params: Promise<{ missionId: string }> }>(
         skipped: result.skipped ?? null,
       });
     } catch (err) {
-      if (err instanceof PlannerError) {
-        const status = err.code === 'MISSION_NOT_FOUND' ? 404 : 409;
-        return fail(err.code, err.message, status);
-      }
+      // PlannerError's own codes (MISSION_NOT_FOUND/WRONG_STATUS/
+      // NO_TARGET_REPOS/ALREADY_PLANNED) never reach the wire —
+      // plannerFailure maps them onto the closed set in lib/api/errors.ts.
+      // The three that collapse onto `invalid_state` stay distinguishable
+      // through the domain message, which is preserved verbatim.
+      if (err instanceof PlannerError) return failWith(plannerFailure(err));
       throw err;
     }
   },

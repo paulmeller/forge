@@ -1,3 +1,5 @@
+import type { ApiErrorCode, ApiFailure } from './errors';
+
 /**
  * One success shape and one error shape across every v1 route.
  *
@@ -33,8 +35,20 @@ export function ok<T>(data: T, status = 200): Response {
   return Response.json(data, { status });
 }
 
-export function fail(code: string, message: string, status: number): Response {
+/**
+ * `code` is `ApiErrorCode`, never `string`. That is the whole enforcement
+ * mechanism for the closed vocabulary: a route that tries to forward an
+ * internal `err.code` (which is how `NOT_FOUND`/`WRONG_STATUS`/
+ * `MISSION_NOT_FOUND` reached the wire) no longer compiles, so the mappers
+ * in lib/api/errors.ts are the only path from a domain error to a response.
+ */
+export function fail(code: ApiErrorCode, message: string, status: number): Response {
   return Response.json({ error: { code, message } }, { status });
+}
+
+/** Emit an already-mapped internal failure (see lib/api/errors.ts). */
+export function failWith({ code, message, status }: ApiFailure): Response {
+  return fail(code, message, status);
 }
 
 /**
