@@ -70,7 +70,8 @@ headline claim and is currently reachable only through a browser.
 - **Browser** — session cookie, unchanged.
 - **CLI** — better-auth's `device-authorization` plugin mints a session; the `bearer` plugin
   carries it as `Authorization: Bearer`. The flow is `gh auth login`: run `forge login`, get a
-  code, approve in the browser, token stored under `~/.forge/`.
+  code, approve in the browser, token stored under `~/.forge/`. (Deferred to Task 8, pending a
+  consent page, client validation, and scope handling — see the auth-hardening commit.)
 
 **Header convention.** The token is accepted as `Authorization: Bearer <token>` or `x-api-key:
 <token>`, in that order. The sibling `managed-agents` server uses exactly this pair

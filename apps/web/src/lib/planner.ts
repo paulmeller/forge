@@ -24,6 +24,15 @@ export class PlannerError extends Error {
 export type PlanResult = {
   mission: Mission;
   taskCount: number;
+  /**
+   * Work the Planner deliberately refused to plan, and why the count is lower
+   * than the caller expected. Only the triage Planner sets it today: its
+   * repo-access filter (triage-planner.ts) drops issues in repos the Mission's
+   * owner has no installation for, and a filter whose effect the caller cannot
+   * observe is indistinguishable from a Planner that simply found less. Absent
+   * for strategies that have nothing to drop.
+   */
+  skipped?: { issueCount: number; repos: string[] };
 };
 
 /**

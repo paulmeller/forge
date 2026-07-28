@@ -1,7 +1,7 @@
-import { NextResponse } from 'next/server';
 import { headers } from 'next/headers';
 import pino from 'pino';
 
+import { fail } from './api/respond';
 import { auth } from './auth';
 import { env } from './env';
 
@@ -13,10 +13,61 @@ export type ApiUser = {
 
 const log = pino({ level: env.LOG_LEVEL });
 
-const unauthorized = (): [null, NextResponse] => [
+/**
+ * The 401 body every `/api/v1` route emits — `withApiAuth` (lib/api/auth.ts)
+ * returns this rejection verbatim, so this is the single most common error a
+ * CLI will ever parse.
+ *
+ * It MUST go through `fail()` (lib/api/respond.ts) rather than being
+ * hand-rolled, because the OpenAPI contract (docs/api/openapi.json's
+ * `components.schemas.Error`, referenced by every operation's `default`
+ * response) declares `error` as an OBJECT with required `code` and `message`.
+ * This used to return `{ error: 'unauthorized' }` — `error` as a bare string —
+ * so a client doing `body.error.code === 'unauthorized'` silently read
+ * `undefined` and could not distinguish an expired session from any other
+ * failure. One helper, one envelope, no second shape to drift.
+ */
+const unauthorized = (): [null, Response] => [
   null,
-  NextResponse.json({ error: 'unauthorized' }, { status: 401 }),
+  fail('unauthorized', 'Authentication required', 401),
 ];
+
+/**
+ * Accepts the sibling managed-agents engine's header convention so one CLI
+ * can speak to both products without special-casing. Authorization wins when
+ * both are present — an explicit auth header is the more specific signal.
+ * The alias is all that is needed because better-auth's bearer plugin turns
+ * `Authorization: Bearer` into the session cookie every ownership check
+ * already reads.
+ *
+ * Gate on a *usable* token, not on the header's mere presence. The bearer
+ * plugin bails unless the scheme is literally `bearer` (case-insensitively),
+ * so `Authorization: Basic …` — HTTP Basic auth, or any proxy that injects
+ * its own Authorization header — is not an identity claim this function
+ * should act on. Treating it as one produced a guaranteed 401 with a valid
+ * credential present: a `Basic` header plus `x-api-key` used to skip the
+ * alias (because `explicit` was truthy) while still deleting the cookie.
+ */
+function withBearerAlias(incoming: Headers): Headers {
+  const explicit = incoming.get('authorization');
+  const apiKey = incoming.get('x-api-key');
+  const bearerToken = explicit?.slice(0, 7).toLowerCase() === 'bearer '
+    ? explicit.slice(7).trim()
+    : null;
+  if (!bearerToken && !apiKey) return incoming;
+  const resolved = new Headers(incoming);
+  if (!bearerToken && apiKey) resolved.set('authorization', `Bearer ${apiKey}`);
+  // A presented token is an explicit identity claim. Leaving the cookie
+  // attached lets it win silently one layer down — the bearer plugin appends
+  // its synthesized cookie to the existing one and better-call's parser keeps
+  // the first occurrence — so the caller would act as the cookie's user while
+  // believing it acted as the token's. That is a wrong-user action, not a
+  // failed one, so the cookie goes. This only runs once we know a usable
+  // token exists — a Basic header (or any other scheme) with no api-key
+  // takes the early return above and leaves the cookie untouched.
+  resolved.delete('cookie');
+  return resolved;
+}
 
 /**
  * Auth check for API route handlers. Returns the user or a 401 response.
@@ -33,10 +84,10 @@ const unauthorized = (): [null, NextResponse] => [
  * pages beside them (on withAuth, which never had a bypass) redirected to
  * /login. A gate that only engages in production is a gate you never test.
  */
-export async function apiAuth(): Promise<[ApiUser, null] | [null, NextResponse]> {
+export async function apiAuth(): Promise<[ApiUser, null] | [null, Response]> {
   let session: Awaited<ReturnType<typeof auth.api.getSession>>;
   try {
-    session = await auth.api.getSession({ headers: await headers() });
+    session = await auth.api.getSession({ headers: withBearerAlias(await headers()) });
   } catch (err) {
     // Still a 401 — the caller is not authenticated either way — but an
     // adapter that is down is not the same event as a missing cookie, and

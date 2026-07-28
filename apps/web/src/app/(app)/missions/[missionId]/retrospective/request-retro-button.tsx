@@ -6,6 +6,25 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 
+/**
+ * This route (`/api/missions/*`, the pre-v1 surface) reports failures as
+ * `{ error: string }`, but its auth gate is the SHARED apiAuth(), which now
+ * emits the v1 envelope `{ error: { code, message } }` on 401. Two shapes
+ * genuinely reach this one fetch, so read both: rendering the object form
+ * directly would crash the component ("Objects are not valid as a React
+ * child") precisely when the session expired.
+ */
+function errorMessage(body: unknown): string | null {
+  if (typeof body !== 'object' || body === null || !('error' in body)) return null;
+  const { error } = body as { error: unknown };
+  if (typeof error === 'string') return error;
+  if (typeof error === 'object' && error !== null && 'message' in error) {
+    const { message } = error as { message: unknown };
+    if (typeof message === 'string') return message;
+  }
+  return null;
+}
+
 export function RequestRetroButton({ missionId }: { missionId: string }) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
@@ -19,8 +38,8 @@ export function RequestRetroButton({ missionId }: { missionId: string }) {
         method: 'POST',
       });
       if (!res.ok) {
-        const body = await res.json().catch(() => ({ error: 'unknown' }));
-        setError(body.error ?? `HTTP ${res.status}`);
+        const body: unknown = await res.json().catch(() => null);
+        setError(errorMessage(body) ?? `HTTP ${res.status}`);
         return;
       }
       router.refresh();

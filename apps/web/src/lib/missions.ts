@@ -3,9 +3,10 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { and, desc, eq, isNotNull, isNull, or } from 'drizzle-orm';
 import { z } from 'zod';
 
-import { backend, missions, plannerStrategy, type Mission, type NewMission } from '@forge/db';
+import { backend, missionStatus, missions, plannerStrategy, type Mission, type NewMission } from '@forge/db';
 
 import { db } from './db';
+import { userCanAccessRepo } from './mission-defaults-db';
 import { withAuth } from './with-auth';
 
 const repoSlugPattern = /^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/;
@@ -60,13 +61,57 @@ export function parseRepoList(raw: string | null | undefined): string[] {
 export type CreateMissionInput = z.infer<typeof createMissionSchema>;
 
 /**
+ * Thrown by createMissionForUser when the caller asked to target one or more
+ * repos their GitHub App installation does not cover. Deliberately not a
+ * ZodError — this is an authorization failure discovered after schema
+ * validation, not a shape problem with the request — so route handlers can
+ * distinguish "bad input" (400) from "not allowed" (403) and the Server
+ * Action path (which already treats any non-ZodError Error as a surfaceable
+ * message) needs no special casing to show it.
+ */
+export class RepoAccessError extends Error {
+  constructor(public readonly repos: string[]) {
+    super(
+      repos.length === 1
+        ? `No access to repo "${repos[0]}"`
+        : `No access to repos: ${repos.join(', ')}`,
+    );
+    this.name = 'RepoAccessError';
+  }
+}
+
+/**
  * Create a mission for a specific user. Use createMissionAuthed() from
  * server components (auto-reads the session).
+ *
+ * Every targetRepo must pass userCanAccessRepo before anything is written.
+ * This is the one place the web UI's Server Action and POST /api/v1/missions
+ * both funnel through, so gating only the route would leave the Server
+ * Action path (and any other future caller of createMissionForUser) open.
+ *
+ * The whole call is rejected if ANY repo fails the check — never silently
+ * filtered — because a caller who asked for three repos and got a mission
+ * scoped to one has been told something false about what was created.
+ *
+ * If the access lookup itself throws, that error propagates as-is (fails
+ * closed): it is not caught and reinterpreted as either "granted" or
+ * "denied", and — because it's awaited before the insert below — no mission
+ * row can be written while the caller's access is unproven.
  */
 export async function createMissionForUser(
   userId: string,
   input: CreateMissionInput,
 ): Promise<Mission> {
+  if (input.targetRepos.length > 0) {
+    const results = await Promise.all(
+      input.targetRepos.map(async (repo) => ({ repo, allowed: await userCanAccessRepo(userId, repo) })),
+    );
+    const denied = results.filter((r) => !r.allowed).map((r) => r.repo);
+    if (denied.length > 0) {
+      throw new RepoAccessError(denied);
+    }
+  }
+
   const now = new Date();
   const values: NewMission = {
     id: `msn_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
@@ -109,25 +154,48 @@ export async function createMission(input: CreateMissionInput): Promise<Mission>
 }
 
 /**
- * List missions for a specific user — every campaign and issue leaf, but
- * never a repo's container (workspaceRepo set, issueRef null, no
- * parentMissionId — a pure budget/concurrency envelope, never a unit of
- * work). Expressed as "NOT a container": either it isn't repo-scoped at
- * all (campaign), or it's specifically issue-scoped (issueRef set), or it
- * has a parent itself (defensive — containers are always roots).
+ * "NOT a repo container" — the single predicate that decides which missions
+ * are addressable as missions at all.
+ *
+ * A container (workspaceRepo set, issueRef null, no parentMissionId) is a
+ * pure budget/concurrency envelope for a repo's issue missions: it owns zero
+ * tasks and is administered through /repos/{owner}/{repo}, not as a mission.
+ * Expressed as "NOT a container": either it isn't repo-scoped at all
+ * (campaign), or it's specifically issue-scoped (issueRef set), or it has a
+ * parent itself (defensive — containers are always roots).
+ *
+ * Extracted so listMissionsForUser and getMission cannot disagree. They used
+ * to: the list excluded containers while getMission had no such filter, so
+ * POST /api/v1/missions/{containerId}/cancel would cancel a repo container
+ * that GET /api/v1/missions never returned and no CLI could have discovered.
+ * One expression, two call sites — the only way "agree" is structural rather
+ * than remembered.
  */
-export async function listMissionsForUser(userId: string): Promise<Mission[]> {
+function notAContainer() {
+  return or(
+    isNull(missions.workspaceRepo),
+    isNotNull(missions.issueRef),
+    isNotNull(missions.parentMissionId),
+  );
+}
+
+/**
+ * List missions for a specific user — every campaign and issue leaf, but
+ * never a repo's container (see notAContainer above).
+ *
+ * `status`, when given, narrows to that lifecycle status only — this is
+ * what GET /api/v1/missions's `?status=` query filter (declared in
+ * lib/api/schemas.ts's `missions.list` entry) actually runs against.
+ */
+export async function listMissionsForUser(userId: string, status?: string): Promise<Mission[]> {
   return db
     .select()
     .from(missions)
     .where(
       and(
         eq(missions.userId, userId),
-        or(
-          isNull(missions.workspaceRepo),
-          isNotNull(missions.issueRef),
-          isNotNull(missions.parentMissionId),
-        ),
+        status ? eq(missions.status, status as (typeof missionStatus)[number]) : undefined,
+        notAContainer(),
       ),
     )
     .orderBy(desc(missions.createdAt));
@@ -144,12 +212,22 @@ export async function listMissions(): Promise<Mission[]> {
  * the compiler forces every call site to supply the caller's identity. A
  * mission that exists but belongs to someone else returns null, identical
  * to a nonexistent id, so existence isn't observable across accounts.
+ *
+ * Repo containers return null too, on the same notAContainer() predicate
+ * listMissionsForUser filters by. A container was never listed, so no caller
+ * — CLI or page — can have obtained its id from this API in the first place;
+ * accepting one by direct id was an undocumented side door into a row whose
+ * only legitimate handle is /repos/{owner}/{repo}. Cancelling one is not a
+ * mission operation at all: it pauses a whole repo's work envelope, which is
+ * not what "cancel this mission" promises. Containers are addressed by repo
+ * path, never by mission id, and "not addressable" and "not yours" are the
+ * same null for the same reason existence is not observable.
  */
 export async function getMission(id: string, userId: string): Promise<Mission | null> {
   const [row] = await db
     .select()
     .from(missions)
-    .where(and(eq(missions.id, id), eq(missions.userId, userId)))
+    .where(and(eq(missions.id, id), eq(missions.userId, userId), notAContainer()))
     .limit(1);
   return row ?? null;
 }

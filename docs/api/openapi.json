@@ -1,0 +1,1968 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Forge API",
+    "version": "1.0.0"
+  },
+  "security": [
+    {
+      "bearerAuth": []
+    },
+    {
+      "apiKeyAuth": []
+    }
+  ],
+  "paths": {
+    "/api/v1/missions": {
+      "get": {
+        "operationId": "missions.list",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "draft",
+                "planning",
+                "running",
+                "paused",
+                "completed",
+                "cancelled"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "missions": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Mission"
+                      }
+                    }
+                  },
+                  "required": [
+                    "missions"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required — no usable bearer token or x-api-key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "missions.create",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "goal": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 10000
+                  },
+                  "backend": {
+                    "type": "string",
+                    "enum": [
+                      "managed-agents",
+                      "gateway",
+                      "gemini-managed-agents"
+                    ]
+                  },
+                  "agentId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "plannerStrategy": {
+                    "default": "rule-based",
+                    "type": "string",
+                    "enum": [
+                      "rule-based",
+                      "llm",
+                      "graph",
+                      "triage"
+                    ]
+                  },
+                  "targetRepos": {
+                    "default": [],
+                    "maxItems": 500,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[a-zA-Z0-9._-]+\\/[a-zA-Z0-9._-]+$"
+                    }
+                  },
+                  "issueQuery": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 500
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "concurrencyCap": {
+                    "default": 5,
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100
+                  },
+                  "budgetUsd": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "budgetTokens": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "budgetThresholdPct": {
+                    "default": 80,
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100
+                  },
+                  "budgetHardStopPct": {
+                    "default": 100,
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 500
+                  },
+                  "taskMaxTurns": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "taskMaxTokens": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "noProgressTokens": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "githubInstallationId": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 200
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "githubVaultId": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 200
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "skillId": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 200
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "aiReviewEnabled": {
+                    "default": false,
+                    "type": "boolean"
+                  },
+                  "selfVerifyEnabled": {
+                    "default": false,
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "name",
+                  "goal",
+                  "backend",
+                  "agentId",
+                  "plannerStrategy",
+                  "targetRepos",
+                  "concurrencyCap",
+                  "budgetThresholdPct",
+                  "budgetHardStopPct",
+                  "aiReviewEnabled",
+                  "selfVerifyEnabled"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "mission": {
+                      "$ref": "#/components/schemas/Mission"
+                    }
+                  },
+                  "required": [
+                    "mission"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required — no usable bearer token or x-api-key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/missions/{missionId}": {
+      "get": {
+        "operationId": "missions.get",
+        "parameters": [
+          {
+            "name": "missionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "mission": {
+                      "$ref": "#/components/schemas/Mission"
+                    }
+                  },
+                  "required": [
+                    "mission"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required — no usable bearer token or x-api-key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/missions/{missionId}/plan": {
+      "post": {
+        "operationId": "missions.plan",
+        "parameters": [
+          {
+            "name": "missionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "mission": {
+                      "$ref": "#/components/schemas/Mission"
+                    },
+                    "taskCount": {
+                      "type": "integer"
+                    },
+                    "skipped": {
+                      "type": [
+                        "object",
+                        "null"
+                      ],
+                      "properties": {
+                        "issueCount": {
+                          "type": "integer"
+                        },
+                        "repos": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "required": [
+                        "issueCount",
+                        "repos"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "mission",
+                    "taskCount",
+                    "skipped"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required — no usable bearer token or x-api-key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/missions/{missionId}/start": {
+      "post": {
+        "operationId": "missions.start",
+        "parameters": [
+          {
+            "name": "missionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "mission": {
+                      "$ref": "#/components/schemas/Mission"
+                    }
+                  },
+                  "required": [
+                    "mission"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required — no usable bearer token or x-api-key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/missions/{missionId}/cancel": {
+      "post": {
+        "operationId": "missions.cancel",
+        "parameters": [
+          {
+            "name": "missionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "mission": {
+                      "$ref": "#/components/schemas/Mission"
+                    }
+                  },
+                  "required": [
+                    "mission"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required — no usable bearer token or x-api-key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/missions/{missionId}/retry": {
+      "post": {
+        "operationId": "missions.retry",
+        "parameters": [
+          {
+            "name": "missionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "mission": {
+                      "$ref": "#/components/schemas/Mission"
+                    },
+                    "retriedCount": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "mission",
+                    "retriedCount"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required — no usable bearer token or x-api-key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/missions/{missionId}/tasks": {
+      "get": {
+        "operationId": "tasks.list",
+        "parameters": [
+          {
+            "name": "missionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "tasks": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Task"
+                      }
+                    }
+                  },
+                  "required": [
+                    "tasks"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required — no usable bearer token or x-api-key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/missions/{missionId}/tasks/{taskId}": {
+      "get": {
+        "operationId": "tasks.get",
+        "parameters": [
+          {
+            "name": "missionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "taskId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "task": {
+                      "$ref": "#/components/schemas/Task"
+                    }
+                  },
+                  "required": [
+                    "task"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required — no usable bearer token or x-api-key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/missions/{missionId}/tasks/{taskId}/approve": {
+      "post": {
+        "operationId": "tasks.approve",
+        "parameters": [
+          {
+            "name": "missionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "taskId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "task": {
+                      "$ref": "#/components/schemas/Task"
+                    }
+                  },
+                  "required": [
+                    "task"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required — no usable bearer token or x-api-key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/missions/{missionId}/tasks/{taskId}/dismiss": {
+      "post": {
+        "operationId": "tasks.dismiss",
+        "parameters": [
+          {
+            "name": "missionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "taskId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "task": {
+                      "$ref": "#/components/schemas/Task"
+                    }
+                  },
+                  "required": [
+                    "task"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required — no usable bearer token or x-api-key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/missions/{missionId}/tasks/{taskId}/steer": {
+      "post": {
+        "operationId": "tasks.steer",
+        "parameters": [
+          {
+            "name": "missionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "taskId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "message": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 10000
+                  }
+                },
+                "required": [
+                  "message"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "task": {
+                      "$ref": "#/components/schemas/Task"
+                    }
+                  },
+                  "required": [
+                    "task"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required — no usable bearer token or x-api-key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/missions/{missionId}/tasks/{taskId}/abort": {
+      "post": {
+        "operationId": "tasks.abort",
+        "parameters": [
+          {
+            "name": "missionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "taskId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "task": {
+                      "$ref": "#/components/schemas/Task"
+                    }
+                  },
+                  "required": [
+                    "task"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required — no usable bearer token or x-api-key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/missions/{missionId}/ledger": {
+      "get": {
+        "operationId": "ledger.mission",
+        "parameters": [
+          {
+            "name": "missionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "events": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/LedgerEvent"
+                      }
+                    }
+                  },
+                  "required": [
+                    "events"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required — no usable bearer token or x-api-key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/missions/{missionId}/tasks/{taskId}/ledger": {
+      "get": {
+        "operationId": "ledger.task",
+        "parameters": [
+          {
+            "name": "missionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "taskId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "events": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/LedgerEvent"
+                      }
+                    }
+                  },
+                  "required": [
+                    "events"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required — no usable bearer token or x-api-key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/repos": {
+      "get": {
+        "operationId": "repos.list",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "repos": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "repos"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required — no usable bearer token or x-api-key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/repos/{owner}/{repo}/policy": {
+      "get": {
+        "operationId": "repos.getPolicy",
+        "parameters": [
+          {
+            "name": "owner",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "repo",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "policy": {
+                      "$ref": "#/components/schemas/RepoPolicy"
+                    }
+                  },
+                  "required": [
+                    "policy"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required — no usable bearer token or x-api-key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "repos.setPolicy",
+        "parameters": [
+          {
+            "name": "owner",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "repo",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "requirePlanApproval": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "requirePlanApproval"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "policy": {
+                      "$ref": "#/components/schemas/RepoPolicy"
+                    }
+                  },
+                  "required": [
+                    "policy"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required — no usable bearer token or x-api-key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Mission": {
+        "type": "object",
+        "description": "A Mission as /api/v1 publishes it. Deliberately not every column of the `missions` table: `webhookSecret` (the mission's inbound-callback HMAC key) is withheld — see lib/api/dto.ts.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "userId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "goal": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "planning",
+              "running",
+              "paused",
+              "completed",
+              "cancelled"
+            ]
+          },
+          "backend": {
+            "type": "string",
+            "enum": [
+              "managed-agents",
+              "gateway",
+              "gemini-managed-agents"
+            ]
+          },
+          "agentId": {
+            "type": "string"
+          },
+          "plannerStrategy": {
+            "type": "string",
+            "enum": [
+              "rule-based",
+              "llm",
+              "graph",
+              "triage"
+            ]
+          },
+          "targetRepos": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "issueQuery": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "workspaceRepo": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "issueRef": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "parentMissionId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "nextIssueRefs": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "concurrencyCap": {
+            "type": "integer"
+          },
+          "budgetUsd": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "budgetTokens": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "budgetThresholdPct": {
+            "type": "integer"
+          },
+          "budgetHardStopPct": {
+            "type": "integer"
+          },
+          "spentUsd": {
+            "type": "integer"
+          },
+          "spentTokens": {
+            "type": "integer"
+          },
+          "autoMergePolicy": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": true
+          },
+          "githubInstallationId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "githubVaultId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "skillId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "aiReviewEnabled": {
+            "type": "boolean"
+          },
+          "selfVerifyEnabled": {
+            "type": "boolean"
+          },
+          "taskMaxTokens": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "taskMaxTurns": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "noProgressTokens": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "startedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "completedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "userId",
+          "name",
+          "goal",
+          "status",
+          "backend",
+          "agentId",
+          "plannerStrategy",
+          "targetRepos",
+          "issueQuery",
+          "workspaceRepo",
+          "issueRef",
+          "parentMissionId",
+          "nextIssueRefs",
+          "concurrencyCap",
+          "budgetUsd",
+          "budgetTokens",
+          "budgetThresholdPct",
+          "budgetHardStopPct",
+          "spentUsd",
+          "spentTokens",
+          "autoMergePolicy",
+          "githubInstallationId",
+          "githubVaultId",
+          "skillId",
+          "aiReviewEnabled",
+          "selfVerifyEnabled",
+          "taskMaxTokens",
+          "taskMaxTurns",
+          "noProgressTokens",
+          "createdAt",
+          "updatedAt",
+          "startedAt",
+          "completedAt"
+        ]
+      },
+      "Task": {
+        "type": "object",
+        "description": "A Task as /api/v1 publishes it.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "missionId": {
+            "type": "string"
+          },
+          "repo": {
+            "type": "string"
+          },
+          "baseBranch": {
+            "type": "string"
+          },
+          "promptVars": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": true
+          },
+          "issueRef": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "standard",
+              "reproduce",
+              "fix"
+            ]
+          },
+          "verdict": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": true
+          },
+          "dependsOnIds": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "dispatching",
+              "running",
+              "turn_ended",
+              "awaiting_ci",
+              "awaiting_verify",
+              "awaiting_ai_review",
+              "ready_to_merge",
+              "needs_human",
+              "merging",
+              "merged",
+              "resolved",
+              "abandoned",
+              "failed"
+            ]
+          },
+          "sessionId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "backendSessionRef": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "prUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "prNumber": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "diffAdditions": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "diffDeletions": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "filesChanged": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "retryCount": {
+            "type": "integer"
+          },
+          "aiReviewRetryCount": {
+            "type": "integer"
+          },
+          "turnCount": {
+            "type": "integer"
+          },
+          "lastProgressAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "costTokensAtProgress": {
+            "type": "integer"
+          },
+          "verifyRetryCount": {
+            "type": "integer"
+          },
+          "lastVerifiedSha": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "haltReason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "max_turns",
+              "task_token_cap",
+              "no_progress",
+              "budget_hard_stop",
+              "manual_abort"
+            ]
+          },
+          "escalationReason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "ai_review_rejected",
+              "verify_incomplete",
+              "gate_stall",
+              "auto_merge_failed",
+              "merge_stall"
+            ]
+          },
+          "reviewDecision": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "approved",
+              "changes_requested",
+              "commented"
+            ]
+          },
+          "approvedBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "approvedHeadSha": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "acceptanceCriteria": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lastError": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "costUsd": {
+            "type": "integer"
+          },
+          "costTokens": {
+            "type": "integer"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "dispatchedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "completedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "missionId",
+          "repo",
+          "baseBranch",
+          "promptVars",
+          "issueRef",
+          "kind",
+          "verdict",
+          "dependsOnIds",
+          "status",
+          "sessionId",
+          "backendSessionRef",
+          "prUrl",
+          "prNumber",
+          "diffAdditions",
+          "diffDeletions",
+          "filesChanged",
+          "retryCount",
+          "aiReviewRetryCount",
+          "turnCount",
+          "lastProgressAt",
+          "costTokensAtProgress",
+          "verifyRetryCount",
+          "lastVerifiedSha",
+          "haltReason",
+          "escalationReason",
+          "reviewDecision",
+          "approvedBy",
+          "approvedHeadSha",
+          "acceptanceCriteria",
+          "lastError",
+          "costUsd",
+          "costTokens",
+          "createdAt",
+          "updatedAt",
+          "dispatchedAt",
+          "completedAt"
+        ]
+      },
+      "LedgerEvent": {
+        "type": "object",
+        "description": "One append-only audit row from a Mission's or Task's ledger.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "missionId": {
+            "type": "string"
+          },
+          "taskId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "eventType": {
+            "type": "string"
+          },
+          "payload": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": true
+          },
+          "sourceEventId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "missionId",
+          "taskId",
+          "eventType",
+          "payload",
+          "sourceEventId",
+          "createdAt"
+        ]
+      },
+      "RepoPolicy": {
+        "type": "object",
+        "description": "Per-repo policy. Fails closed: anything other than an explicit false reads as requirePlanApproval true.",
+        "properties": {
+          "requirePlanApproval": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "requirePlanApproval"
+        ]
+      },
+      "Error": {
+        "type": "object",
+        "description": "Fixed error envelope used by every v1 route. Trade-off: collapses multi-field Zod validation failures into one joined message string, rather than the per-field issue array the deleted POST /api/missions used to return.",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "invalid_request",
+                  "unauthorized",
+                  "forbidden",
+                  "not_found",
+                  "invalid_state",
+                  "bad_gateway"
+                ]
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ]
+          }
+        },
+        "required": [
+          "error"
+        ]
+      }
+    },
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "A better-auth session token: `Authorization: Bearer <token>`. Wins over x-api-key when both are present."
+      },
+      "apiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "x-api-key",
+        "description": "The same token in the sibling engine's header convention, so one CLI can speak to both products. Treated as an alias for the bearer token."
+      }
+    }
+  }
+}
