@@ -1,12 +1,14 @@
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { bearer } from 'better-auth/plugins/bearer';
+import { deviceAuthorization } from 'better-auth/plugins/device-authorization';
 import { sql } from 'drizzle-orm';
 import { integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 import { deviceCode } from '@forge/db/schema';
 
 import { db } from './db';
+import { isAllowedDeviceClient, rejectDeviceScope } from './device-auth';
 import { env } from './env';
 
 // better-auth's schema — must match migration 0004_auth_tables.sql.
@@ -88,35 +90,92 @@ export const auth = betterAuth({
   // land together with a change to what that flow returns. This is a
   // considered trade-off, not an oversight.
   //
-  // `deviceAuthorization()` (the `gh auth login` flow a CLI uses to obtain a
-  // token) is deliberately NOT registered. `toNextJsHandler(auth)` mounts the
-  // whole better-auth router publicly, so registering it puts `device/code`,
-  // `device/token`, `device`, `device/approve` and `device/deny` live at once,
-  // and in 1.6.9 all three of these hold:
-  //   1. `deviceApprove` guards ownership with
-  //      `if (record.userId && record.userId !== session.user.id)`. A fresh
-  //      row has `userId` NULL, so the guard never fires and any logged-in
-  //      user's approval binds the row to themselves — handing the
-  //      code-holder a full session for that user.
-  //   2. `validateClient` is undefined, so `client_id` is unvalidated and any
-  //      string is accepted.
-  //   3. `scope` is accepted, stored and echoed back, but `/device/token`
-  //      returns an ordinary unscoped session. A CLI asking for
-  //      `missions:read` gets a token that can delete the account.
-  // Nothing supplies the missing proof, because the consent page that would
-  // name the client and require the human to type the code does not exist —
-  // `verification_uri_complete` points at a 404.
+  // `deviceAuthorization()` — the `gh auth login` flow a CLI uses to obtain a
+  // token — was unregistered in 45fcbdf because three things were true of it
+  // in 1.6.9, and is back now that all three are answered. Each answer is
+  // load-bearing; do not remove one because it looks like configuration.
   //
-  // Three preconditions must ALL be met before it goes back in:
-  //   a. a consent page exists at the verification URI that names the
-  //      requesting client and requires the human to enter the user code;
-  //   b. `validateClient` is supplied with an allow-list of known client ids;
-  //   c. `scope` is either actually enforced on the issued credential or
-  //      rejected outright rather than silently ignored.
-  // The `deviceCode` table stays in the schema so re-enabling needs no
-  // migration — but re-enabling must be a deliberate act, not a one-line
-  // revert of this comment.
-  plugins: [bearer()],
+  //   1. `deviceApprove` guarded ownership with
+  //      `if (record.userId && record.userId !== session.user.id)`, which
+  //      cannot fire on a freshly created row (`userId` is NULL). Any
+  //      logged-in user's approval therefore bound the row to themselves and
+  //      `/device/token` handed the code-holder a full session for that user.
+  //      ANSWER: `/device/approve` and `/device/deny` are switched off in
+  //      `disabledPaths` below, and approval goes through
+  //      `decideDeviceRequest` (lib/device-auth.ts) — a compare-and-swap on
+  //      `status = 'pending'` driven by the consent page at /device, which
+  //      requires the human to type the user code. The typing is the proof
+  //      that the person approving is the person who started the flow; the
+  //      CAS is what makes the first decision final, so a row bound to one
+  //      user can never be rebound to another.
+  //   2. `validateClient` was undefined, so any `client_id` was accepted and
+  //      a row created for it.
+  //      ANSWER: `isAllowedDeviceClient` — an exact-match allow-list, one
+  //      first-party entry by default, extendable via FORGE_DEVICE_CLIENT_IDS.
+  //      It runs before the row is created.
+  //   3. `scope` was accepted, stored and echoed back, while `/device/token`
+  //      returned an ordinary unscoped session — so a CLI asking for
+  //      `missions:read` got a token that can delete the account.
+  //      ANSWER: `rejectDeviceScope` fails any non-empty scope with a 400.
+  //      Forge has no scopes; pretending otherwise is worse than refusing.
+  //
+  // `expiresIn` is shortened from the plugin's 30m default: the window in
+  // which a stolen user code is worth phishing is exactly this long.
+  plugins: [
+    bearer(),
+    deviceAuthorization({
+      expiresIn: '10m',
+      interval: '5s',
+      validateClient: isAllowedDeviceClient,
+      onDeviceAuthRequest: rejectDeviceScope,
+      // Absolute, so the value a CLI prints is right regardless of how the
+      // request reached us. `verification_uri_complete` appends
+      // `?user_code=…` and there is no option to suppress it — the consent
+      // page deliberately ignores that parameter rather than pre-filling the
+      // field, because a pre-filled code is a code the human never typed.
+      verificationUri: `${env.BETTER_AUTH_URL}/device`,
+    }),
+  ],
+  // The two endpoints from finding 1. `disabledPaths` is enforced by the
+  // router's `onRequest` (404 before anything runs), so it closes the HTTP
+  // surface `toNextJsHandler(auth)` mounts without touching `auth.api`.
+  disabledPaths: ['/device/approve', '/device/deny'],
+  rateLimit: {
+    customRules: {
+      // Unauthenticated and row-creating: the tightest of the three.
+      '/device/code': { window: 60, max: 10 },
+      // The CLI's polling endpoint. At the 5s interval above a well-behaved
+      // client makes 12 requests a minute, so this is roughly five concurrent
+      // sign-ins from one address before it bites; the plugin's own
+      // `slow_down` response handles a client that polls faster than it said
+      // it would.
+      '/device/token': { window: 60, max: 60 },
+      // Status lookups. Not used by Forge's own flow, but reachable.
+      '/device': { window: 60, max: 20 },
+    },
+  },
+  advanced: {
+    // Pinned rather than left implicit, and pinned to the documented default
+    // on purpose.
+    //
+    // better-auth keys its limiter on `getIp`, which takes the FIRST element
+    // of the first header in this list. Behind Cloud Run (the deploy target
+    // — see .github/workflows/deploy.yml, which deploys straight to a
+    // *.run.app URL with --allow-unauthenticated and no load balancer or
+    // Cloud Armor in front) the first element of `X-Forwarded-For` is
+    // whatever the caller sent, so that key is spoofable and per-IP limiting
+    // can be evaded by rotating it. Nothing in this repo documents a proxy
+    // that guarantees a trustworthy header, and naming one that doesn't
+    // exist would be worse: `getIp` would fall through and, if no listed
+    // header parsed, return null — which skips rate limiting entirely.
+    //
+    // So this is the safe default, not a fix. The durable defence against an
+    // unbounded `deviceCode` table is the sweep in
+    // server/tick/device-codes.ts, which does not depend on the limiter
+    // holding. Revisit this the moment a load balancer lands in front of the
+    // service and can be configured to overwrite the header.
+    ipAddress: { ipAddressHeaders: ['x-forwarded-for'] },
+  },
 });
 
 export type Auth = typeof auth;
