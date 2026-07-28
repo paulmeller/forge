@@ -286,6 +286,109 @@ git commit -m "feat(auth): accept bearer and x-api-key, add the device flow"
 
 ---
 
+## Task 2b: Make the auth surface safe to merge
+
+Added after Task 2's adversarial review, which the spec requires before the bearer and device-flow paths merge. The review found the device flow is live, publicly mounted, and mints full user sessions with no consent surface. This task closes what must close now and defers what cannot be done properly yet.
+
+**Files:**
+- Modify: `apps/web/src/lib/auth.ts`
+- Modify: `apps/web/src/lib/api-auth.ts` and its test
+- Modify: `apps/web/src/app/(app)/api/auth/[...all]/route.ts`
+- Modify: `packages/db/src/schema.ts` + a generated migration
+
+- [ ] **Step 1: Unregister `deviceAuthorization()`**
+
+`toNextJsHandler(auth)` mounts the entire better-auth router publicly, so registering the plugin put five endpoints live: `device/code`, `device/token`, `device`, `device/approve`, `device/deny`. Three defects compound:
+
+- `deviceApprove` guards ownership with `if (record.userId && record.userId !== session.user.id)`. A fresh row has `userId` NULL, so the guard never fires — **any** logged-in user's approval binds the row to themselves and hands the code-holder a full session for that user.
+- `validateClient` is undefined, so `client_id` is unvalidated — any string is accepted.
+- `scope` is accepted, stored, and echoed back, but `/device/token` returns `createSession(user.id)` — an ordinary unscoped session. A CLI asking for `missions:read` gets a token that can delete the account.
+
+Nothing supplies the missing proof, because the consent page that would name the client and require the human to type the code **does not exist** — `verification_uri_complete` points at a 404. Remove the plugin from the `plugins` array. Keep `bearer()`.
+
+Leave a comment stating the three preconditions for its return (consent page, `validateClient` allow-list, scope either enforced or rejected) so re-enabling is a deliberate act, not a one-line revert.
+
+- [ ] **Step 2: Stop leaking the session token in a response header**
+
+`bearer()`'s after-hook matcher is literally `return true`. On every response that sets a session cookie — including pre-existing email sign-in, sign-up, and the GitHub OAuth callback — it copies the raw session token into a `set-auth-token` header and adds it to `Access-Control-Expose-Headers`. A credential that was HttpOnly-cookie-only is now an ordinary header value that logs, proxies, and caches will handle.
+
+The option to disable this does not exist in 1.6.9. Strip it at the boundary instead:
+
+```ts
+import { toNextJsHandler } from 'better-auth/next-js';
+import { auth } from '@/lib/auth';
+
+const handlers = toNextJsHandler(auth);
+
+/**
+ * The bearer plugin unconditionally echoes the raw session token in a
+ * `set-auth-token` response header. We register bearer for its REQUEST side
+ * only — `Authorization: Bearer` resolving to a session — and want nothing to
+ * do with its response side, which duplicates an HttpOnly credential into a
+ * plain header on every browser login. 1.6.9 exposes no option to disable it,
+ * so strip it here.
+ */
+function stripAuthTokenHeader(res: Response): Response {
+  if (!res.headers.has('set-auth-token')) return res;
+  const headers = new Headers(res.headers);
+  headers.delete('set-auth-token');
+  const exposed = headers.get('access-control-expose-headers');
+  if (exposed) {
+    const kept = exposed.split(',').map((h) => h.trim())
+      .filter((h) => h && h.toLowerCase() !== 'set-auth-token');
+    if (kept.length) headers.set('access-control-expose-headers', kept.join(', '));
+    else headers.delete('access-control-expose-headers');
+  }
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+}
+
+export const GET = async (req: Request) => stripAuthTokenHeader(await handlers.GET(req));
+export const POST = async (req: Request) => stripAuthTokenHeader(await handlers.POST(req));
+```
+
+Test it directly: a Response carrying `set-auth-token` plus an expose-headers list comes back without either trace, and a Response without the header passes through untouched.
+
+- [ ] **Step 3: Make cookie-vs-bearer precedence explicit**
+
+`withBearerAlias`'s comment claims the explicit auth header is the more specific signal, but one layer down the opposite happens: the plugin **appends** its synthesized cookie (`existingCookie + '; ' + newCookie`) and better-call's parser keeps the **first** occurrence of a name. So when a request carries both a session cookie and a token, the cookie silently wins and the token is discarded. A client with a cookie jar acts as the *cookie's* identity while believing it acted as the token's — a wrong-user action, not a failed one.
+
+In `apiAuth()`, when a token header is present, delete `Cookie` before calling `getSession` so the token is unambiguously the credential:
+
+```ts
+function withBearerAlias(incoming: Headers): Headers {
+  const explicit = incoming.get('authorization');
+  const apiKey = incoming.get('x-api-key');
+  if (!explicit && !apiKey) return incoming;
+  const resolved = new Headers(incoming);
+  if (!explicit && apiKey) resolved.set('authorization', `Bearer ${apiKey}`);
+  // A presented token is an explicit identity claim. Leaving the cookie
+  // attached lets it win silently one layer down, so the caller would act as
+  // the cookie's user while believing it acted as the token's.
+  resolved.delete('cookie');
+  return resolved;
+}
+```
+
+Add a test asserting that a request carrying BOTH a cookie and a bearer token resolves to the token's user, not the cookie's.
+
+- [ ] **Step 4: Harden the `deviceCode` schema now**
+
+The table stays (unused until the flow returns) so re-enabling needs no schema work — which means the hardening is cheaper now than later. Add unique indexes on `deviceCode` and `userCode`, matching the `session_token_unique` precedent this file already sets for the analogous secret, and a `userId` foreign key to `user.id` with cascade delete, matching `session.userId` and `account.userId` in the same file.
+
+Generate with `pnpm --filter @forge/db db:generate`. Never hand-write it. Grep-verify the new tag appears in `packages/db/migrations/meta/_journal.json` before committing.
+
+- [ ] **Step 5: Document the `requireSignature` trade-off**
+
+For a token with no `.` — exactly the shape of `session.token` — the plugin signs the value itself with the server secret and then verifies its own signature, so that check cannot fail. The DB lookup on `session.token` is the real gate. Setting `requireSignature: true` would reject the raw session tokens the device flow issues, so it cannot be turned on without also changing what the flow returns. Record that in a comment beside `bearer()` so it reads as a considered trade-off rather than an oversight someone will "fix" and break the flow.
+
+- [ ] **Step 6: Verify and commit**
+
+```bash
+cd /Users/paulmeller/Projects/agentstep/agentstep-forge && pnpm typecheck && pnpm -r lint && pnpm -r test
+```
+
+---
+
 ## Task 3: Schema registry, response helpers, and generated OpenAPI
 
 **Files:**
@@ -719,6 +822,29 @@ cd /Users/paulmeller/Projects/agentstep/agentstep-forge && pnpm typecheck && pnp
 git add -A "apps/web/src/app/(app)/api/v1" docs/api/openapi.json
 git commit -m "feat(api): v1 repo endpoints and policy"
 ```
+
+---
+
+## Task 8: The device flow, done properly
+
+Deferred from Task 2b. The API surface is the product; a login flow with nothing to log into has no purpose, so this lands last — but it must land before any CLI ships, and re-registering the plugin without the rest of this task reopens exactly what 2b closed.
+
+**Files:**
+- Modify: `apps/web/src/lib/auth.ts` (re-register `deviceAuthorization()` with options)
+- Create: `apps/web/src/app/(app)/device/page.tsx` and its action
+- Modify: `apps/web/src/server/tick/` (an expiry sweep)
+
+- [ ] **Step 1: The consent page.** `/device` requires an authenticated session, shows the requesting `client_id` and the scope being granted, and requires the human to **type the user code** — the typing is the proof that the person approving is the person who started the flow. Approving must call `device/approve` for that specific code, never for whatever code is pending.
+
+- [ ] **Step 2: `validateClient`.** An allow-list of known client ids. An unknown `client_id` is rejected at `device/code`, before a row is ever created.
+
+- [ ] **Step 3: Scope.** Either enforce it or reject it. Until the API has real scopes, reject any non-empty `scope` with a 400 rather than storing and echoing a restriction nothing reads — an integrator who sees `scope` accepted will reasonably assume it constrains the token.
+
+- [ ] **Step 4: Expiry sweep.** Rows are deleted only when polled after expiry, denied-then-polled, or exchanged. A code created and never polled lives forever, and `device/code` is unauthenticated, so the table grows without bound. Add a sweep to the existing tick pipeline.
+
+- [ ] **Step 5: Rate limiting.** better-auth's limiter keys on the first `X-Forwarded-For` element, which is attacker-supplied behind Cloud Run, and defaults to in-memory storage that does not survive scaling. Add `rateLimit.customRules` for `/device/*` and set `advanced.ipAddress.ipAddressHeaders` to what the real proxy guarantees.
+
+- [ ] **Step 6: Ownership test.** A device code approved by user A must never yield a session for user B, and the test must fail if the `userId` guard is removed.
 
 ---
 
