@@ -7,8 +7,13 @@ import { apiAuth, type ApiUser } from '@/lib/api-auth';
  * is how apiAuth() and withAuth() drifted into different failure modes (fixed
  * 2026-07-27, commit 3536274). One wrapper means one place to reason about.
  *
- * Composes with middleware if the Node-runtime spike succeeded; stands alone
- * if it did not. Either way a route cannot forget the gate, because the
+ * This wrapper is the whole gate — there is no middleware layer. The spike
+ * that proposed one established only that Next accepts `runtime: 'nodejs'`
+ * in a middleware config at build time; it never proved a DB-backed session
+ * lookup executes there at request time, and Next 16 has begun deprecating
+ * the `middleware` convention in favour of `proxy`. Centralisation is worth
+ * having, but not at the cost of a layer that is half-verified and already
+ * on its way out. A route cannot forget the gate regardless, because the
  * wrapper is what produces the exported handler.
  */
 export function withApiAuth<T>(
