@@ -298,12 +298,22 @@ git commit -m "fix(gating): auto-merge and reconciler agree on a leaf's policy"
 ## Task 3: Write the policies from the Settings action
 
 **Files:**
+- Create: `apps/web/src/lib/parse-lines.ts`
+- Create: `apps/web/src/lib/parse-lines.test.ts`
 - Modify: `apps/web/src/app/(app)/repos/[owner]/[repo]/settings-actions.ts`
 - Test: `apps/web/src/app/(app)/repos/[owner]/[repo]/settings-actions.test.ts` (create if absent)
 
 **Interfaces:**
 - Consumes: `AutoMergePolicy`, `RepoPolicy` from `@forge/db`
-- Produces: `updateRepoSettings(containerId, input)` where `input` gains `repo: string`, `autoMerge: AutoMergePolicyInput`, and `requirePlanApproval: boolean`; plus exported `parseLines(value: string): string[] | undefined`
+- Produces: `updateRepoSettings(containerId, input)` where `input` gains `autoMerge: AutoMergePolicyInput` and `requirePlanApproval: boolean`; plus `parseLines(value: string): string[] | undefined` exported from `@/lib/parse-lines`
+
+**Two corrections to this task, made before execution — read them before writing code:**
+
+**(a) `parseLines` must NOT live in `settings-actions.ts`.** Next.js permits only **async function** exports from a `'use server'` module; every such file in this codebase exports types and async functions and nothing else. A synchronous `export function parseLines` there is a build error. It goes in `apps/web/src/lib/parse-lines.ts`, a plain module imported by both the action and the tab — which is also where it is easiest to unit-test.
+
+**(b) `updateRepoSettings` must NOT take a `repo` parameter.** An earlier draft accepted `repo: string` from the client and wrote `WHERE githubInstallationRepos.repo = input.repo`, reasoning that the container's ownership check upstream made it safe. It does not: the ownership check validates the *mission*, while `repo` is an independent client-supplied field, so a caller could pass another account's repo and disable that account's plan-approval gate. A Server Action is a POST endpoint reachable by anyone.
+
+Derive the repo server-side instead, from the container mission that was just ownership-checked. `missions.targetRepos` is a JSON `string[]` and repo containers are created with `targetRepos: [repo]` (`apps/web/src/lib/workspace-mission.ts:101,211`). Take `updated.targetRepos?.[0]` from the `.returning()` row and use that. Nothing client-supplied then selects which repo row is written.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -320,9 +330,19 @@ describe('updateRepoSettings — policies', () => {
     expect(m.autoMergePolicy).toMatchObject({ enabled: true, maxAdditions: 50, requiredChecks: ['build'] });
   });
 
-  it('writes requirePlanApproval to the repo row, not the mission', async () => {
-    await updateRepoSettings('m_container', validInput({ repo: 'a/b', requirePlanApproval: false }));
+  it('writes requirePlanApproval to the repo row named by the container, not the mission', async () => {
+    // m_container is seeded with targetRepos: ['a/b'].
+    await updateRepoSettings('m_container', validInput({ requirePlanApproval: false }));
     expect((await repoRow('a/b')).repoPolicy).toEqual({ requirePlanApproval: false });
+  });
+
+  it('cannot be steered at another account\'s repo', async () => {
+    // The repo is derived from the ownership-checked container, so there is
+    // no caller-supplied field that selects which repo row is written. This
+    // test pins that: it must remain impossible to express the attack.
+    await seedRepoRow('victim/secret', { requirePlanApproval: true });
+    await updateRepoSettings('m_container', validInput({ requirePlanApproval: false }));
+    expect((await repoRow('victim/secret')).repoPolicy).toEqual({ requirePlanApproval: true });
   });
 
   it('omits empty lists rather than storing []', async () => {
@@ -362,9 +382,10 @@ describe('parseLines', () => {
 Run: `cd apps/web && pnpm vitest run "src/app/(app)/repos/[owner]/[repo]/settings-actions.test.ts"`
 Expected: FAIL — `updateRepoSettings` does not accept these fields.
 
-- [ ] **Step 3: Add the line parser**
+- [ ] **Step 3: Add the line parser as its own module**
 
-In `settings-actions.ts`:
+Create `apps/web/src/lib/parse-lines.ts` — NOT in `settings-actions.ts`, which is a
+`'use server'` module and may only export async functions:
 
 ```ts
 /**
@@ -399,7 +420,6 @@ export type AutoMergePolicyInput = {
 export async function updateRepoSettings(
   containerId: string,
   input: {
-    repo: string;
     concurrencyCap: number;
     budgetUsd: number | null;
     aiReviewEnabled: boolean;
@@ -439,12 +459,20 @@ export async function updateRepoSettings(
   }
 
   // requirePlanApproval governs Mission *creation*, so it cannot live on a
-  // Mission — it stays on the repo row. Only reached after the ownership
-  // check above passed, so this is not an unscoped write.
-  await db
-    .update(githubInstallationRepos)
-    .set({ repoPolicy: { requirePlanApproval: input.requirePlanApproval } })
-    .where(eq(githubInstallationRepos.repo, input.repo));
+  // Mission — it stays on the repo row.
+  //
+  // The repo name is taken from the container we just ownership-checked, NOT
+  // from a parameter. Accepting it from the caller would let someone pass
+  // another account's repo alongside a container they legitimately own and
+  // disable that account's plan-approval gate — the ownership check covers
+  // the Mission, not an independent field beside it.
+  const repo = (updated.targetRepos as string[] | null)?.[0];
+  if (repo) {
+    await db
+      .update(githubInstallationRepos)
+      .set({ repoPolicy: { requirePlanApproval: input.requirePlanApproval } })
+      .where(eq(githubInstallationRepos.repo, repo));
+  }
 
   return { ok: true };
 }
@@ -463,13 +491,14 @@ One at a time, printing the mutated source each time:
 
 1. Drop `eq(missions.userId, user.id)` from the `WHERE` → the cross-user test must fail. This is the only auth guard on the action; if that test still passes, rewrite it.
 2. Make `parseLines` return `[]` instead of `undefined` for an empty box → the omitted-lists test must fail.
-3. Move the `githubInstallationRepos` write above the ownership-checked mission update → the cross-user test must fail on the repo row too. If it does not, add an assertion so it does.
+3. Change the repo source from `updated.targetRepos?.[0]` back to a caller-supplied value (add a temporary `repo` parameter and use it) → the "cannot be steered at another account's repo" test must fail. This is the cross-account write the pre-flight scan caught; if that test still passes, it is not pinning the property and must be rewritten.
+4. Move the `githubInstallationRepos` write above the ownership-checked mission update → the cross-user test must fail on the repo row too. If it does not, add an assertion so it does.
 
 - [ ] **Step 7: Verify and commit**
 
 ```bash
 cd /Users/paulmeller/Projects/agentstep/agentstep-forge && pnpm typecheck && pnpm -r lint && pnpm -r test
-git add "apps/web/src/app/(app)/repos/[owner]/[repo]/settings-actions.ts" "apps/web/src/app/(app)/repos/[owner]/[repo]/settings-actions.test.ts"
+git add apps/web/src/lib/parse-lines.ts apps/web/src/lib/parse-lines.test.ts "apps/web/src/app/(app)/repos/[owner]/[repo]/settings-actions.ts" "apps/web/src/app/(app)/repos/[owner]/[repo]/settings-actions.test.ts"
 git commit -m "feat(settings): persist the auto-merge and plan-approval policies"
 ```
 
@@ -487,7 +516,7 @@ git commit -m "feat(settings): persist the auto-merge and plan-approval policies
 
 - [ ] **Step 1: Add the props**
 
-`SettingsTab` gains `repo: string`, `autoMergePolicy: AutoMergePolicy | null`, and `requirePlanApproval: boolean`. Seed state from them:
+`SettingsTab` gains `autoMergePolicy: AutoMergePolicy | null` and `requirePlanApproval: boolean`. It does NOT gain a `repo` prop — the action derives the repo from the ownership-checked container itself. Seed state from them:
 
 ```tsx
 const [amEnabled, setAmEnabled] = useState(autoMergePolicy?.enabled ?? false);
@@ -558,7 +587,6 @@ In `handleSave`, build the policy — a blank box is `undefined`, not `0`:
 ```tsx
 const num = (v: string) => (v.trim() === '' ? undefined : Number(v));
 const result = await updateRepoSettings(containerId, {
-  repo,
   concurrencyCap: parsedCap,
   budgetUsd: parsedBudget,
   aiReviewEnabled: aiReview,
@@ -576,18 +604,17 @@ const result = await updateRepoSettings(containerId, {
 });
 ```
 
-Import `parseLines` from `./settings-actions`.
+Import `parseLines` from `@/lib/parse-lines`.
 
 - [ ] **Step 4: Thread the props at the call site**
 
 In `apps/web/src/app/(app)/repos/[owner]/[repo]/page.tsx`, extend the existing `<SettingsTab …/>` (lines 155-161):
 
-Note the existing local names: `page.tsx:37` destructures `const { owner, repo: repoName } = await params;` and `page.tsx:41` already builds `const repo = \`${owner}/${repoName}\`;`. So `repo` is **already** the `owner/name` string — pass it directly. Do not re-interpolate `owner` into it.
+Note the existing local names: `page.tsx:37` destructures `const { owner, repo: repoName } = await params;` and `page.tsx:41` already builds `const repo = \`${owner}/${repoName}\`;`. So `repo` is **already** the `owner/name` string — use it directly for `getRepoPolicy`, and do not re-interpolate `owner` into it. `SettingsTab` takes no `repo` prop.
 
 ```tsx
 <SettingsTab
   containerId={mission.id}
-  repo={repo}
   concurrencyCap={mission.concurrencyCap}
   budgetUsd={mission.budgetUsd}
   aiReviewEnabled={mission.aiReviewEnabled}
