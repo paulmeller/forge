@@ -24,6 +24,11 @@ type IssueCommentPayload = {
     default_branch?: string;
   };
   sender?: { login?: string };
+  // GitHub includes this on every GitHub-App-delivered webhook — the numeric
+  // id of the installation that delivered the event. See the doc comment on
+  // `GithubDispatchInput.installationId` (dispatch-from-github.ts) for why
+  // this is what repo-policy resolution is scoped against (C2).
+  installation?: { id?: number };
 };
 
 type CheckSuitePayload = {
@@ -40,6 +45,7 @@ type CheckSuitePayload = {
     default_branch?: string;
   };
   sender?: { login?: string };
+  installation?: { id?: number };
 };
 
 export async function POST(request: Request) {
@@ -110,6 +116,7 @@ async function handleIssueComment(rawBody: string) {
     goal,
     issueRef: issueNumber ? `${repo}#${issueNumber}` : undefined,
     triggeredBy: payload.sender?.login ?? 'unknown',
+    installationId: payload.installation?.id,
   });
 
   return NextResponse.json(
@@ -165,6 +172,7 @@ The PR already exists — just push the fix commit. Do not open a new PR.`;
     goal,
     issueRef: pr.number ? `${repo}#${pr.number}` : undefined,
     triggeredBy: `ci-fix (${payload.sender?.login ?? 'github'})`,
+    installationId: payload.installation?.id,
     // I4: this dispatch is Forge reacting to its own PR's CI going red, not
     // a human asking for new work — the plan-approval gate's scope (per the
     // spec) is `@forge` comments. Gating this too would silently turn every

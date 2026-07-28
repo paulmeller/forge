@@ -2,3 +2,4 @@
 // This avoids duplicate-package type mismatches when consumers also have
 // drizzle-orm in their own node_modules (e.g. via @ai-sdk transitive deps).
 export { and, desc, eq, inArray, sql } from 'drizzle-orm';
+export type { SQL } from 'drizzle-orm';

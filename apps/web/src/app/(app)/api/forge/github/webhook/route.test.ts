@@ -700,4 +700,49 @@ describe('POST /api/forge/github/webhook — check_suite (self-healing CI)', () 
     expect(body.ignored).toBe(true);
     expect(body.reason).toBe('no PR associated');
   });
+
+  // C2: the webhook's `installation.id` field is what lets dispatchFromGithub
+  // resolve which installation's github_installation_repos row to read (both
+  // for the plan-approval gate and for owner/agent/vault) — see repo-policy.ts
+  // and dispatch-from-github.ts. This proves the field actually threads all
+  // the way from the raw webhook payload through to the created Mission,
+  // rather than just being unit-tested at the dispatchFromGithub level.
+  it("resolves the owning installation's agent from the webhook's installation.id field", async () => {
+    const now = new Date();
+    await db.insert(schema.githubInstallations).values({
+      id: 'ghi_ci_repo_owner',
+      userId: 'user_ci_owner',
+      installationId: 778899,
+      agentId: 'agent_ci_owner',
+      accountLogin: 'ci-owner',
+      accountType: 'Organization',
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.githubInstallationRepos).values({
+      id: 'ghr_ci_repo_owner',
+      installationId: 'ghi_ci_repo_owner',
+      repo: 'acme/ci-repo-2',
+      repoPolicy: { requirePlanApproval: true },
+      createdAt: now,
+    });
+
+    const res = await postSigned('check_suite', {
+      action: 'completed',
+      check_suite: {
+        conclusion: 'failure',
+        head_branch: 'feature-y',
+        pull_requests: [{ number: 88, head: { ref: 'feature-y' } }],
+      },
+      repository: { full_name: 'acme/ci-repo-2' },
+      sender: { login: 'github-actions[bot]' },
+      installation: { id: 778899 },
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { missionId: string };
+
+    const mission = await missionRow(body.missionId);
+    expect(mission?.userId).toBe('user_ci_owner');
+    expect(mission?.agentId).toBe('agent_ci_owner');
+  });
 });

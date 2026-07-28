@@ -87,14 +87,22 @@ async function ledgerEventsFor(missionId: string) {
   return db.select().from(schema.ledgerEvents).where(eq(schema.ledgerEvents.missionId, missionId));
 }
 
-/** Test-only helper: no repo-policy UI/API exists yet, so write the row directly. */
-async function setRepoPolicy(repo: string, policy: RepoPolicy) {
+/**
+ * Test-only helper: no repo-policy UI/API exists yet, so write the row
+ * directly. Returns the numeric GitHub installation id the row was created
+ * under — dispatchFromGithub now resolves repo-policy scoped to a specific
+ * installation (C2), so callers that want this policy honoured must pass
+ * this back as `installationId` on the dispatch input, the same way a real
+ * webhook's `installation.id` field would.
+ */
+async function setRepoPolicy(repo: string, policy: RepoPolicy): Promise<number> {
   const now = new Date();
-  const installationId = `ghi_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+  const installationRowId = `ghi_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+  const installationId = Math.floor(Math.random() * 1_000_000);
   await db.insert(schema.githubInstallations).values({
-    id: installationId,
+    id: installationRowId,
     userId: 'user_test',
-    installationId: Math.floor(Math.random() * 1_000_000),
+    installationId,
     accountLogin: repo.split('/')[0] ?? 'acme',
     accountType: 'Organization',
     createdAt: now,
@@ -102,11 +110,12 @@ async function setRepoPolicy(repo: string, policy: RepoPolicy) {
   });
   await db.insert(schema.githubInstallationRepos).values({
     id: `ghr_${randomUUID().replaceAll('-', '').slice(0, 12)}`,
-    installationId,
+    installationId: installationRowId,
     repo,
     repoPolicy: policy,
     createdAt: now,
   });
+  return installationId;
 }
 
 describe('parseForgeDirective', () => {
@@ -194,12 +203,13 @@ describe('dispatchFromGithub — plan-approval gate', () => {
   });
 
   it('runs immediately when the repo opts out of plan approval', async () => {
-    await setRepoPolicy('a/b', { requirePlanApproval: false });
+    const installationId = await setRepoPolicy('a/b', { requirePlanApproval: false });
     const { mission, taskId } = await dispatchFromGithub({
       repoFullName: 'a/b',
       goal: 'fix it',
       defaultBranch: 'main',
       triggeredBy: 'octocat',
+      installationId,
     });
     expect((await missionRow(mission.id))?.status).toBe('running');
     expect(taskId).toBeTruthy();
@@ -211,6 +221,132 @@ describe('dispatchFromGithub — plan-approval gate', () => {
     expect(tasks[0]?.status).toBe('queued');
     const events = await ledgerEventsFor(mission.id);
     expect(events.some((e) => e.eventType === 'mission.started')).toBe(true);
+  });
+
+  // C2: repoPolicy is written per-installation (settings-actions.ts scopes
+  // the write to an installation the acting user owns), but before this fix
+  // getRepoPolicy's read was unscoped — `WHERE repo = ?` with no ordering —
+  // so whichever of two installations' rows for the identical repo string
+  // happened to match first could ungate a dispatch that should have used
+  // the OTHER installation's (still gated) policy. Reverting
+  // dispatchFromGithub back to an unscoped `getRepoPolicy(input.repoFullName)`
+  // call (dropping the installationId argument) makes this fail: which
+  // policy wins would depend on row order, not on which installation's
+  // webhook actually fired.
+  describe('C2 — repoPolicy is scoped per installation, not read globally', () => {
+    it("never picks up a DIFFERENT installation's policy for the identical repo string", async () => {
+      const repo = 'shared-name/shared-name';
+
+      // A second, distinct (ungated) installation holds a row for the exact
+      // same repo string, inserted FIRST — so an unscoped `WHERE repo = ?
+      // LIMIT 1` (no ORDER BY) would return THIS row, not the gated one
+      // below, since SQLite returns matches in insertion order absent an
+      // explicit ordering. Only the gated installation's webhook fired.
+      const now = new Date();
+      await db.insert(schema.githubInstallations).values({
+        id: 'ghi_ungated_other',
+        userId: 'user_other',
+        installationId: 999999,
+        accountLogin: 'other-owner',
+        accountType: 'Organization',
+        createdAt: now,
+        updatedAt: now,
+      });
+      await db.insert(schema.githubInstallationRepos).values({
+        id: 'ghr_ungated_other',
+        installationId: 'ghi_ungated_other',
+        repo,
+        repoPolicy: { requirePlanApproval: false },
+        createdAt: now,
+      });
+
+      const gatedInstallationId = await setRepoPolicy(repo, { requirePlanApproval: true });
+
+      const { mission } = await dispatchFromGithub({
+        repoFullName: repo,
+        goal: 'fix it',
+        defaultBranch: 'main',
+        triggeredBy: 'octocat',
+        installationId: gatedInstallationId,
+      });
+
+      // Must gate — using the gated installation's own policy, not the
+      // other installation's ungated one for the identical repo string.
+      expect((await missionRow(mission.id))?.status).toBe('planning');
+    });
+
+    it('picks the owner/agent/vault from the same installation the policy was resolved against', async () => {
+      const repo = 'shared-name/owner-scoped';
+      const now = new Date();
+
+      // The "wrong" installation is inserted FIRST — so an unscoped `WHERE
+      // repo = ? LIMIT 1` (no ORDER BY) would return THIS row, not the right
+      // one below, since SQLite returns matches in insertion order absent
+      // an explicit ordering.
+      await db.insert(schema.githubInstallations).values({
+        id: 'ghi_wrong_owner',
+        userId: 'user_wrong',
+        installationId: 444444,
+        agentId: 'agent_wrong',
+        accountLogin: 'wrong-owner',
+        accountType: 'Organization',
+        createdAt: now,
+        updatedAt: now,
+      });
+      await db.insert(schema.githubInstallationRepos).values({
+        id: 'ghr_wrong_owner',
+        installationId: 'ghi_wrong_owner',
+        repo,
+        repoPolicy: { requirePlanApproval: false },
+        createdAt: now,
+      });
+
+      const rightInstallationId = 555555;
+      await db.insert(schema.githubInstallations).values({
+        id: 'ghi_right_owner',
+        userId: 'user_right',
+        installationId: rightInstallationId,
+        agentId: 'agent_right',
+        accountLogin: 'right-owner',
+        accountType: 'Organization',
+        createdAt: now,
+        updatedAt: now,
+      });
+      await db.insert(schema.githubInstallationRepos).values({
+        id: 'ghr_right_owner',
+        installationId: 'ghi_right_owner',
+        repo,
+        repoPolicy: { requirePlanApproval: false },
+        createdAt: now,
+      });
+
+      const { mission } = await dispatchFromGithub({
+        repoFullName: repo,
+        goal: 'fix it',
+        defaultBranch: 'main',
+        triggeredBy: 'octocat',
+        installationId: rightInstallationId,
+      });
+
+      const created = await missionRow(mission.id);
+      expect(created?.userId).toBe('user_right');
+      expect(created?.agentId).toBe('agent_right');
+    });
+
+    it('fails closed (gated, system-default owner) when no installationId is given, even if a row exists', async () => {
+      const repo = 'a/no-installation-id';
+      await setRepoPolicy(repo, { requirePlanApproval: false });
+
+      const { mission } = await dispatchFromGithub({
+        repoFullName: repo,
+        goal: 'fix it',
+        defaultBranch: 'main',
+        triggeredBy: 'octocat',
+        // installationId deliberately omitted.
+      });
+
+      expect((await missionRow(mission.id))?.status).toBe('planning');
+    });
   });
 
   // I4: unit-level isolation of dispatchFromGithub's own gate logic, distinct
@@ -306,7 +442,7 @@ describe('dispatchFromGithub — plan-approval gate', () => {
   });
 
   it('gated and ungated paths agree on baseBranch/issueRef for the same input', async () => {
-    await setRepoPolicy('a/ungated', { requirePlanApproval: false });
+    const installationId = await setRepoPolicy('a/ungated', { requirePlanApproval: false });
 
     const gated = await dispatchFromGithub({
       repoFullName: 'a/gated',
@@ -321,6 +457,7 @@ describe('dispatchFromGithub — plan-approval gate', () => {
       defaultBranch: 'develop',
       issueRef: 'a/ungated#9',
       triggeredBy: 'octocat',
+      installationId,
     });
 
     const [gatedTask] = await tasksFor(gated.mission.id);

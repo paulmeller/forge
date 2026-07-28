@@ -50,8 +50,15 @@ export async function updateRepoSettings(
     ['Max deletions', input.autoMerge.maxDeletions],
     ['Max files changed', input.autoMerge.maxFilesChanged],
   ] as const) {
-    if (value !== undefined && (!Number.isInteger(value) || value < 0)) {
-      return { ok: false, error: `${label} must be a whole number of 0 or more, or blank` };
+    // M4: a cap of exactly 0 means "no diff may add/delete/change a single
+    // line", which blocks every merge outright — not "no cap" (that's what
+    // leaving the field blank, i.e. `undefined`, already means). This is the
+    // exact footgun parse-optional-number.ts's own doc comment warns about:
+    // it exists specifically so a blank box comes through as `undefined`,
+    // not `0`. Reject 0 the same as any other invalid value rather than
+    // silently accepting a policy that can never let a merge through.
+    if (value !== undefined && (!Number.isInteger(value) || value < 1)) {
+      return { ok: false, error: `${label} must be a positive whole number, or blank` };
     }
   }
 

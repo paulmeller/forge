@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 
 import { githubInstallationRepos, githubInstallations, ledgerEvents, missions, tasks, type Mission } from '@forge/db';
 
@@ -8,7 +8,7 @@ import { db } from './db';
 import { env } from './env';
 import { getOctokitClient } from './octokit';
 import { runPlanner } from './planner';
-import { getRepoPolicy } from './repo-policy';
+import { DEFAULT_REPO_POLICY, getRepoPolicy } from './repo-policy';
 
 export type GithubDispatchInput = {
   repoFullName: string; // 'owner/repo'
@@ -16,6 +16,27 @@ export type GithubDispatchInput = {
   goal: string; // free-form text from the comment
   issueRef?: string; // 'owner/repo#123'
   triggeredBy: string; // GitHub login of the commenter
+  /**
+   * GitHub's own numeric installation id — the `installation.id` field GitHub
+   * includes in every GitHub-App-delivered webhook payload (verified by the
+   * webhook route's HMAC check before this function ever sees it, so it
+   * cannot be forged by anything but GitHub itself).
+   *
+   * C2: `github_installation_repos` rows are looked up by bare repo name,
+   * but the unique index on that table is (installationId, repo) — not repo
+   * alone — so two different installations (e.g. a stale, orphaned
+   * installation from a prior uninstall/reinstall cycle, and the current
+   * live one) can each hold a row for the identical repo string. There is no
+   * interactive session here to resolve "whose installation" the way a
+   * signed-in caller would, so this field is that resolution: it names the
+   * specific installation GitHub says delivered *this* event, which is the
+   * only trustworthy answer to "which row applies" when more than one
+   * exists. Omitting it (or a repo/installation combination that resolves to
+   * no row) fails closed to `DEFAULT_REPO_POLICY` and the system-default
+   * owner/agent/vault, rather than falling back to an unscoped,
+   * cross-tenant read.
+   */
+  installationId?: number;
   /**
    * Bypasses the repo's `requirePlanApproval` gate for this one dispatch.
    *
@@ -62,7 +83,20 @@ const GITHUB_SYSTEM_USER_ID = 'user_default';
 export async function dispatchFromGithub(
   input: GithubDispatchInput,
 ): Promise<GithubDispatchResult> {
-  const policy = await getRepoPolicy(input.repoFullName);
+  // C2: both this policy lookup and the repoRow lookup just below must
+  // resolve against the SAME installation, or a repo dispatch could read its
+  // gate from one tenant's row while picking its owner/agent/vault from
+  // another's. See the doc comment on `installationId` (GithubDispatchInput,
+  // above) for why the numeric GitHub installation id from the webhook
+  // payload is the safe, authoritative resolver here.
+  //
+  // No installation id at all means this call cannot safely resolve a
+  // specific tenant's row — fail closed to the gated default rather than an
+  // unscoped, cross-tenant read.
+  const policy =
+    input.installationId !== undefined
+      ? await getRepoPolicy(input.repoFullName, input.installationId)
+      : DEFAULT_REPO_POLICY;
   // I4: the CI-fix path (handleCheckSuite) opts out of the gate explicitly;
   // every other caller (the @forge comment path) goes through the policy
   // unchanged.
@@ -71,20 +105,29 @@ export async function dispatchFromGithub(
   const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 20)}`;
   const ledgerSeed = `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`;
 
-  // Look up the repo owner from github_installation_repos
-  const [repoRow] = await db
-    .select({
-      userId: githubInstallations.userId,
-      agentId: githubInstallations.agentId,
-      githubVaultId: githubInstallations.githubVaultId,
-    })
-    .from(githubInstallationRepos)
-    .innerJoin(
-      githubInstallations,
-      eq(githubInstallationRepos.installationId, githubInstallations.id),
-    )
-    .where(eq(githubInstallationRepos.repo, input.repoFullName))
-    .limit(1);
+  // Look up the repo owner from github_installation_repos, scoped to the
+  // same installation the policy above was just resolved against.
+  const [repoRow] =
+    input.installationId !== undefined
+      ? await db
+          .select({
+            userId: githubInstallations.userId,
+            agentId: githubInstallations.agentId,
+            githubVaultId: githubInstallations.githubVaultId,
+          })
+          .from(githubInstallationRepos)
+          .innerJoin(
+            githubInstallations,
+            eq(githubInstallationRepos.installationId, githubInstallations.id),
+          )
+          .where(
+            and(
+              eq(githubInstallationRepos.repo, input.repoFullName),
+              eq(githubInstallations.installationId, input.installationId),
+            ),
+          )
+          .limit(1)
+      : [];
 
   const userId = repoRow?.userId ?? GITHUB_SYSTEM_USER_ID;
   const agentId = repoRow?.agentId ?? env.FORGE_DEFAULT_AGENT_ID ?? 'agent_unset';

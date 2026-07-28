@@ -221,7 +221,35 @@ describe('updateRepoSettings — policies', () => {
       'm_container',
       validInput({ autoMerge: { enabled: true, maxAdditions: -1 } }),
     );
-    expect(res.ok).toBe(false);
+    // M5: assert the actual error message, not just ok === false, so an
+    // unrelated validation regression (e.g. a different field rejected for
+    // a different reason) can't satisfy this assertion by accident.
+    expect(res).toEqual({ ok: false, error: 'Max additions must be a positive whole number, or blank' });
+  });
+
+  // M4: the spec says numeric caps are "positive integers or blank" — a cap
+  // of exactly 0 means "no diff may add/delete/change a single line", which
+  // blocks every merge outright. That's the exact footgun
+  // parse-optional-number.ts's own doc comment warns about (blank must come
+  // through as `undefined`, not `0`). Reverting the `< 1` check in
+  // settings-actions.ts back to `< 0` makes this fail: 0 would be silently
+  // accepted.
+  it('rejects a diff cap of exactly 0 (would block every merge, not "no cap")', async () => {
+    const res = await updateRepoSettings(
+      'm_container',
+      validInput({ autoMerge: { enabled: true, maxAdditions: 0 } }),
+    );
+    expect(res).toEqual({ ok: false, error: 'Max additions must be a positive whole number, or blank' });
+  });
+
+  it('accepts a diff cap of exactly 1', async () => {
+    const res = await updateRepoSettings(
+      'm_container',
+      validInput({ autoMerge: { enabled: true, maxAdditions: 1 } }),
+    );
+    expect(res).toEqual({ ok: true });
+    const m = await missionRow('m_container');
+    expect((m.autoMergePolicy as AutoMergePolicy).maxAdditions).toBe(1);
   });
 });
 

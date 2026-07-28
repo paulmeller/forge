@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 
 import { eq } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/libsql/migrator';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { LibSQLDatabase } from 'drizzle-orm/libsql';
 
@@ -63,6 +63,17 @@ afterAll(() => {
 
 afterEach(() => {
   vi.clearAllMocks();
+});
+
+// M6: without this, the file was only order-independent by accident —
+// test 3 ('does not select a queued task...') asserted `candidates === 0`,
+// which was only true because test 2 ('does select a ready_to_merge task...')
+// had already merged (and thereby moved out of ready_to_merge) the one row
+// it created. Running that test alone, or reordering the file, would have
+// left a stray ready_to_merge row bleeding into later tests. Missions cascade
+// to tasks (schema.ts's onDelete: 'cascade'), so clearing missions is enough.
+beforeEach(async () => {
+  await db.delete(schema.missions);
 });
 
 async function insertMission(id: string, over: Record<string, unknown> = {}) {
@@ -163,6 +174,19 @@ describe('runAutoMerge — candidate selection (real query, live SQLite)', () =>
   it('selects a leaf Task when only the CONTAINER has auto-merge enabled', async () => {
     // The whole point of the resolver: a repo-level toggle must reach the
     // issue-leaf missions that actually own the Tasks.
+    //
+    // M1: this used to assert only `result.candidates === 1`, which comes
+    // from the raw `WHERE status = 'ready_to_merge'` query (auto-merge.ts's
+    // `candidates` select) — that query doesn't even look at autoMergePolicy,
+    // so it can't tell "the resolver correctly read through to the
+    // container" apart from "the resolver was never consulted at all".
+    // `resolvePolicyCached`/`resolveAutoMergePolicy` — the actual parent
+    // lookup this test exists to cover — only gets exercised on the path to
+    // `result.merged`. Asserting `merged` instead (with the Octokit calls
+    // mocked the same way the positive-control test above does) means a
+    // broken parent-lookup (e.g. resolving the leaf's own null policy
+    // instead of reading through to the container) fails this test, not just
+    // its sibling.
     const containerId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
     const leafId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
     const taskId = `tsk_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
@@ -170,9 +194,25 @@ describe('runAutoMerge — candidate selection (real query, live SQLite)', () =>
     await insertMission(leafId, { parentMissionId: containerId, autoMergePolicy: null });
     await insertTask(taskId, leafId, { status: 'ready_to_merge' });
 
+    mockOctokit.pulls.get.mockResolvedValue({
+      data: {
+        state: 'open',
+        additions: 5,
+        deletions: 2,
+        changed_files: 1,
+        node_id: 'PR_leaf_container',
+        base: { ref: 'main' },
+      },
+    });
+    mockOctokit.repos.getBranchProtection.mockResolvedValue({
+      data: { required_status_checks: { contexts: ['build'] } },
+    });
+    mockOctokit.graphql.mockResolvedValue({});
+
     const result = await runAutoMerge(noopLog);
 
     expect(result.candidates).toBe(1);
+    expect(result.merged).toBe(1);
   });
 
   it('a repo-level toggle enabled AFTER a leaf Task already sits in ready_to_merge frees it on the very next run (live, not copied)', async () => {

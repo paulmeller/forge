@@ -7,7 +7,7 @@ import { RepoBudgetLine } from '@/components/repo-budget-line';
 import { env } from '@/lib/env';
 import { listLedgerForTask } from '@/lib/ledger';
 import { getRepoBudget } from '@/lib/repo-budget';
-import { getRepoPolicy } from '@/lib/repo-policy';
+import { getRepoPolicyForUser } from '@/lib/repo-policy';
 import { countMissionsThisMonth, listTasksTouchingRepo } from '@/lib/repo-activity';
 import { rollupTasks } from '@/lib/rollups';
 import { listTasksForWorkspace } from '@/lib/tasks';
@@ -162,7 +162,7 @@ export default async function RepoWorkspacePage({
                 aiReviewEnabled={mission.aiReviewEnabled}
                 selfVerifyEnabled={mission.selfVerifyEnabled}
                 autoMergePolicy={mission.autoMergePolicy as AutoMergePolicy | null}
-                requirePlanApproval={(await getRepoPolicy(repo)).requirePlanApproval}
+                requirePlanApproval={(await getRepoPolicyForUser(repo, user.id)).requirePlanApproval}
               />
             ) : (
               <Empty className="border">

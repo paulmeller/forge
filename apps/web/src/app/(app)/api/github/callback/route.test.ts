@@ -37,12 +37,18 @@ vi.mock('@/lib/github-installation-sync', () => ({
 }));
 
 const insertValues = vi.fn(async () => {});
+const updateSet = vi.fn(() => ({ where: async () => {} }));
+// Configurable via `existingRow` — the row `select().from().where().limit()`
+// returns, simulating a github_installations row already present for the
+// requested installationId. Defaults to "no row" (empty array).
+let existingRow: { id: string; userId: string } | null = null;
 vi.mock('@/lib/db', () => ({
   db: {
     select: () => ({
-      from: () => ({ where: () => ({ limit: async () => [] }) }),
+      from: () => ({ where: () => ({ limit: async () => (existingRow ? [existingRow] : []) }) }),
     }),
     insert: () => ({ values: insertValues }),
+    update: () => ({ set: updateSet }),
   },
 }));
 
@@ -57,6 +63,7 @@ const call = (qs: string) => GET(new Request(`https://forge.example/api/github/c
 beforeEach(() => {
   cookieStore.clear();
   vi.clearAllMocks();
+  existingRow = null;
   userHasInstallationAccess.mockResolvedValue(true);
   getAccessToken.mockResolvedValue({ accessToken: 'gho_tok' });
 });
@@ -79,11 +86,32 @@ describe('GitHub install callback authorization', () => {
     expect(insertValues).not.toHaveBeenCalled();
   });
 
-  it('takes the cookie fast path without calling GitHub', async () => {
+  // This is the C1 fix: a matching state cookie is CSRF protection, never a
+  // substitute for asking GitHub. The old version of this test asserted the
+  // opposite (`.not.toHaveBeenCalled()`) — that assertion encoded the bypass:
+  // installation ids are sequential integers, so a state match alone proves
+  // only "this browser started an install flow", never "this user owns
+  // installation N". Reverting the `&&` combination in route.ts back to the
+  // old `||` short-circuit (i.e. skipping the GitHub call whenever state
+  // matches) makes this fail: userHasInstallationAccess would go uncalled.
+  it('still asks GitHub even when the state cookie matches (state is CSRF-only, never ownership)', async () => {
     cookieStore.set(INSTALL_STATE_COOKIE, 'abc123');
     const res = await call('?installation_id=42&state=abc123');
     expect(res.headers.get('location')).not.toContain('error=');
-    expect(userHasInstallationAccess).not.toHaveBeenCalled();
+    expect(userHasInstallationAccess).toHaveBeenCalledWith('gho_tok', 42);
+  });
+
+  // The other half of the same fix: a matching state must not let a GitHub
+  // denial through. If route.ts ever went back to `authorized =
+  // statesMatch(...) || (await userOwnsInstallation(...))`, this would pass
+  // (wrongly) since the `||` short-circuits on the state match. With `&&`,
+  // GitHub's "no" always wins.
+  it('rejects even when the state matches, if GitHub denies ownership', async () => {
+    cookieStore.set(INSTALL_STATE_COOKIE, 'abc123');
+    userHasInstallationAccess.mockResolvedValue(false);
+    const res = await call('?installation_id=42&state=abc123');
+    expect(res.headers.get('location')).toContain('error=install_not_verified');
+    expect(insertValues).not.toHaveBeenCalled();
   });
 
   it('consumes the state cookie so a replay cannot reuse it', async () => {
@@ -92,11 +120,13 @@ describe('GitHub install callback authorization', () => {
     expect(cookieStore.has(INSTALL_STATE_COOKIE)).toBe(false);
   });
 
-  it('falls back to the ownership check when the state is present but wrong', async () => {
+  it('rejects outright when the state cookie is present but wrong, without asking GitHub', async () => {
     cookieStore.set(INSTALL_STATE_COOKIE, 'expected');
-    userHasInstallationAccess.mockResolvedValue(false);
     const res = await call('?installation_id=42&state=forged');
     expect(res.headers.get('location')).toContain('error=install_not_verified');
+    // A forged state gets no second chance via the GitHub ownership check —
+    // it is rejected outright as a CSRF failure.
+    expect(userHasInstallationAccess).not.toHaveBeenCalled();
   });
 
   it('rejects when no GitHub token can be obtained', async () => {
@@ -104,5 +134,31 @@ describe('GitHub install callback authorization', () => {
     const res = await call('?installation_id=42');
     expect(res.headers.get('location')).toContain('error=install_not_verified');
     expect(insertValues).not.toHaveBeenCalled();
+  });
+});
+
+describe('GitHub install callback — reclaiming a stale row (pre-claiming attack)', () => {
+  // C1's second variant: an attacker registers an installation id that
+  // doesn't exist yet. syncGithubInstallation 404s and is swallowed, but the
+  // github_installations row from the insert survives, bound to the
+  // attacker. When the real owner later completes the install, GitHub
+  // confirms *they* own installationId — but the stale row still says
+  // otherwise. Reverting the `existing.userId === user.id` check (i.e. going
+  // back to always reusing `existing.id` unconditionally) makes this fail:
+  // the row would stay bound to the attacker forever.
+  it("updates the row's userId to the current, GitHub-verified owner when it was claimed by someone else", async () => {
+    existingRow = { id: 'ghi_stale', userId: 'attacker' };
+    const res = await call('?installation_id=42');
+    expect(res.headers.get('location')).not.toContain('error=');
+    expect(updateSet).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'u1' }),
+    );
+  });
+
+  it('does not touch the row when it already belongs to the current user', async () => {
+    existingRow = { id: 'ghi_mine', userId: 'u1' };
+    const res = await call('?installation_id=42');
+    expect(res.headers.get('location')).not.toContain('error=');
+    expect(updateSet).not.toHaveBeenCalled();
   });
 });

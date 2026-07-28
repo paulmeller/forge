@@ -520,24 +520,16 @@ export async function runReconciler(log: Logger): Promise<ReconcileResult> {
     .from(missions)
     .where(eq(missions.status, 'running'));
 
-  // Per-invocation memoization only: several Missions above commonly share
-  // one container, and resolveAutoMergePolicy is a live DB lookup (up to two
-  // queries) — re-resolving the same missionId repeatedly within this one
-  // pass would be pure waste. Deliberately NOT a process-wide or cross-tick
-  // cache: that would defeat the entire point of the resolver, which is that
-  // enabling auto-merge on a repo must free Tasks that already exist on the
-  // very next tick, not whenever some longer-lived cache next expires.
-  const policyCache = new Map<string, AutoMergePolicy | null>();
-  async function resolvePolicyCached(missionId: string): Promise<AutoMergePolicy | null> {
-    const cached = policyCache.get(missionId);
-    if (cached !== undefined) return cached;
-    const policy = await resolveAutoMergePolicy(missionId);
-    policyCache.set(missionId, policy);
-    return policy;
-  }
-
+  // M2: unlike auto-merge.ts's identical-looking cache (several ready_to_merge
+  // Tasks there commonly share one Mission, so memoizing by missionId is a
+  // real hit), `candidates` here comes straight from `SELECT * FROM missions`
+  // — every row is a distinct Mission by construction (missions.id is the
+  // primary key), so a cache keyed on `mission.id` in the loop below can
+  // never hit; it was always exactly one lookup, one cache miss, one store,
+  // per Mission. Call the live resolver directly rather than keep a cache
+  // that reads as an optimization but isn't one.
   for (const mission of candidates) {
-    const policy = await resolvePolicyCached(mission.id);
+    const policy = await resolveAutoMergePolicy(mission.id);
     const terminal = missionTerminalStatusesFor(policy);
     const nonTerminal = await db
       .select({ count: sql<number>`count(*)` })

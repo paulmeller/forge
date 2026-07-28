@@ -93,6 +93,34 @@ export async function runTick(log: Logger): Promise<TickResult> {
     return { missionsChecked: 0, paused: 0, hardStopped: 0 };
   });
 
+  // M3: auto-merge MUST run before the reconciler, and this is pinned by
+  // tick.test.ts's call-order test — do not reorder these two without
+  // reading this comment.
+  //
+  // Both auto-merge.ts and reconciler.ts each resolve
+  // `resolveAutoMergePolicy(missionId)` through their own per-invocation
+  // Map cache (auto-merge.ts's is a real optimization — several
+  // ready_to_merge Tasks commonly share one Mission; reconciler.ts's
+  // equivalent was removed as dead code, M2, since its candidates are
+  // always distinct Missions). Running auto-merge first means that within
+  // this SAME tick:
+  //  - Any ready_to_merge Task auto-merge arms this tick moves to `merging`
+  //    before the reconciler's merging sweep (step 1.7) runs, so a PR that
+  //    GitHub already merged synchronously can be observed and the Task
+  //    settled to `merged` in the SAME tick, instead of sitting one whole
+  //    tick behind for no reason.
+  //  - The reconciler's mission-completion check (step 2,
+  //    `missionTerminalStatusesFor`) sees the Task status auto-merge just
+  //    produced this tick (`merging`/`merged`/`needs_human`), not the
+  //    Task's pre-auto-merge status — so a Mission whose only Task just got
+  //    armed or merged this tick is evaluated against current reality, not
+  //    reality as of the previous tick.
+  // Reversing the order doesn't corrupt data (each function reads
+  // `missions`/`tasks` fresh, live, every tick — nothing here is ACTUALLY a
+  // stale-cache bug), but it does silently reintroduce a full tick of
+  // latency on both of the above, and future changes to either module's
+  // caching could turn that latency gap into a real staleness bug. Pin the
+  // order so that risk can't grow unnoticed.
   const reconciler = await runReconciler(log).catch((err) => {
     log.error({ err: String(err) }, 'tick:reconciler_crashed');
     return {
