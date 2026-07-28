@@ -1,14 +1,22 @@
 import { z } from 'zod';
-import { apiErrorCodes } from './errors';
+import {
+  componentSchemas,
+  documentSecurity,
+  responseSchemas,
+  securitySchemes,
+} from './components';
 import { schemas } from './schemas';
 
 // Each registry entry declares a different subset of method/path/params/
 // query/body (that specificity is what lets route handlers rely on exact
 // keys), so the union Object.entries produces doesn't structurally expose
 // all five. This shape is only for iterating the registry generically here;
-// it doesn't change what schemas.ts exports. `method`/`path` are optional:
-// repos.* and ledger.* carry neither (no route exists yet), and
-// buildOpenApiDocument skips any entry missing either.
+// it doesn't change what schemas.ts exports. `method`/`path` are optional so
+// that an operation can be registered before its route exists, and
+// buildOpenApiDocument skips any entry missing either — a spec must describe
+// what exists. Every entry carries both today (repos.* and ledger.* were the
+// last two without, and shipped their routes in Tasks 6-7), so nothing is
+// currently skipped.
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 type SchemaDef = {
@@ -74,9 +82,9 @@ export function buildOpenApiDocument(): unknown {
   const paths: Record<string, Record<string, unknown>> = {};
 
   for (const [operationId, def] of Object.entries(schemas) as [string, SchemaDef][]) {
-    // No route exists for this operation yet (repos.*, ledger.* — Tasks 6-7
-    // will add them). A spec must describe what exists, so operations
-    // without a path/method are left out entirely rather than advertised.
+    // A spec must describe what exists: an operation registered without a
+    // path/method has no route behind it, so it is left out entirely rather
+    // than advertised. No entry is in that state today.
     if (!def.path || !def.method) continue;
 
     const parameters: Record<string, unknown>[] = [
@@ -100,8 +108,27 @@ export function buildOpenApiDocument(): unknown {
           }
         : {}),
       responses: {
-        [successStatus]: { description: 'Success' },
-        // One shared error response for every non-2xx outcome, reusing
+        [successStatus]: {
+          description: 'Success',
+          // Every operation used to declare `{description: "Success"}` and
+          // nothing else, so a generated client knew how to CALL the API and
+          // nothing about what came back. responseSchemas (lib/api/
+          // components.ts) is keyed by the same operation ids as the request
+          // registry, and openapi.test.ts asserts the two key sets match, so
+          // a new endpoint cannot ship documenting only its request.
+          content: { 'application/json': { schema: responseSchemas[operationId] } },
+        },
+        // Called out separately from `default` because it is the one failure
+        // every caller hits first and must handle before any other: it is
+        // the answer to a missing, malformed or expired credential, and it
+        // is what tells a CLI to re-authenticate rather than retry.
+        '401': {
+          description: 'Authentication required — no usable bearer token or x-api-key',
+          content: {
+            'application/json': { schema: { $ref: '#/components/schemas/Error' } },
+          },
+        },
+        // One shared error response for every other non-2xx outcome, reusing
         // components.schemas.Error rather than inlining the same shape at
         // every operation — see that schema's own doc comment for what it
         // covers and the trade-off it records.
@@ -122,42 +149,25 @@ export function buildOpenApiDocument(): unknown {
   return {
     openapi: '3.1.0',
     info: { title: 'Forge API', version: '1.0.0' },
+    // Applied at the document level rather than per operation: every /api/v1
+    // route goes through withApiAuth (lib/api/auth.ts) with no exceptions, so
+    // repeating `security` on each operation would be 18 copies of one fact
+    // and 18 places for an exception to hide. The two entries are
+    // alternatives (OpenAPI's OR) — either credential satisfies any call.
+    security: documentSecurity,
     paths,
     components: {
-      schemas: {
-        // Recorded per Task 4b Step 3: the pre-v1 POST /api/missions returned
-        // { error: 'validation failed', issues: err.issues } — a full
-        // per-field Zod issue array, so a caller could tell exactly which
-        // field failed. Every v1 route instead uses this one fixed envelope
-        // everywhere, joining multi-issue Zod errors into a single message
-        // string. That is a deliberate trade-off (one predictable shape for
-        // every route, at the cost of per-field addressability for a CLI),
-        // not an oversight — recorded here so it's a decision on record.
-        Error: {
-          type: 'object',
-          description:
-            'Fixed error envelope used by every v1 route. Trade-off: collapses ' +
-            'multi-field Zod validation failures into one joined message ' +
-            'string, rather than the per-field issue array the deleted ' +
-            'POST /api/missions used to return.',
-          properties: {
-            error: {
-              type: 'object',
-              properties: {
-                // Generated from apiErrorCodes (lib/api/errors.ts) — the
-                // same array `fail()` is typed against, so the enum cannot
-                // list a code no route can emit, nor omit one that a route
-                // can. A CLI reads this instead of grepping route handlers
-                // to learn that "not found" is one string and not three.
-                code: { type: 'string', enum: [...apiErrorCodes] },
-                message: { type: 'string' },
-              },
-              required: ['code', 'message'],
-            },
-          },
-          required: ['error'],
-        },
-      },
+      // Recorded per Task 4b Step 3: the pre-v1 POST /api/missions returned
+      // { error: 'validation failed', issues: err.issues } — a full per-field
+      // Zod issue array, so a caller could tell exactly which field failed.
+      // Every v1 route instead uses one fixed envelope everywhere, joining
+      // multi-issue Zod errors into a single message string. That is a
+      // deliberate trade-off (one predictable shape for every route, at the
+      // cost of per-field addressability for a CLI), not an oversight — see
+      // componentSchemas.Error in lib/api/components.ts, where the shape and
+      // this note now live together with the rest of the schemas.
+      schemas: componentSchemas,
+      securitySchemes,
     },
   };
 }
