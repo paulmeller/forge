@@ -168,4 +168,38 @@ describe('apiAuth', () => {
     const [user] = await apiAuth();
     expect(user?.id).toBe('cookie_user');
   });
+
+  /**
+   * The bearer plugin bails unless the Authorization scheme is literally
+   * `bearer`. `Basic` (or any other scheme a proxy might inject) is not a
+   * usable token, so it must not be treated as an identity claim that
+   * evicts the cookie.
+   */
+  it('resolves as the cookie user when Authorization is a non-bearer scheme (no 401)', async () => {
+    vi.mocked(headers).mockResolvedValue(new Headers({
+      authorization: 'Basic eHl6',
+      cookie: 'better-auth.session_token=cookie_user_token',
+    }));
+    vi.mocked(auth.api.getSession).mockImplementation(cookieWinsGetSession);
+
+    const [user, response] = await apiAuth();
+    expect(response).toBeNull();
+    expect(user?.id).toBe('cookie_user');
+  });
+
+  it('resolves as the x-api-key user when Authorization is a non-bearer scheme', async () => {
+    vi.mocked(headers).mockResolvedValue(new Headers({
+      authorization: 'Basic eHl6',
+      'x-api-key': 'tok_api',
+    }));
+    vi.mocked(auth.api.getSession).mockImplementation((async (ctx: { headers: Headers }) => {
+      return ctx.headers.get('authorization') === 'Bearer tok_api'
+        ? ({ user: { id: 'api_user', name: 'Api', email: 'api@x' } } as never)
+        : null;
+    }) as never);
+
+    const [user, response] = await apiAuth();
+    expect(response).toBeNull();
+    expect(user?.id).toBe('api_user');
+  });
 });

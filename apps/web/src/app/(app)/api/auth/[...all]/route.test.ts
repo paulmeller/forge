@@ -109,4 +109,29 @@ describe('auth catch-all route', () => {
     expect(res.headers.get('set-auth-token')).toBeNull();
     expect(res.status).toBe(302);
   });
+
+  /**
+   * better-auth emits more than one Set-Cookie on real paths — the session
+   * cookie plus `dont_remember` or OAuth state clearing. `new Headers(res)`
+   * preserves each as a distinct entry; `Object.fromEntries(res.headers)`
+   * would collapse them to the last one and still pass every other assertion
+   * in this file, since they all use a single cookie. Pin the multi-cookie
+   * case explicitly.
+   */
+  it('preserves multiple distinct Set-Cookie entries through the reconstruction', async () => {
+    const raw = new Response('{"ok":true}', {
+      status: 200,
+      headers: { 'set-auth-token': 'raw_session_token_value' },
+    });
+    raw.headers.append('set-cookie', 'better-auth.session_token=raw_session_token_value; HttpOnly');
+    raw.headers.append('set-cookie', 'dont_remember=1; Path=/');
+    upstream.POST.mockResolvedValue(raw);
+
+    const res = await POST(req());
+
+    const cookies = res.headers.getSetCookie();
+    expect(cookies).toHaveLength(2);
+    expect(cookies).toContain('better-auth.session_token=raw_session_token_value; HttpOnly');
+    expect(cookies).toContain('dont_remember=1; Path=/');
+  });
 });

@@ -4,7 +4,7 @@
 
 **Goal:** Make Forge operable from a CLI — a versioned `/api/v1` surface covering mission lifecycle, task operations, the ledger, and repo policy, authenticated by a token that resolves to a real user.
 
-**Architecture:** One Zod schema per operation drives validation, types, and a generated OpenAPI spec. Auth uses better-auth's `device-authorization` and `bearer` plugins so a CLI token resolves through the same `auth.api.getSession()` call the app already uses — no new identity model. Business logic stays in `lib/`; routes are thin.
+**Architecture:** One Zod schema per operation drives validation, types, and a generated OpenAPI spec. Auth uses better-auth's `device-authorization` and `bearer` plugins so a CLI token resolves through the same `auth.api.getSession()` call the app already uses — no new identity model. (The `device-authorization` half is deferred to Task 8, pending a consent page, client validation, and scope handling; `bearer` plus `x-api-key` ship now.) Business logic stays in `lib/`; routes are thin.
 
 **Tech Stack:** Next.js 16 App Router, better-auth 1.6.9, Zod 4, Drizzle over libSQL, vitest.
 
@@ -36,7 +36,7 @@
 - `docs/api/openapi.json` — generated, committed, checked by a test
 
 **Modified**
-- `apps/web/src/lib/auth.ts` — register `bearer` and `device-authorization` plugins
+- `apps/web/src/lib/auth.ts` — register `bearer` and `device-authorization` plugins (the latter deferred to Task 8; unregistered as of the auth-hardening commit)
 - `apps/web/src/lib/api-auth.ts` — accept `x-api-key` as a bearer alias
 - `package.json` (root) — an `api:spec` script
 

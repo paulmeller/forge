@@ -25,19 +25,32 @@ const unauthorized = (): [null, NextResponse] => [
  * The alias is all that is needed because better-auth's bearer plugin turns
  * `Authorization: Bearer` into the session cookie every ownership check
  * already reads.
+ *
+ * Gate on a *usable* token, not on the header's mere presence. The bearer
+ * plugin bails unless the scheme is literally `bearer` (case-insensitively),
+ * so `Authorization: Basic …` — HTTP Basic auth, or any proxy that injects
+ * its own Authorization header — is not an identity claim this function
+ * should act on. Treating it as one produced a guaranteed 401 with a valid
+ * credential present: a `Basic` header plus `x-api-key` used to skip the
+ * alias (because `explicit` was truthy) while still deleting the cookie.
  */
 function withBearerAlias(incoming: Headers): Headers {
   const explicit = incoming.get('authorization');
   const apiKey = incoming.get('x-api-key');
-  if (!explicit && !apiKey) return incoming;
+  const bearerToken = explicit?.slice(0, 7).toLowerCase() === 'bearer '
+    ? explicit.slice(7).trim()
+    : null;
+  if (!bearerToken && !apiKey) return incoming;
   const resolved = new Headers(incoming);
-  if (!explicit && apiKey) resolved.set('authorization', `Bearer ${apiKey}`);
+  if (!bearerToken && apiKey) resolved.set('authorization', `Bearer ${apiKey}`);
   // A presented token is an explicit identity claim. Leaving the cookie
   // attached lets it win silently one layer down — the bearer plugin appends
   // its synthesized cookie to the existing one and better-call's parser keeps
   // the first occurrence — so the caller would act as the cookie's user while
   // believing it acted as the token's. That is a wrong-user action, not a
-  // failed one, so the cookie goes.
+  // failed one, so the cookie goes. This only runs once we know a usable
+  // token exists — a Basic header (or any other scheme) with no api-key
+  // takes the early return above and leaves the cookie untouched.
   resolved.delete('cookie');
   return resolved;
 }
