@@ -1,0 +1,544 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Forge API",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "missions.list": {
+      "operationId": "missions.list",
+      "query": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "missions.create": {
+      "operationId": "missions.create",
+      "body": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "goal": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 10000
+          },
+          "backend": {
+            "type": "string",
+            "enum": [
+              "managed-agents",
+              "gateway",
+              "gemini-managed-agents"
+            ]
+          },
+          "agentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "plannerStrategy": {
+            "default": "rule-based",
+            "type": "string",
+            "enum": [
+              "rule-based",
+              "llm",
+              "graph",
+              "triage"
+            ]
+          },
+          "targetRepos": {
+            "default": [],
+            "maxItems": 500,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9._-]+\\/[a-zA-Z0-9._-]+$"
+            }
+          },
+          "issueQuery": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "concurrencyCap": {
+            "default": 5,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "budgetUsd": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "budgetTokens": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "budgetThresholdPct": {
+            "default": 80,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "budgetHardStopPct": {
+            "default": 100,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
+          },
+          "taskMaxTurns": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "taskMaxTokens": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "noProgressTokens": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "githubInstallationId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "githubVaultId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "skillId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "aiReviewEnabled": {
+            "default": false,
+            "type": "boolean"
+          },
+          "selfVerifyEnabled": {
+            "default": false,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "goal",
+          "backend",
+          "agentId",
+          "plannerStrategy",
+          "targetRepos",
+          "concurrencyCap",
+          "budgetThresholdPct",
+          "budgetHardStopPct",
+          "aiReviewEnabled",
+          "selfVerifyEnabled"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "missions.get": {
+      "operationId": "missions.get",
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "missionId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "missionId"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "missions.plan": {
+      "operationId": "missions.plan",
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "missionId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "missionId"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "missions.start": {
+      "operationId": "missions.start",
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "missionId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "missionId"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "missions.cancel": {
+      "operationId": "missions.cancel",
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "missionId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "missionId"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "missions.retry": {
+      "operationId": "missions.retry",
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "missionId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "missionId"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "tasks.list": {
+      "operationId": "tasks.list",
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "missionId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "missionId"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "tasks.get": {
+      "operationId": "tasks.get",
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "missionId": {
+            "type": "string"
+          },
+          "taskId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "missionId",
+          "taskId"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "tasks.approve": {
+      "operationId": "tasks.approve",
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "missionId": {
+            "type": "string"
+          },
+          "taskId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "missionId",
+          "taskId"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "tasks.dismiss": {
+      "operationId": "tasks.dismiss",
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "missionId": {
+            "type": "string"
+          },
+          "taskId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "missionId",
+          "taskId"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "tasks.steer": {
+      "operationId": "tasks.steer",
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "missionId": {
+            "type": "string"
+          },
+          "taskId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "missionId",
+          "taskId"
+        ],
+        "additionalProperties": false
+      },
+      "body": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 10000
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "tasks.abort": {
+      "operationId": "tasks.abort",
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "missionId": {
+            "type": "string"
+          },
+          "taskId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "missionId",
+          "taskId"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "ledger.mission": {
+      "operationId": "ledger.mission",
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "missionId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "missionId"
+        ],
+        "additionalProperties": false
+      },
+      "query": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "limit": {
+            "default": 200,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
+          }
+        },
+        "required": [
+          "limit"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "ledger.task": {
+      "operationId": "ledger.task",
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "missionId": {
+            "type": "string"
+          },
+          "taskId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "missionId",
+          "taskId"
+        ],
+        "additionalProperties": false
+      },
+      "query": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "limit": {
+            "default": 200,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
+          }
+        },
+        "required": [
+          "limit"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "repos.list": {
+      "operationId": "repos.list"
+    },
+    "repos.getPolicy": {
+      "operationId": "repos.getPolicy",
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "repo": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "repo"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "repos.setPolicy": {
+      "operationId": "repos.setPolicy",
+      "params": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "repo": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "repo"
+        ],
+        "additionalProperties": false
+      },
+      "body": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "requirePlanApproval": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "requirePlanApproval"
+        ],
+        "additionalProperties": false
+      }
+    }
+  }
+}

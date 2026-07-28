@@ -14,7 +14,8 @@
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "api:spec": "UPDATE_OPENAPI=1 pnpm --filter @forge/web exec vitest run src/lib/api/openapi.test.ts"
   },
   "pnpm": {
     "overrides": {
