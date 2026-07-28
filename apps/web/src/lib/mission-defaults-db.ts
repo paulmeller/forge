@@ -1,4 +1,4 @@
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 
 import { githubInstallationRepos, githubInstallations } from '@forge/db';
 
@@ -37,4 +37,41 @@ export async function listUserRepos(userId: string): Promise<string[]> {
     .where(eq(githubInstallations.userId, userId));
 
   return [...new Set(rows.map((r) => r.repo))].sort();
+}
+
+/**
+ * Does this user's GitHub App installation actually cover `repo`?
+ *
+ * This is the authorization gate every entry point that takes a
+ * caller-supplied `repo` string must pass before it may act on that repo —
+ * in particular before minting or touching a Mission whose `workspaceRepo`
+ * names it (see workspace-mission.ts's getOrCreateWorkspaceMission /
+ * getOrCreateIssueMission). Without this, an authenticated user could name
+ * any repo string — one they have no installation for at all — and the
+ * Mission that gets created is still structurally a genuine container
+ * (owned by them, workspaceRepo set), passing every downstream ownership
+ * check even though they never had any real access to that repo.
+ *
+ * Same join `listUserRepos` already does (github_installation_repos ->
+ * github_installations, scoped to this user) — reused here rather than
+ * duplicated so "does the user have this repo" is answered by exactly one
+ * query shape across the app, not two that could quietly drift apart.
+ *
+ * Callers must treat `false` identically whether `repo` belongs to someone
+ * else or doesn't exist at all — the query can't distinguish the two, and
+ * it must not: leaking existence would let a caller enumerate other
+ * accounts' private repos one guess at a time.
+ */
+export async function userCanAccessRepo(userId: string, repo: string): Promise<boolean> {
+  const [row] = await db
+    .select({ repo: githubInstallationRepos.repo })
+    .from(githubInstallationRepos)
+    .innerJoin(
+      githubInstallations,
+      eq(githubInstallationRepos.installationId, githubInstallations.id),
+    )
+    .where(and(eq(githubInstallations.userId, userId), eq(githubInstallationRepos.repo, repo)))
+    .limit(1);
+
+  return row !== undefined;
 }

@@ -74,13 +74,20 @@ async function seedMission(over: {
   });
 }
 
-/** Inserts a github_installation_repos row (and its parent installation) for `repo`. */
-async function seedRepoRow(repo: string, policy: RepoPolicy | null) {
+/**
+ * Inserts a github_installation_repos row (and its parent installation) for
+ * `repo`, owned by `installationUserId` (defaults to 'u1', this file's usual
+ * mission owner). Callers that need the write-scoping check
+ * (updateRepoSettings — see settings-actions.ts) to actually match must pass
+ * the acting user's id here, same as a real installation would be owned by
+ * whoever connected it.
+ */
+async function seedRepoRow(repo: string, policy: RepoPolicy | null, installationUserId = 'u1') {
   const now = new Date();
   const installationId = `ghi_${repo.replaceAll('/', '_')}`;
   await db.insert(schema.githubInstallations).values({
     id: installationId,
-    userId: 'u1',
+    userId: installationUserId,
     installationId: Math.floor(Math.random() * 1_000_000),
     accountLogin: repo.split('/')[0] ?? 'acme',
     accountType: 'Organization',
@@ -270,7 +277,12 @@ describe('updateRepoSettings — cross-account attack via targetRepos', () => {
     // always sets both to the same repo — but isolating exactly which
     // field the repo write is keyed on doesn't depend on that: this pins
     // the derivation source independently of the container/WHERE check).
-    await seedRepoRow('attacker-org/attacker-repo', { requirePlanApproval: true });
+    // attacker-org/attacker-repo's installation is genuinely owned by
+    // 'attacker' — this test isolates the derivation-source question
+    // (workspaceRepo vs. targetRepos), not the installation-ownership
+    // question (covered separately below), so the attacker must actually
+    // hold the installation their own container's write is scoped to.
+    await seedRepoRow('attacker-org/attacker-repo', { requirePlanApproval: true }, 'attacker');
     await seedRepoRow('victim-org/victim-repo', { requirePlanApproval: true });
     await seedMission({
       id: 'm_attacker_container',
@@ -319,5 +331,68 @@ describe('updateRepoSettings — cross-account attack via targetRepos', () => {
     );
 
     expect(res).toEqual({ ok: false, error: 'Repo settings not found' });
+  });
+});
+
+describe('updateRepoSettings — installation scoping when two accounts share a repo name', () => {
+  beforeEach(async () => {
+    mocks.withAuth.mockReset();
+    await db.delete(schema.githubInstallations);
+    await db.delete(schema.missions);
+  });
+
+  /** Installation + repo row owned by `userId`, with its own unique installation id. */
+  async function seedOwnInstallation(userId: string, installationDbId: string, repo: string) {
+    const now = new Date();
+    await db.insert(schema.githubInstallations).values({
+      id: installationDbId,
+      userId,
+      installationId: Math.floor(Math.random() * 1_000_000_000),
+      accountLogin: repo.split('/')[0] ?? 'acme',
+      accountType: 'Organization',
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.githubInstallationRepos).values({
+      id: `ghr_${installationDbId}`,
+      installationId: installationDbId,
+      repo,
+      repoPolicy: { requirePlanApproval: true },
+      createdAt: now,
+    });
+  }
+
+  it('writing your own container never flips a different installation row for the identical repo string', async () => {
+    // The unique index on github_installation_repos is (installationId,
+    // repo) — not repo alone (schema.ts) — so two different users can each
+    // legitimately hold their own installation row for the exact same repo
+    // name. This is not the targetRepos attack above: both containers here
+    // are genuine, owned by the user acting on them, with workspaceRepo
+    // correctly set to the repo each row actually names.
+    const repo = 'shared-name/shared-name';
+    await seedOwnInstallation('user_a', 'ghi_shared_a', repo);
+    await seedOwnInstallation('user_b', 'ghi_shared_b', repo);
+
+    await seedMission({
+      id: 'm_user_a_container',
+      userId: 'user_a',
+      workspaceRepo: repo,
+      targetRepos: [repo],
+    });
+
+    mocks.withAuth.mockResolvedValue({ id: 'user_a', name: 'User A', email: 'a@x.com' });
+    const res = await updateRepoSettings('m_user_a_container', validInput({ requirePlanApproval: false }));
+    expect(res).toEqual({ ok: true });
+
+    const rows = await db
+      .select()
+      .from(schema.githubInstallationRepos)
+      .where(eq(schema.githubInstallationRepos.repo, repo));
+    const byInstallation = new Map(rows.map((r) => [r.installationId, r.repoPolicy]));
+
+    // Only user_a's own installation row changed...
+    expect(byInstallation.get('ghi_shared_a')).toEqual({ requirePlanApproval: false });
+    // ...user_b's row for the identical repo string must survive untouched.
+    expect(byInstallation.get('ghi_shared_b')).toEqual({ requirePlanApproval: true });
   });
 });

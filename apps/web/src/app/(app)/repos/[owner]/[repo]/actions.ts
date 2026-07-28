@@ -9,7 +9,7 @@ import { getAdapter } from '@/server/tick/adapters';
 import { db } from '@/lib/db';
 import { env } from '@/lib/env';
 import { buildCreateIssuePayload } from '@/lib/github-issue-create';
-import { resolveMissionDefaults } from '@/lib/mission-defaults-db';
+import { resolveMissionDefaults, userCanAccessRepo } from '@/lib/mission-defaults-db';
 import { pauseMission, resumeMission } from '@/lib/mission-transitions';
 import { updateNextIssueRefs } from '@/lib/next-marker';
 import { buildTriageTaskRows, type TriageIssue } from '@/lib/triage-planner';
@@ -30,6 +30,19 @@ export async function workOnIssue(
   issue: { number: number; title: string; body: string; url: string },
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const user = await withAuth();
+
+  // repo is caller-supplied — a bare Server Action POST reachable without
+  // rendering any page. Without this check, any authenticated user could
+  // name a repo they have no GitHub App installation for and still mint a
+  // Mission they own whose workspaceRepo names it: a structurally genuine
+  // container that would pass every downstream ownership check (see
+  // userCanAccessRepo's doc comment, mission-defaults-db.ts). "Not yours"
+  // and "does not exist" must look identical here, so the error is the
+  // same generic fallback the catch below already returns for other
+  // mission-prep failures — it must not leak which case this is.
+  if (!(await userCanAccessRepo(user.id, repo))) {
+    return { ok: false, error: 'Could not prepare mission' };
+  }
 
   const issueRef = `${repo}#${issue.number}`;
 
@@ -311,6 +324,15 @@ export async function toggleNextMarker(
   marked: boolean,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const user = await withAuth();
+
+  // See the identical guard (and its rationale) in workOnIssue above — repo
+  // is caller-supplied here too, and getOrCreateWorkspaceMission below would
+  // otherwise mint a genuine, ownership-passing container for a repo this
+  // user never had any installation covering.
+  if (!(await userCanAccessRepo(user.id, repo))) {
+    return { ok: false, error: 'Could not prepare container' };
+  }
+
   const defaults = await resolveMissionDefaults(user.id);
 
   let container;

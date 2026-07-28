@@ -1,8 +1,8 @@
 'use server';
 
-import { and, eq, isNotNull, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 
-import { githubInstallationRepos, missions } from '@forge/db';
+import { githubInstallationRepos, githubInstallations, missions } from '@forge/db';
 
 import { db } from '@/lib/db';
 import { withAuth } from '@/lib/with-auth';
@@ -130,10 +130,36 @@ export async function updateRepoSettings(
         throw new Error('updateRepoSettings: matched a container with no workspaceRepo');
       }
 
-      await tx
-        .update(githubInstallationRepos)
-        .set({ repoPolicy: { requirePlanApproval: input.requirePlanApproval } })
-        .where(eq(githubInstallationRepos.repo, repo));
+      // Scope this write to an installation the ACTING user owns.
+      //
+      // The unique index on github_installation_repos is (installationId,
+      // repo) — not repo alone (schema.ts) — so two different users' own,
+      // legitimate installations can each hold a row for the very same repo
+      // string (e.g. each independently connected the GitHub App to it).
+      // Matching on `repo` alone, as this used to, would flip every such
+      // row at once: acting on your own genuinely-covered repo would also
+      // silently rewrite a stranger's row for that same repo name. The
+      // mission-ownership check above only proves the container is this
+      // user's own — it says nothing about whose installation row is being
+      // written, since that row is looked up by bare repo name, not by
+      // mission id.
+      const ownInstallations = await tx
+        .select({ id: githubInstallations.id })
+        .from(githubInstallations)
+        .where(eq(githubInstallations.userId, user.id));
+      const ownInstallationIds = ownInstallations.map((row) => row.id);
+
+      if (ownInstallationIds.length > 0) {
+        await tx
+          .update(githubInstallationRepos)
+          .set({ repoPolicy: { requirePlanApproval: input.requirePlanApproval } })
+          .where(
+            and(
+              eq(githubInstallationRepos.repo, repo),
+              inArray(githubInstallationRepos.installationId, ownInstallationIds),
+            ),
+          );
+      }
 
       return { ok: true } as const;
     });
