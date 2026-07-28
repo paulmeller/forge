@@ -72,6 +72,15 @@ headline claim and is currently reachable only through a browser.
   carries it as `Authorization: Bearer`. The flow is `gh auth login`: run `forge login`, get a
   code, approve in the browser, token stored under `~/.forge/`.
 
+**Header convention.** The token is accepted as `Authorization: Bearer <token>` or `x-api-key:
+<token>`, in that order. The sibling `managed-agents` server uses exactly this pair
+(`src/mcp/app.ts:31`: *"`x-api-key` header first, else `Authorization: Bearer <key>`"*), so one CLI
+can speak to both products without special-casing. Note the credential still resolves to a **user**
+— unlike `managed-agents`, which has no user model and can therefore accept a single static
+`MA_API_KEY`. Forge scopes everything by `missions.userId`, so a static key with no identity behind
+it would require a synthetic user and reopen the ownership-scoping class of bug closed on
+2026-07-27.
+
 Both resolve through `auth.api.getSession()`. That is the point of the choice: `apiAuth()` needs no
 change, every ownership check keeps working unmodified, and **no new auth primitive is invented**.
 A five-hop cross-account authorization chain was found and closed in this codebase on 2026-07-27,
