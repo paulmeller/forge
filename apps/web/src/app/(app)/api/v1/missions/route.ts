@@ -1,6 +1,7 @@
 import { ZodError } from 'zod';
 
 import { withApiAuth } from '@/lib/api/auth';
+import { toMissionResponse, toMissionResponses } from '@/lib/api/dto';
 import { fail, ok } from '@/lib/api/respond';
 import { schemas } from '@/lib/api/schemas';
 import { createMissionForUser, listMissionsForUser, RepoAccessError } from '@/lib/missions';
@@ -21,7 +22,7 @@ export const GET = withApiAuth(async (user, req) => {
   }
 
   const missions = await listMissionsForUser(user.id, status);
-  return ok({ missions });
+  return ok({ missions: toMissionResponses(missions) });
 });
 
 export const POST = withApiAuth(async (user, req) => {
@@ -35,7 +36,7 @@ export const POST = withApiAuth(async (user, req) => {
   try {
     const input = schemas['missions.create'].body.parse(body);
     const mission = await createMissionForUser(user.id, input);
-    return ok({ mission }, 201);
+    return ok({ mission: toMissionResponse(mission) }, 201);
   } catch (err) {
     if (err instanceof ZodError) {
       return fail('invalid_request', err.issues.map((i) => i.message).join('; '), 400);

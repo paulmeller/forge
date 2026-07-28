@@ -1,4 +1,5 @@
 import { withApiAuth } from '@/lib/api/auth';
+import { toMissionResponse } from '@/lib/api/dto';
 import { notFound, ok } from '@/lib/api/respond';
 import { getMission } from '@/lib/missions';
 
@@ -10,6 +11,6 @@ export const GET = withApiAuth<{ params: Promise<{ missionId: string }> }>(
     const { missionId } = await params;
     const mission = await getMission(missionId, user.id);
     if (!mission) return notFound('Mission');
-    return ok({ mission });
+    return ok({ mission: toMissionResponse(mission) });
   },
 );

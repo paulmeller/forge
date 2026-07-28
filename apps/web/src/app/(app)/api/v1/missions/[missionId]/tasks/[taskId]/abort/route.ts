@@ -1,4 +1,5 @@
 import { withApiAuth } from '@/lib/api/auth';
+import { toTaskResponse } from '@/lib/api/dto';
 import { fail, notFound, ok } from '@/lib/api/respond';
 import { abortTaskForUser } from '@/lib/task-session-ops';
 import { getTask } from '@/lib/tasks';
@@ -34,6 +35,6 @@ export const POST = withApiAuth<{ params: Promise<{ missionId: string; taskId: s
     // resource's post-mutation state rather than a bare acknowledgement.
     // `result.task` comes straight from the mutation's own `.returning()` —
     // no second `getTask` round trip, and nothing to null-check (Finding 6).
-    return ok({ task: result.task });
+    return ok({ task: toTaskResponse(result.task) });
   },
 );

@@ -1,4 +1,5 @@
 import { withApiAuth } from '@/lib/api/auth';
+import { toTaskResponse } from '@/lib/api/dto';
 import { notFound, ok } from '@/lib/api/respond';
 import { getTask } from '@/lib/tasks';
 
@@ -18,6 +19,6 @@ export const GET = withApiAuth<{ params: Promise<{ missionId: string; taskId: st
     const task = await getTask(taskId, user.id);
     if (!task || task.missionId !== missionId) return notFound('Task');
 
-    return ok({ task });
+    return ok({ task: toTaskResponse(task) });
   },
 );

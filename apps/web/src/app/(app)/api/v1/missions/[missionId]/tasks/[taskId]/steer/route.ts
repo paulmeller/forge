@@ -1,6 +1,7 @@
 import { ZodError } from 'zod';
 
 import { withApiAuth } from '@/lib/api/auth';
+import { toTaskResponse } from '@/lib/api/dto';
 import { fail, notFound, ok } from '@/lib/api/respond';
 import { schemas } from '@/lib/api/schemas';
 import { steerTaskForUser } from '@/lib/task-session-ops';
@@ -54,6 +55,6 @@ export const POST = withApiAuth<{ params: Promise<{ missionId: string; taskId: s
     // resource's post-mutation state rather than a bare acknowledgement.
     // `result.task` comes straight from steerTaskForUser — no second
     // `getTask` round trip, and nothing to null-check (Finding 6).
-    return ok({ task: result.task });
+    return ok({ task: toTaskResponse(result.task) });
   },
 );

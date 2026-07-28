@@ -1,5 +1,6 @@
 import { withApiAuth } from '@/lib/api/auth';
 import { missionTransitionFailure } from '@/lib/api/errors';
+import { toMissionResponse } from '@/lib/api/dto';
 import { failWith, notFound, ok } from '@/lib/api/respond';
 import { MissionTransitionError, startMission } from '@/lib/mission-transitions';
 import { getMission } from '@/lib/missions';
@@ -15,7 +16,7 @@ export const POST = withApiAuth<{ params: Promise<{ missionId: string }> }>(
 
     try {
       const updated = await startMission(missionId);
-      return ok({ mission: updated });
+      return ok({ mission: toMissionResponse(updated) });
     } catch (err) {
       // MissionTransitionError's own codes (NOT_FOUND/WRONG_STATUS) never
       // reach the wire — missionTransitionFailure maps them onto the closed

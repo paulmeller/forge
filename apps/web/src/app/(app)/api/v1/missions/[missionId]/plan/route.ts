@@ -1,5 +1,6 @@
 import { withApiAuth } from '@/lib/api/auth';
 import { plannerFailure } from '@/lib/api/errors';
+import { toMissionResponse } from '@/lib/api/dto';
 import { failWith, notFound, ok } from '@/lib/api/respond';
 import { getMission } from '@/lib/missions';
 import { PlannerError, runPlanner } from '@/lib/planner';
@@ -19,7 +20,7 @@ export const POST = withApiAuth<{ params: Promise<{ missionId: string }> }>(
       // can read one field unconditionally instead of inferring a filter ran
       // from a taskCount it has no baseline for. See PlanResult (lib/planner.ts).
       return ok({
-        mission: result.mission,
+        mission: toMissionResponse(result.mission),
         taskCount: result.taskCount,
         skipped: result.skipped ?? null,
       });

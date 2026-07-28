@@ -1,4 +1,5 @@
 import { withApiAuth } from '@/lib/api/auth';
+import { toTaskResponse } from '@/lib/api/dto';
 import { fail, notFound, ok } from '@/lib/api/respond';
 import { getTask } from '@/lib/tasks';
 import { reviewTask } from '@/lib/task-review';
@@ -29,6 +30,6 @@ export const POST = withApiAuth<{ params: Promise<{ missionId: string; taskId: s
       if (result.code === 'NOT_FOUND') return notFound('Task');
       return fail('invalid_state', result.error, 409);
     }
-    return ok({ task: result.task });
+    return ok({ task: toTaskResponse(result.task) });
   },
 );
