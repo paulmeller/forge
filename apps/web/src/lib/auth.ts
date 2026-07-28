@@ -1,7 +1,11 @@
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
+import { bearer } from 'better-auth/plugins/bearer';
+import { deviceAuthorization } from 'better-auth/plugins/device-authorization';
 import { sql } from 'drizzle-orm';
 import { integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+
+import { deviceCode } from '@forge/db/schema';
 
 import { db } from './db';
 import { env } from './env';
@@ -61,7 +65,7 @@ export const auth = betterAuth({
   baseURL: env.BETTER_AUTH_URL,
   database: drizzleAdapter(db, {
     provider: 'sqlite',
-    schema: { user, session, account, verification },
+    schema: { user, session, account, verification, deviceCode },
   }),
   emailAndPassword: {
     enabled: true,
@@ -72,6 +76,12 @@ export const auth = betterAuth({
       clientSecret: env.GITHUB_CLIENT_SECRET ?? '',
     },
   },
+  // bearer converts `Authorization: Bearer <token>` into the session cookie
+  // better-auth already understands, so apiAuth()/withAuth() need no change
+  // and every ownership check keeps working against a real user session.
+  // device-authorization is the `gh auth login` flow a CLI uses to obtain
+  // one; it stores its device/user codes in the `deviceCode` table above.
+  plugins: [bearer(), deviceAuthorization()],
 });
 
 export type Auth = typeof auth;

@@ -559,3 +559,29 @@ export type Task = typeof tasks.$inferSelect;
 export type NewTask = typeof tasks.$inferInsert;
 export type LedgerEvent = typeof ledgerEvents.$inferSelect;
 export type NewLedgerEvent = typeof ledgerEvents.$inferInsert;
+
+/**
+ * better-auth's device-authorization plugin table — the `gh auth login`-style
+ * device code flow a CLI uses to obtain a session token. Lives here rather
+ * than inline in apps/web/src/lib/auth.ts like the four core better-auth
+ * tables (user/session/account/verification), because this one is a new
+ * schema change and must be drizzle-kit-generated instead of hand-written;
+ * see apps/web/src/lib/auth.ts for how it is wired into the drizzleAdapter's
+ * explicit schema map alongside those four.
+ *
+ * Field names are camelCase to match better-auth's own default column
+ * naming (mirroring the user/session/account/verification tables), not this
+ * file's usual snake_case convention.
+ */
+export const deviceCode = sqliteTable('deviceCode', {
+  id: text('id').primaryKey(),
+  deviceCode: text('deviceCode').notNull(),
+  userCode: text('userCode').notNull(),
+  userId: text('userId'),
+  expiresAt: integer('expiresAt').notNull(),
+  status: text('status').notNull(),
+  lastPolledAt: integer('lastPolledAt'),
+  pollingInterval: integer('pollingInterval'),
+  clientId: text('clientId'),
+  scope: text('scope'),
+});

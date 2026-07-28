@@ -25,6 +25,7 @@ vi.mock('next/headers', () => ({
 // Dynamic import to ensure mocks are applied
 const { apiAuth } = await import('./api-auth');
 const { auth } = await import('./auth');
+const { headers } = await import('next/headers');
 
 describe('apiAuth', () => {
   it('returns 401 when no session exists', async () => {
@@ -71,5 +72,31 @@ describe('apiAuth', () => {
     const [user, response] = await apiAuth();
     expect(user).toBeNull();
     expect(response!.status).toBe(401);
+  });
+
+  it('accepts a token presented as x-api-key by aliasing it to Authorization', async () => {
+    // managed-agents (the sibling engine) accepts `x-api-key` first, else
+    // `Authorization: Bearer`. Matching that pair lets one CLI speak to both.
+    vi.mocked(headers).mockResolvedValue(new Headers({ 'x-api-key': 'tok_abc' }));
+    vi.mocked(auth.api.getSession).mockImplementation((async (ctx: { headers: Headers }) => {
+      return ctx.headers.get('authorization') === 'Bearer tok_abc'
+        ? ({ user: { id: 'u1', name: 'A', email: 'a@x' } } as never)
+        : null;
+    }) as never);
+    const [user] = await apiAuth();
+    expect(user?.id).toBe('u1');
+  });
+
+  it('prefers an explicit Authorization header over x-api-key', async () => {
+    vi.mocked(headers).mockResolvedValue(new Headers({
+      authorization: 'Bearer real', 'x-api-key': 'ignored',
+    }));
+    vi.mocked(auth.api.getSession).mockImplementation((async (ctx: { headers: Headers }) => {
+      return ctx.headers.get('authorization') === 'Bearer real'
+        ? ({ user: { id: 'u2', name: 'B', email: 'b@x' } } as never)
+        : null;
+    }) as never);
+    const [user] = await apiAuth();
+    expect(user?.id).toBe('u2');
   });
 });

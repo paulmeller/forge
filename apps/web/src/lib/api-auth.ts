@@ -19,6 +19,22 @@ const unauthorized = (): [null, NextResponse] => [
 ];
 
 /**
+ * Accepts the sibling managed-agents engine's header convention so one CLI
+ * can speak to both products without special-casing. Authorization wins when
+ * both are present — an explicit auth header is the more specific signal.
+ * The alias is all that is needed because better-auth's bearer plugin turns
+ * `Authorization: Bearer` into the session cookie every ownership check
+ * already reads.
+ */
+function withBearerAlias(incoming: Headers): Headers {
+  const apiKey = incoming.get('x-api-key');
+  if (!apiKey || incoming.get('authorization')) return incoming;
+  const resolved = new Headers(incoming);
+  resolved.set('authorization', `Bearer ${apiKey}`);
+  return resolved;
+}
+
+/**
  * Auth check for API route handlers. Returns the user or a 401 response.
  *
  * Reads the same better-auth session cookie as withAuth(); the two differ
@@ -36,7 +52,7 @@ const unauthorized = (): [null, NextResponse] => [
 export async function apiAuth(): Promise<[ApiUser, null] | [null, NextResponse]> {
   let session: Awaited<ReturnType<typeof auth.api.getSession>>;
   try {
-    session = await auth.api.getSession({ headers: await headers() });
+    session = await auth.api.getSession({ headers: withBearerAlias(await headers()) });
   } catch (err) {
     // Still a 401 — the caller is not authenticated either way — but an
     // adapter that is down is not the same event as a missing cookie, and
