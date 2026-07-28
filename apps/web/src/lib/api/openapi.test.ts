@@ -80,12 +80,22 @@ describe('openapi spec', () => {
     }
   });
 
-  // repos.* and ledger.* are registered in schemas.ts for future use but
-  // have no routes yet (Tasks 6-7). They must not appear in the spec.
+  // repos.* is registered in schemas.ts for future use but has no routes yet
+  // (Task 7). It must not appear in the spec. ledger.* shipped its routes in
+  // Task 6, so it's no longer in this "not yet" bucket — see the dedicated
+  // assertion below.
   it('does not advertise operations with no route yet', () => {
     const doc = buildOpenApiDocument() as OpenApiDoc;
     const urlPaths = Object.keys(doc.paths);
     expect(urlPaths.some((p) => p.includes('repos'))).toBe(false);
-    expect(urlPaths.some((p) => p.includes('ledger'))).toBe(false);
+  });
+
+  // Task 6: the audit trail is the highest-value part of this API. Pin the
+  // exact paths so a future refactor that silently drops one is caught here,
+  // not just by the generic "every path resolves to a route" check above.
+  it('advertises both ledger read endpoints', () => {
+    const doc = buildOpenApiDocument() as OpenApiDoc;
+    expect(doc.paths['/api/v1/missions/{missionId}/ledger']?.get).toBeDefined();
+    expect(doc.paths['/api/v1/missions/{missionId}/tasks/{taskId}/ledger']?.get).toBeDefined();
   });
 });

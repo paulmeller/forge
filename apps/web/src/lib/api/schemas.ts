@@ -72,13 +72,23 @@ export const schemas = {
     path: '/api/v1/missions/{missionId}/tasks/{taskId}/abort',
     params: z.object({ missionId: z.string(), taskId: z.string() }),
   },
-  // repos.* and ledger.* have no routes yet (Tasks 6-7 will add them) —
-  // deliberately no `path`/`method` here so buildOpenApiDocument
-  // (lib/api/openapi.ts) skips them. A spec must describe what exists, not
-  // what's planned; advertising an operation with no backing route is worse
-  // than not documenting it at all.
-  'ledger.mission': { params: z.object({ missionId: z.string() }), query: z.object({ limit: z.coerce.number().int().min(1).max(500).default(200) }) },
-  'ledger.task': { params: z.object({ missionId: z.string(), taskId: z.string() }), query: z.object({ limit: z.coerce.number().int().min(1).max(500).default(200) }) },
+  'ledger.mission': {
+    method: 'GET',
+    path: '/api/v1/missions/{missionId}/ledger',
+    params: z.object({ missionId: z.string() }),
+    query: z.object({ limit: z.coerce.number().int().min(1).max(500).default(200) }),
+  },
+  'ledger.task': {
+    method: 'GET',
+    path: '/api/v1/missions/{missionId}/tasks/{taskId}/ledger',
+    params: z.object({ missionId: z.string(), taskId: z.string() }),
+    query: z.object({ limit: z.coerce.number().int().min(1).max(500).default(200) }),
+  },
+  // repos.* have no routes yet (Task 7 will add them) — deliberately no
+  // `path`/`method` here so buildOpenApiDocument (lib/api/openapi.ts) skips
+  // them. A spec must describe what exists, not what's planned; advertising
+  // an operation with no backing route is worse than not documenting it at
+  // all.
   'repos.list': {},
   'repos.getPolicy': { params: z.object({ repo: z.string() }) },
   'repos.setPolicy': {
