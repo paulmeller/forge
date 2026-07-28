@@ -3,11 +3,19 @@ import { randomUUID } from 'node:crypto';
 import { Octokit } from '@octokit/rest';
 import { and, eq, inArray, isNotNull, isNull, lt, notInArray, sql } from 'drizzle-orm';
 
-import { ledgerEvents, missions, tasks, type Mission, type TaskStatus } from '@forge/db';
+import {
+  ledgerEvents,
+  missions,
+  tasks,
+  type AutoMergePolicy,
+  type Mission,
+  type TaskStatus,
+} from '@forge/db';
 
 import { db } from '@/lib/db';
 import { env } from '@/lib/env';
-import { client as getOctokit, hasEnabledAutoMergePolicy, PR_URL_RE } from './auto-merge';
+import { resolveAutoMergePolicy } from './auto-merge-policy';
+import { client as getOctokit, PR_URL_RE } from './auto-merge';
 import { extractVerdictFromLedger } from './triage-verdict';
 
 type Logger = {
@@ -95,12 +103,14 @@ export const MISSION_TERMINAL_TASK_STATUSES: TaskStatus[] = [
  *    are expected to resolve this Task soon. Keep the Mission open until
  *    they do, or it could complete out from under an in-flight merge.
  *
- * Pure given a Mission row — exported for testing.
+ * Takes an already-resolved policy rather than a Mission row: an issue-leaf
+ * Mission's own `autoMergePolicy` column is never the answer (repo settings
+ * only ever update the container row) — resolution through the container
+ * happens once at the caller via `resolveAutoMergePolicy`, so this stays a
+ * pure, synchronous mapping that's directly unit-testable.
  */
-export function missionTerminalStatusesFor(
-  mission: Pick<Mission, 'autoMergePolicy'>,
-): TaskStatus[] {
-  if (hasEnabledAutoMergePolicy(mission)) return MISSION_TERMINAL_TASK_STATUSES;
+export function missionTerminalStatusesFor(policy: AutoMergePolicy | null): TaskStatus[] {
+  if (policy?.enabled) return MISSION_TERMINAL_TASK_STATUSES;
   return [...MISSION_TERMINAL_TASK_STATUSES, 'ready_to_merge'];
 }
 
@@ -510,16 +520,29 @@ export async function runReconciler(log: Logger): Promise<ReconcileResult> {
     .from(missions)
     .where(eq(missions.status, 'running'));
 
+  // Per-invocation memoization only: several Missions above commonly share
+  // one container, and resolveAutoMergePolicy is a live DB lookup (up to two
+  // queries) — re-resolving the same missionId repeatedly within this one
+  // pass would be pure waste. Deliberately NOT a process-wide or cross-tick
+  // cache: that would defeat the entire point of the resolver, which is that
+  // enabling auto-merge on a repo must free Tasks that already exist on the
+  // very next tick, not whenever some longer-lived cache next expires.
+  const policyCache = new Map<string, AutoMergePolicy | null>();
+  async function resolvePolicyCached(missionId: string): Promise<AutoMergePolicy | null> {
+    const cached = policyCache.get(missionId);
+    if (cached !== undefined) return cached;
+    const policy = await resolveAutoMergePolicy(missionId);
+    policyCache.set(missionId, policy);
+    return policy;
+  }
+
   for (const mission of candidates) {
+    const policy = await resolvePolicyCached(mission.id);
+    const terminal = missionTerminalStatusesFor(policy);
     const nonTerminal = await db
       .select({ count: sql<number>`count(*)` })
       .from(tasks)
-      .where(
-        and(
-          eq(tasks.missionId, mission.id),
-          notInArray(tasks.status, missionTerminalStatusesFor(mission)),
-        ),
-      );
+      .where(and(eq(tasks.missionId, mission.id), notInArray(tasks.status, terminal)));
     const remaining = Number(nonTerminal[0]?.count ?? 0);
     if (remaining > 0) continue;
 

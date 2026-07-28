@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+import { eq } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/libsql/migrator';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
@@ -157,5 +158,65 @@ describe('runAutoMerge — candidate selection (real query, live SQLite)', () =>
     const result = await runAutoMerge(noopLog);
 
     expect(result.candidates).toBe(0);
+  });
+
+  it('selects a leaf Task when only the CONTAINER has auto-merge enabled', async () => {
+    // The whole point of the resolver: a repo-level toggle must reach the
+    // issue-leaf missions that actually own the Tasks.
+    const containerId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const leafId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const taskId = `tsk_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    await insertMission(containerId, { autoMergePolicy: { enabled: true } });
+    await insertMission(leafId, { parentMissionId: containerId, autoMergePolicy: null });
+    await insertTask(taskId, leafId, { status: 'ready_to_merge' });
+
+    const result = await runAutoMerge(noopLog);
+
+    expect(result.candidates).toBe(1);
+  });
+
+  it('a repo-level toggle enabled AFTER a leaf Task already sits in ready_to_merge frees it on the very next run (live, not copied)', async () => {
+    // This is the reason resolveAutoMergePolicy is a live lookup rather than
+    // a value copied onto the leaf at creation time: enabling auto-merge on
+    // a repo must reach Tasks that already existed before the toggle
+    // flipped, not just future ones. `result.candidates` alone can't prove
+    // this — it counts every ready_to_merge/prUrl row regardless of policy —
+    // so this asserts on whether runAutoMerge actually acted (armed a merge)
+    // instead.
+    const containerId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const leafId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const taskId = `tsk_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    await insertMission(containerId, { autoMergePolicy: { enabled: false } });
+    await insertMission(leafId, { parentMissionId: containerId, autoMergePolicy: null });
+    await insertTask(taskId, leafId, { status: 'ready_to_merge' });
+
+    // Disabled on the container: runAutoMerge must not act on the leaf's Task.
+    const before = await runAutoMerge(noopLog);
+    expect(before.merged).toBe(0);
+    expect(mockOctokit.graphql).not.toHaveBeenCalled();
+
+    // Flip the CONTAINER's policy live — the leaf row itself is never touched.
+    await db
+      .update(schema.missions)
+      .set({ autoMergePolicy: { enabled: true } })
+      .where(eq(schema.missions.id, containerId));
+
+    mockOctokit.pulls.get.mockResolvedValue({
+      data: {
+        state: 'open',
+        additions: 5,
+        deletions: 2,
+        changed_files: 1,
+        node_id: 'PR_live_lookup',
+        base: { ref: 'main' },
+      },
+    });
+    mockOctokit.repos.getBranchProtection.mockResolvedValue({
+      data: { required_status_checks: { contexts: ['build'] } },
+    });
+    mockOctokit.graphql.mockResolvedValue({});
+
+    const after = await runAutoMerge(noopLog);
+    expect(after.merged).toBe(1);
   });
 });

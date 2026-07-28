@@ -143,6 +143,18 @@ const amMocks = vi.hoisted(() => {
 vi.mock('@/lib/db', () => ({ db: amMocks.db }));
 vi.mock('@/lib/env', () => ({ env: amMocks.state.env }));
 vi.mock('@octokit/rest', () => ({ Octokit: vi.fn(() => amMocks.octokit) }));
+// Unit-level: runAutoMerge now resolves through resolveAutoMergePolicy
+// (auto-merge-policy.ts) instead of reading row.mission.autoMergePolicy
+// directly. Mock the resolver rather than the container/parent DB chain it
+// hides — that live-lookup behaviour is covered by
+// auto-merge.integration.test.ts against a real DB instead. `currentMission`
+// is read lazily (at call time, not at mock-setup time) so `setPolicy`
+// mutating it later in a test is honoured.
+vi.mock('./auto-merge-policy', () => ({
+  resolveAutoMergePolicy: vi.fn(async (missionId: string) =>
+    missionId === currentMission?.id ? currentMission.autoMergePolicy : null,
+  ),
+}));
 
 function amTask(overrides: Partial<Task> = {}): Task {
   const now = new Date('2026-01-01T00:00:00.000Z');

@@ -14,6 +14,7 @@ import {
 
 import { db } from '@/lib/db';
 import { getOctokitClient } from '@/lib/octokit';
+import { resolveAutoMergePolicy } from './auto-merge-policy';
 
 type Logger = {
   info: (o: object, m?: string) => void;
@@ -28,20 +29,6 @@ export type AutoMergeResult = {
 };
 
 export const PR_URL_RE = /github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/;
-
-/**
- * Whether a Mission has an auto-merge policy that will actually act on a
- * `ready_to_merge` Task. `runAutoMerge` above already gates on this same
- * check per-candidate; this is the shared predicate other call sites (the
- * reconciler's mission-completion check, Home's "Needs You" surface, ...)
- * use to answer "will anything besides a human move this Task off
- * ready_to_merge?" without duplicating the `policy?.enabled` shape check.
- */
-export function hasEnabledAutoMergePolicy(mission: {
-  autoMergePolicy: AutoMergePolicy | null;
-}): boolean {
-  return Boolean((mission.autoMergePolicy as AutoMergePolicy | null)?.enabled);
-}
 
 // Re-exported for existing callers (`import { client as getOctokit } from
 // './auto-merge'`); the singleton itself now lives in `@/lib/octokit` so
@@ -72,12 +59,28 @@ export async function runAutoMerge(log: Logger): Promise<AutoMergeResult> {
     .innerJoin(missions, eq(missions.id, tasks.missionId))
     .where(and(eq(tasks.status, 'ready_to_merge'), isNotNull(tasks.prUrl)));
 
+  // Per-invocation memoization only: several candidates above commonly share
+  // one Mission, and resolveAutoMergePolicy is a live DB lookup (up to two
+  // queries) — re-resolving the same missionId repeatedly within this one
+  // pass would be pure waste. Deliberately NOT a process-wide or cross-tick
+  // cache: that would defeat the entire point of the resolver, which is that
+  // enabling auto-merge on a repo must free Tasks that already exist on the
+  // very next tick, not whenever some longer-lived cache next expires.
+  const policyCache = new Map<string, AutoMergePolicy | null>();
+  async function resolvePolicyCached(missionId: string): Promise<AutoMergePolicy | null> {
+    const cached = policyCache.get(missionId);
+    if (cached !== undefined) return cached;
+    const policy = await resolveAutoMergePolicy(missionId);
+    policyCache.set(missionId, policy);
+    return policy;
+  }
+
   let merged = 0;
   let blocked = 0;
   let errors = 0;
 
   for (const row of candidates) {
-    const policy = row.mission.autoMergePolicy as AutoMergePolicy | null;
+    const policy = await resolvePolicyCached(row.mission.id);
     if (!policy?.enabled) continue;
     if (policy.requireHumanApproval && !row.task.approvedBy) continue;
 

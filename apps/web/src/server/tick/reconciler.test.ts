@@ -292,6 +292,89 @@ describe('runReconciler — standing mission exemption', () => {
     expect((await getMission(missionId))!.status).toBe('running');
   });
 
+  // Both subsystems must agree about a leaf's policy: if the reconciler ever
+  // went back to reading a Mission row's own `autoMergePolicy` column
+  // instead of resolving through resolveAutoMergePolicy, an issue-leaf
+  // (whose own column is null by construction) would wrongly be treated as
+  // "nothing will merge this" even though its CONTAINER has auto-merge
+  // enabled — completing the Mission out from under an in-flight
+  // runAutoMerge/merging-sweep resolution. Mirrors the equivalent guarantee
+  // on the auto-merge.ts side (auto-merge.integration.test.ts's "selects a
+  // leaf Task when only the CONTAINER has auto-merge enabled").
+  it('does not complete an issue-leaf mission whose only Task is ready_to_merge when the CONTAINER has an enabled auto-merge policy (the leaf itself has none)', async () => {
+    const containerId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const leafId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    await insertMission(containerId, {
+      workspaceRepo: 'acme/api',
+      issueRef: null,
+      parentMissionId: null,
+      autoMergePolicy: { enabled: true },
+    });
+    await insertMission(leafId, {
+      workspaceRepo: 'acme/api',
+      issueRef: 'acme/api#11',
+      parentMissionId: containerId,
+      autoMergePolicy: null,
+    });
+
+    const taskId = `tsk_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const now = new Date();
+    await db.insert(schema.tasks).values({
+      id: taskId,
+      missionId: leafId,
+      repo: 'acme/api',
+      baseBranch: 'main',
+      kind: 'fix',
+      status: 'ready_to_merge',
+      prUrl: 'https://github.com/acme/api/pull/11',
+      prNumber: 11,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await runReconciler(noopLog);
+
+    expect((await getMission(leafId))!.status).toBe('running');
+  });
+
+  // Mirror: the container has NO enabled policy, so the leaf's Task must
+  // hold the Mission open no longer than a needs_human Task would.
+  it('completes an issue-leaf mission whose only Task is ready_to_merge when the CONTAINER has no enabled auto-merge policy', async () => {
+    const containerId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const leafId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    await insertMission(containerId, {
+      workspaceRepo: 'acme/api',
+      issueRef: null,
+      parentMissionId: null,
+      autoMergePolicy: null,
+    });
+    await insertMission(leafId, {
+      workspaceRepo: 'acme/api',
+      issueRef: 'acme/api#12',
+      parentMissionId: containerId,
+      autoMergePolicy: null,
+    });
+
+    const taskId = `tsk_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const now = new Date();
+    await db.insert(schema.tasks).values({
+      id: taskId,
+      missionId: leafId,
+      repo: 'acme/api',
+      baseBranch: 'main',
+      kind: 'fix',
+      status: 'ready_to_merge',
+      prUrl: 'https://github.com/acme/api/pull/12',
+      prNumber: 12,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await runReconciler(noopLog);
+
+    expect((await getMission(leafId))!.status).toBe('completed');
+  });
+
   // Merging sweep's merged branch (reconciler.ts, ~line 352-ish per the
   // review): a claimed sweep/webhook race guard with zero prior coverage.
   // GitHub reports the PR merged, and the sweep CAS-guards its own write on
@@ -394,26 +477,35 @@ describe('mission terminality', () => {
   });
 
   describe('missionTerminalStatusesFor — ready_to_merge is conditional on the auto-merge policy', () => {
-    it('treats ready_to_merge as terminal when the mission has no enabled auto-merge policy — nothing but a human will ever move it, same as needs_human', () => {
-      const noPolicy = { autoMergePolicy: null };
-      expect(missionTerminalStatusesFor(noPolicy)).toContain('ready_to_merge');
-
-      const disabledPolicy = { autoMergePolicy: { enabled: false } };
-      expect(missionTerminalStatusesFor(disabledPolicy)).toContain('ready_to_merge');
+    it('treats ready_to_merge as terminal when the resolved policy is absent or disabled — nothing but a human will ever move it, same as needs_human', () => {
+      expect(missionTerminalStatusesFor(null)).toContain('ready_to_merge');
+      expect(missionTerminalStatusesFor({ enabled: false })).toContain('ready_to_merge');
     });
 
-    it('does not treat ready_to_merge as terminal when the mission has an enabled auto-merge policy — unmerged work keeps the mission open until runAutoMerge/the merging sweep resolve it', () => {
-      const enabledPolicy = { autoMergePolicy: { enabled: true } };
-      expect(missionTerminalStatusesFor(enabledPolicy)).not.toContain('ready_to_merge');
+    it('does not treat ready_to_merge as terminal when the resolved policy is enabled — unmerged work keeps the mission open until runAutoMerge/the merging sweep resolve it', () => {
+      expect(missionTerminalStatusesFor({ enabled: true })).not.toContain('ready_to_merge');
     });
 
     it('always includes the bare MISSION_TERMINAL_TASK_STATUSES regardless of policy', () => {
-      const noPolicy = { autoMergePolicy: null };
-      const enabledPolicy = { autoMergePolicy: { enabled: true } };
       for (const status of MISSION_TERMINAL_TASK_STATUSES) {
-        expect(missionTerminalStatusesFor(noPolicy)).toContain(status);
-        expect(missionTerminalStatusesFor(enabledPolicy)).toContain(status);
+        expect(missionTerminalStatusesFor(null)).toContain(status);
+        expect(missionTerminalStatusesFor({ enabled: true })).toContain(status);
       }
+    });
+  });
+
+  describe('missionTerminalStatusesFor — takes a resolved policy', () => {
+    it('treats ready_to_merge as terminal when the resolved policy is null', () => {
+      expect(missionTerminalStatusesFor(null)).toContain('ready_to_merge');
+    });
+
+    it('treats ready_to_merge as terminal when the resolved policy is disabled', () => {
+      expect(missionTerminalStatusesFor({ enabled: false })).toContain('ready_to_merge');
+    });
+
+    it('does NOT treat ready_to_merge as terminal when the resolved policy is enabled', () => {
+      // Something will merge it; the Mission must stay open until it does.
+      expect(missionTerminalStatusesFor({ enabled: true })).not.toContain('ready_to_merge');
     });
   });
 });
