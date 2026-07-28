@@ -143,3 +143,59 @@ Local unauthenticated requests to `/api/tick` are allowed by setting `TICK_ALLOW
 ## 9. Watch Mission Control
 
 Open the Mission from `http://localhost:3100/missions`. Mission Control shows task status, ledger activity, budget state, and links to deeper task or ledger views. Trigger the manual tick again (or curl `/api/tick`) to advance queued work.
+
+## 10. Subscribe the GitHub App to pull request events
+
+**Manual step — there is no API for it.** GitHub exposes an App's event
+subscriptions only through its settings UI, so this cannot be scripted and is not
+covered by the App manifest used at first registration.
+
+Go to `https://github.com/settings/apps/<your-app-slug>` → **Permissions &
+events** → **Subscribe to events**, tick **Pull request** and **Pull request
+review**, and save.
+
+Verify from the API rather than trusting the UI. Save as `check-events.mjs` and
+run it from the repo root:
+
+```js
+import { createSign } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+
+const env = Object.fromEntries(
+  readFileSync('apps/web/.env.local', 'utf8')
+    .split('\n')
+    .filter((l) => l.includes('=') && !l.startsWith('#'))
+    .map((l) => {
+      const i = l.indexOf('=');
+      return [l.slice(0, i), l.slice(i + 1)];
+    }),
+);
+const pem = (env.GITHUB_APP_PRIVATE_KEY ?? '').replace(/^"|"$/g, '').replaceAll('\\n', '\n');
+const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+const now = Math.floor(Date.now() / 1000);
+const input = `${b64({ alg: 'RS256', typ: 'JWT' })}.${b64({ iat: now - 60, exp: now + 540, iss: env.GITHUB_APP_ID })}`;
+const jwt = `${input}.${createSign('RSA-SHA256').update(input).sign(pem).toString('base64url')}`;
+const res = await fetch('https://api.github.com/app', {
+  headers: { Authorization: `Bearer ${jwt}`, Accept: 'application/vnd.github+json' },
+});
+console.log('events:', ((await res.json()).events ?? []).join(', '));
+```
+
+The output must contain both `pull_request` and `pull_request_review`.
+
+**What breaks without it.** Forge never learns that a PR it opened was merged or
+closed by a human, and never records a review decision. Concretely: a Task a
+human merges on GitHub is not marked `merged`; `tasks.reviewDecision` stays null
+for every Task, so the Review step in the merge stepper shows "in progress"
+indefinitely.
+
+**What does not break.** Nothing wedges. The reconciler's merge-stall sweep polls
+GitHub directly for Tasks in `merging` and `ready_to_merge`, so armed auto-merges
+still resolve and stalled ones still escalate. The webhook is a latency
+optimisation over that sweep, never the sole mechanism — deliberately, because a
+subscription an operator must remember to tick cannot be load-bearing.
+
+Also confirm the webhook itself is **Active** and points at your deployment
+(`https://<your-host>/api/forge/github/webhook`) in the same settings page. An
+App registered from `localhost` gets an inactive placeholder hook URL, which
+silently delivers nothing.
