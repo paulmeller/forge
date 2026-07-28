@@ -122,6 +122,27 @@ describe('POST /api/v1/missions/[missionId]/cancel', () => {
     expect(mocks.cancelMissionSpy).not.toHaveBeenCalled();
   });
 
+  // The named case from Finding 5: POST /api/v1/missions/{containerId}/cancel
+  // used to cancel a repo container that GET /api/v1/missions never listed —
+  // pausing a whole repo's work envelope under the name "cancel this
+  // mission". The 404 and the untouched status are both load-bearing.
+  it("404s the caller's own repo container and never cancels it", async () => {
+    const containerId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    await insertMission(containerId, 'owner_1', {
+      status: 'running',
+      workspaceRepo: 'acme/api',
+      issueRef: null,
+      parentMissionId: null,
+    });
+
+    authAs('owner_1');
+    const res = await POST(new Request('http://x', { method: 'POST' }), params(containerId));
+    expect(res.status).toBe(404);
+    expect((await res.json()).error.code).toBe('not_found');
+    expect(await statusOf(containerId)).toBe('running');
+    expect(mocks.cancelMissionSpy).not.toHaveBeenCalled();
+  });
+
   it('409s when the mission is not cancellable', async () => {
     const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
     await insertMission(missionId, 'owner_1', { status: 'completed' });

@@ -51,7 +51,7 @@ function params(missionId: string) {
   return { params: Promise.resolve({ missionId }) };
 }
 
-async function seedMission(id: string, userId: string) {
+async function seedMission(id: string, userId: string, over: Record<string, unknown> = {}) {
   const now = new Date();
   await db.insert(schema.missions).values({
     id,
@@ -65,6 +65,7 @@ async function seedMission(id: string, userId: string) {
     webhookSecret: 'secret',
     createdAt: now,
     updatedAt: now,
+    ...over,
   });
 }
 
@@ -96,5 +97,40 @@ describe('GET /api/v1/missions/[missionId]', () => {
     const res = await GET(new Request('http://x'), params(missionId));
     expect(res.status).toBe(200);
     expect((await res.json()).mission.id).toBe(missionId);
+  });
+
+  // v1 does not expose repo containers. GET /api/v1/missions never returned
+  // one, so a CLI could not have learned the id from this API; addressing it
+  // directly was a side door into a row whose only handle is
+  // /repos/{owner}/{repo}. Same 404 as "not yours" — the distinction is not
+  // the caller's business either way.
+  it("404s the caller's own repo container, matching what GET /api/v1/missions lists", async () => {
+    const containerId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    await seedMission(containerId, 'u1', {
+      workspaceRepo: 'acme/api',
+      issueRef: null,
+      parentMissionId: null,
+    });
+
+    authAs('u1');
+    const res = await GET(new Request('http://x'), params(containerId));
+    expect(res.status).toBe(404);
+    expect((await res.json()).error.code).toBe('not_found');
+  });
+
+  it('still serves an issue leaf, which is repo-scoped but is a unit of work', async () => {
+    const containerId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const leafId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    await seedMission(containerId, 'u1', { workspaceRepo: 'acme/api' });
+    await seedMission(leafId, 'u1', {
+      workspaceRepo: 'acme/api',
+      issueRef: 'acme/api#7',
+      parentMissionId: containerId,
+    });
+
+    authAs('u1');
+    const res = await GET(new Request('http://x'), params(leafId));
+    expect(res.status).toBe(200);
+    expect((await res.json()).mission.id).toBe(leafId);
   });
 });

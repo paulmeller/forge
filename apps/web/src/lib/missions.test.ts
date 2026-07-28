@@ -164,6 +164,39 @@ describe('getMission', () => {
     const row = await getMission('msn_does_not_exist', 'owner_1');
     expect(row).toBeNull();
   });
+
+  // The two used to disagree: listMissionsForUser excluded containers,
+  // getMission did not, so every /api/v1 lifecycle route accepted a
+  // container id that GET /api/v1/missions never returned. Both now run the
+  // same notAContainer() predicate — this pins that agreement from the
+  // getMission side, and the case immediately below proves the filter is
+  // specific to containers rather than to repo-scoped missions generally.
+  it("returns null for the owner's own repo container — never addressable by mission id", async () => {
+    const id = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    await insertMission(id, {
+      userId: 'owner_3',
+      workspaceRepo: 'acme/api',
+      issueRef: null,
+      parentMissionId: null,
+    });
+
+    expect(await getMission(id, 'owner_3')).toBeNull();
+    expect((await listMissionsForUser('owner_3')).map((m) => m.id)).not.toContain(id);
+  });
+
+  it('still returns an issue leaf, which is repo-scoped but is a unit of work', async () => {
+    const containerId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const leafId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    await insertMission(containerId, { userId: 'owner_4', workspaceRepo: 'acme/api' });
+    await insertMission(leafId, {
+      userId: 'owner_4',
+      workspaceRepo: 'acme/api',
+      issueRef: 'acme/api#7',
+      parentMissionId: containerId,
+    });
+
+    expect((await getMission(leafId, 'owner_4'))?.id).toBe(leafId);
+  });
 });
 
 describe('createMissionForUser', () => {

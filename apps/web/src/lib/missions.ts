@@ -154,12 +154,34 @@ export async function createMission(input: CreateMissionInput): Promise<Mission>
 }
 
 /**
+ * "NOT a repo container" — the single predicate that decides which missions
+ * are addressable as missions at all.
+ *
+ * A container (workspaceRepo set, issueRef null, no parentMissionId) is a
+ * pure budget/concurrency envelope for a repo's issue missions: it owns zero
+ * tasks and is administered through /repos/{owner}/{repo}, not as a mission.
+ * Expressed as "NOT a container": either it isn't repo-scoped at all
+ * (campaign), or it's specifically issue-scoped (issueRef set), or it has a
+ * parent itself (defensive — containers are always roots).
+ *
+ * Extracted so listMissionsForUser and getMission cannot disagree. They used
+ * to: the list excluded containers while getMission had no such filter, so
+ * POST /api/v1/missions/{containerId}/cancel would cancel a repo container
+ * that GET /api/v1/missions never returned and no CLI could have discovered.
+ * One expression, two call sites — the only way "agree" is structural rather
+ * than remembered.
+ */
+function notAContainer() {
+  return or(
+    isNull(missions.workspaceRepo),
+    isNotNull(missions.issueRef),
+    isNotNull(missions.parentMissionId),
+  );
+}
+
+/**
  * List missions for a specific user — every campaign and issue leaf, but
- * never a repo's container (workspaceRepo set, issueRef null, no
- * parentMissionId — a pure budget/concurrency envelope, never a unit of
- * work). Expressed as "NOT a container": either it isn't repo-scoped at
- * all (campaign), or it's specifically issue-scoped (issueRef set), or it
- * has a parent itself (defensive — containers are always roots).
+ * never a repo's container (see notAContainer above).
  *
  * `status`, when given, narrows to that lifecycle status only — this is
  * what GET /api/v1/missions's `?status=` query filter (declared in
@@ -173,11 +195,7 @@ export async function listMissionsForUser(userId: string, status?: string): Prom
       and(
         eq(missions.userId, userId),
         status ? eq(missions.status, status as (typeof missionStatus)[number]) : undefined,
-        or(
-          isNull(missions.workspaceRepo),
-          isNotNull(missions.issueRef),
-          isNotNull(missions.parentMissionId),
-        ),
+        notAContainer(),
       ),
     )
     .orderBy(desc(missions.createdAt));
@@ -194,12 +212,22 @@ export async function listMissions(): Promise<Mission[]> {
  * the compiler forces every call site to supply the caller's identity. A
  * mission that exists but belongs to someone else returns null, identical
  * to a nonexistent id, so existence isn't observable across accounts.
+ *
+ * Repo containers return null too, on the same notAContainer() predicate
+ * listMissionsForUser filters by. A container was never listed, so no caller
+ * — CLI or page — can have obtained its id from this API in the first place;
+ * accepting one by direct id was an undocumented side door into a row whose
+ * only legitimate handle is /repos/{owner}/{repo}. Cancelling one is not a
+ * mission operation at all: it pauses a whole repo's work envelope, which is
+ * not what "cancel this mission" promises. Containers are addressed by repo
+ * path, never by mission id, and "not addressable" and "not yours" are the
+ * same null for the same reason existence is not observable.
  */
 export async function getMission(id: string, userId: string): Promise<Mission | null> {
   const [row] = await db
     .select()
     .from(missions)
-    .where(and(eq(missions.id, id), eq(missions.userId, userId)))
+    .where(and(eq(missions.id, id), eq(missions.userId, userId), notAContainer()))
     .limit(1);
   return row ?? null;
 }
