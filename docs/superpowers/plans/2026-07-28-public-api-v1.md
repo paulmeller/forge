@@ -627,10 +627,12 @@ git rm -r "apps/web/src/app/(app)/api/missions/route.ts" \
   "apps/web/src/app/(app)/api/missions/[missionId]/start" \
   "apps/web/src/app/(app)/api/missions/[missionId]/cancel" \
   "apps/web/src/app/(app)/api/missions/[missionId]/retry" \
-  "apps/web/src/app/(app)/api/missions/[missionId]/tasks"
+  "apps/web/src/app/(app)/api/missions/[missionId]/tasks/route.ts"
 ```
 
-Do **not** delete `retrospect`, `tasks/[taskId]/stream`, or `proposals` — all three have in-app callers.
+**Note the last path is `tasks/route.ts`, not `tasks`.** Deleting the directory takes the SSE `tasks/[taskId]/stream` route with it — that route has a live caller in `session-log-view.tsx` and must survive. An earlier version of this plan said `tasks`, and the deletion did exactly that.
+
+Do **not** delete `retrospect`, `tasks/[taskId]/stream`, or `proposals` — all three have in-app callers. After deleting, confirm with `git diff --stat main -- "apps/web/src/app/(app)/api/missions/"` that the only losses are the intended six routes and their tests.
 
 Then confirm nothing referenced them: `grep -rn "api/missions/" apps/web/src --include="*.tsx" --include="*.ts" | grep -v "/api/v1/"` should show only `retrospect` and `stream`.
 
