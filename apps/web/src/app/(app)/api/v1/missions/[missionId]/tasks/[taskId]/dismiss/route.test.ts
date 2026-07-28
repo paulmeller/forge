@@ -123,6 +123,28 @@ describe('POST /api/v1/missions/[missionId]/tasks/[taskId]/dismiss', () => {
     expect((await res.json()).error.code).toBe('not_found');
     const row = await taskRow('t_theirs');
     expect(row.status).toBe('needs_human');
+    // Matches approve's equivalent assertion (Finding 7) — status alone
+    // can't tell "untouched" from "touched but reset back", approvedBy can.
+    expect(row.approvedBy).toBeNull();
+  });
+
+  it('404s for a nonexistent task id, identically to a non-owned one', async () => {
+    authAs('owner_1');
+    const res = await POST(new Request('http://x', { method: 'POST' }), params('m_dismiss_missing', 't_does_not_exist'));
+    expect(res.status).toBe(404);
+  });
+
+  it('404s when the taskId belongs to a different mission than the URL names, and writes nothing', async () => {
+    // Deleting `|| task.missionId !== missionId` from the route breaks no
+    // OTHER test in this file — this is the one that catches it (Finding 1
+    // of the Task 5 review).
+    await seedTask({ missionId: 'm_consist_a', id: 't_consist', status: 'needs_human' });
+    authAs('owner_1');
+
+    const res = await POST(new Request('http://x', { method: 'POST' }), params('m_consist_b', 't_consist'));
+
+    expect(res.status).toBe(404);
+    expect((await taskRow('t_consist')).status).toBe('needs_human');
   });
 
   it('refuses to dismiss a task that is not awaiting a human, and leaves it untouched', async () => {

@@ -2,20 +2,49 @@ import { randomUUID } from 'node:crypto';
 
 import { eq } from 'drizzle-orm';
 
-import { ledgerEvents, missions, tasks, type Backend, type TaskStatus } from '@forge/db';
+import { ledgerEvents, missions, tasks, type Backend, type Task, type TaskStatus } from '@forge/db';
 
 import { getAdapter } from '@/server/tick/adapters';
 
 import { db } from './db';
 import { getTask } from './tasks';
 
-export type TaskOpResult = { ok: true } | { ok: false; error: string };
+/**
+ * `code` lets callers dispatch on the *kind* of failure without comparing
+ * `error` message strings (which are meant for humans/logs and can change
+ * wording without notice — see `reviewTask`'s `ReviewOutcome` for the
+ * pattern this mirrors). `UPSTREAM_FAILURE` covers adapter/network errors
+ * reaching the mission's backend (a running session couldn't be cancelled
+ * or reached) — distinct from `INVALID_STATE`, because "the backend is
+ * unreachable right now" is retryable and "the task isn't in a state this
+ * operation applies to" is not; collapsing them denies the caller that
+ * distinction.
+ *
+ * The success branch carries the post-mutation `task` row directly (read
+ * back via the same `.returning()` the write already does, or the
+ * unmodified row when nothing needed updating) so callers never have to
+ * re-fetch — and can never accidentally serialise a null "success" body.
+ */
+export type TaskOpResult =
+  | { ok: true; task: Task }
+  | { ok: false; code: 'NOT_FOUND' | 'INVALID_STATE' | 'UPSTREAM_FAILURE'; error: string };
 
 // Terminal Task statuses (mirrors apps/tick/src/reconciler.ts's
 // MISSION_TERMINAL_TASK_STATUSES, minus 'needs_human' which is
 // mission-terminal but not Task-terminal — no cross-app import needed for
 // this small a check).
 const TERMINAL_TASK_STATUSES: TaskStatus[] = ['merged', 'resolved', 'abandoned', 'failed'];
+
+// The steer message length cap. Lives HERE, not only in the route's Zod
+// schema (lib/api/schemas.ts's `tasks.steer.body`), because the Server
+// Action path (steerTask -> steerTaskForUser, repos/[owner]/[repo]/
+// actions.ts) never touches that schema at all — a route-only cap
+// constrains one transport and leaves the other unbounded, which is
+// exactly the drift this whole extraction was meant to eliminate. The
+// schema keeps its own copy of this same number (for the generated OpenAPI
+// spec, and to reject oversized bodies before they're even parsed here),
+// but this is the enforcement both callers actually get.
+const STEER_MESSAGE_MAX_LENGTH = 10_000;
 
 /**
  * Backend for a mission the caller has already been proven to own (via
@@ -49,14 +78,16 @@ async function missionBackend(missionId: string): Promise<Backend | null> {
  */
 export async function abortTaskForUser(taskId: string, userId: string): Promise<TaskOpResult> {
   const task = await getTask(taskId, userId);
-  if (!task) return { ok: false, error: 'Task not found' };
-  if (!task.sessionId) return { ok: false, error: 'Task has no active session to abort' };
+  if (!task) return { ok: false, code: 'NOT_FOUND', error: 'Task not found' };
+  if (!task.sessionId) {
+    return { ok: false, code: 'INVALID_STATE', error: 'Task has no active session to abort' };
+  }
   if (TERMINAL_TASK_STATUSES.includes(task.status)) {
-    return { ok: false, error: 'Task has already finished, nothing to abort' };
+    return { ok: false, code: 'INVALID_STATE', error: 'Task has already finished, nothing to abort' };
   }
 
   const backend = await missionBackend(task.missionId);
-  if (!backend) return { ok: false, error: 'Task not found' };
+  if (!backend) return { ok: false, code: 'NOT_FOUND', error: 'Task not found' };
 
   try {
     // Route through the mission's own backend rather than assuming
@@ -66,13 +97,14 @@ export async function abortTaskForUser(taskId: string, userId: string): Promise<
   } catch (err) {
     return {
       ok: false,
+      code: 'UPSTREAM_FAILURE',
       error: `Could not cancel session: ${err instanceof Error ? err.message : 'unknown error'}`,
     };
   }
 
   const now = new Date();
-  await db.transaction(async (tx) => {
-    await tx
+  const [updated] = await db.transaction(async (tx) => {
+    const row = await tx
       .update(tasks)
       .set({
         status: 'failed',
@@ -90,7 +122,8 @@ export async function abortTaskForUser(taskId: string, userId: string): Promise<
         updatedAt: now,
         completedAt: now,
       })
-      .where(eq(tasks.id, taskId));
+      .where(eq(tasks.id, taskId))
+      .returning();
 
     await tx.insert(ledgerEvents).values({
       id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
@@ -100,9 +133,20 @@ export async function abortTaskForUser(taskId: string, userId: string): Promise<
       payload: { sessionId: task.sessionId },
       createdAt: now,
     });
+
+    return row;
   });
 
-  return { ok: true };
+  if (!updated) {
+    // The row `getTask` just proved existed vanished between that read and
+    // this write. Nothing in this app deletes a Task row today, so this is
+    // not a path any test can currently reach — but if it ever happens,
+    // report it plainly rather than letting the caller serialise a 200
+    // whose body is null (Finding 6).
+    return { ok: false, code: 'NOT_FOUND', error: 'Task not found' };
+  }
+
+  return { ok: true, task: updated };
 }
 
 /**
@@ -120,18 +164,32 @@ export async function steerTaskForUser(
   message: string,
 ): Promise<TaskOpResult> {
   const text = message.trim();
-  if (!text) return { ok: false, error: 'Message is empty' };
+  if (!text) return { ok: false, code: 'INVALID_STATE', error: 'Message is empty' };
+  if (text.length > STEER_MESSAGE_MAX_LENGTH) {
+    return {
+      ok: false,
+      code: 'INVALID_STATE',
+      error: `Message is too long (max ${STEER_MESSAGE_MAX_LENGTH} characters)`,
+    };
+  }
 
   const task = await getTask(taskId, userId);
-  if (!task) return { ok: false, error: 'Task not found' };
-  if (!task.sessionId) return { ok: false, error: 'Task has no active session to steer' };
+  if (!task) return { ok: false, code: 'NOT_FOUND', error: 'Task not found' };
+  if (!task.sessionId) {
+    return { ok: false, code: 'INVALID_STATE', error: 'Task has no active session to steer' };
+  }
   if (TERMINAL_TASK_STATUSES.includes(task.status)) {
-    return { ok: false, error: 'Task has already finished, nothing to steer' };
+    return { ok: false, code: 'INVALID_STATE', error: 'Task has already finished, nothing to steer' };
   }
 
   const backend = await missionBackend(task.missionId);
-  if (!backend) return { ok: false, error: 'Task not found' };
+  if (!backend) return { ok: false, code: 'NOT_FOUND', error: 'Task not found' };
 
+  // Defaults to the pre-mutation row: sendTurn doesn't always rotate the
+  // session handle, and when it doesn't, nothing about the Task row itself
+  // changed — there's no second read to do, and none is needed for `ok`'s
+  // response body to reflect reality.
+  let updatedTask: Task = task;
   try {
     // Route through the mission's own backend, not a hardcoded Anthropic
     // client. Like the tick engine's other sendTurn call sites, a backend that
@@ -143,14 +201,17 @@ export async function steerTaskForUser(
       backendSessionRef: task.backendSessionRef,
     });
     if (result.backendSessionRef) {
-      await db
+      const [row] = await db
         .update(tasks)
         .set({ backendSessionRef: result.backendSessionRef, updatedAt: new Date() })
-        .where(eq(tasks.id, task.id));
+        .where(eq(tasks.id, task.id))
+        .returning();
+      if (row) updatedTask = row;
     }
   } catch (err) {
     return {
       ok: false,
+      code: 'UPSTREAM_FAILURE',
       error: `Could not reach session: ${err instanceof Error ? err.message : 'unknown error'}`,
     };
   }
@@ -164,5 +225,5 @@ export async function steerTaskForUser(
     createdAt: new Date(),
   });
 
-  return { ok: true };
+  return { ok: true, task: updatedTask };
 }

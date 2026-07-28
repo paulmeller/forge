@@ -11,7 +11,7 @@ import { buildCreateIssuePayload } from '@/lib/github-issue-create';
 import { resolveMissionDefaults, userCanAccessRepo } from '@/lib/mission-defaults-db';
 import { pauseMission, resumeMission } from '@/lib/mission-transitions';
 import { updateNextIssueRefs } from '@/lib/next-marker';
-import { abortTaskForUser, steerTaskForUser } from '@/lib/task-session-ops';
+import { abortTaskForUser, steerTaskForUser, type TaskOpResult } from '@/lib/task-session-ops';
 import { buildTriageTaskRows, type TriageIssue } from '@/lib/triage-planner';
 import { withAuth } from '@/lib/with-auth';
 import {
@@ -144,9 +144,7 @@ export async function createIssue(
  * ownership-scoped lookup, the terminal-status guard, the adapter call, the
  * transactional write) lives in the shared function.
  */
-export async function abortTask(
-  taskId: string,
-): Promise<{ ok: true } | { ok: false; error: string }> {
+export async function abortTask(taskId: string): Promise<TaskOpResult> {
   const user = await withAuth();
   return abortTaskForUser(taskId, user.id);
 }
@@ -156,10 +154,7 @@ export async function abortTask(
  * `steerTaskForUser` (lib/task-session-ops.ts) — shared with the `/api/v1`
  * steer route, same rationale as `abortTask` above.
  */
-export async function steerTask(
-  taskId: string,
-  message: string,
-): Promise<{ ok: true } | { ok: false; error: string }> {
+export async function steerTask(taskId: string, message: string): Promise<TaskOpResult> {
   const user = await withAuth();
   return steerTaskForUser(taskId, user.id, message);
 }

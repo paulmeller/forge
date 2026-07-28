@@ -115,4 +115,14 @@ describe('GET /api/v1/missions/[missionId]/tasks/[taskId]', () => {
 
     expect(res.status).toBe(404);
   });
+
+  it('404s for a nonexistent task id, identically to a non-owned one', async () => {
+    await seedMission('m_get_missing', 'owner_1');
+    authAs('owner_1');
+
+    const res = await GET(new Request('http://x'), params('m_get_missing', 't_does_not_exist'));
+
+    expect(res.status).toBe(404);
+    expect((await res.json()).error.code).toBe('not_found');
+  });
 });

@@ -114,6 +114,10 @@ describe('POST /api/v1/missions/[missionId]/tasks/[taskId]/abort', () => {
     const row = await taskRow('t1');
     expect(row.status).toBe('failed');
     expect(row.haltReason).toBe('manual_abort');
+    // Finding 6: the body must be the actual task, never a bare 200/null.
+    const body = await res.json();
+    expect(body).not.toBeNull();
+    expect(body.id).toBe('t1');
   });
 
   it("404s and writes nothing for another user's task", async () => {
@@ -137,5 +141,41 @@ describe('POST /api/v1/missions/[missionId]/tasks/[taskId]/abort', () => {
 
     expect(res.status).toBe(409);
     expect((await taskRow('t_nosess')).status).toBe('running');
+  });
+
+  it('404s for a nonexistent task id, identically to a non-owned one', async () => {
+    authAs('owner_1');
+    const res = await POST(new Request('http://x', { method: 'POST' }), params('m_abort_missing', 't_does_not_exist'));
+    expect(res.status).toBe(404);
+    expect(mocks.cancelSession).not.toHaveBeenCalled();
+  });
+
+  it('404s when the taskId belongs to a different mission than the URL names', async () => {
+    // Deleting `|| task.missionId !== missionId` from the route breaks no
+    // OTHER test in this file — this is the one that catches it (Finding 1
+    // of the Task 5 review).
+    await seedTask({ missionId: 'm_consist_a', id: 't_consist', status: 'running' });
+    authAs('owner_1');
+
+    const res = await POST(new Request('http://x', { method: 'POST' }), params('m_consist_b', 't_consist'));
+
+    expect(res.status).toBe(404);
+    expect(mocks.cancelSession).not.toHaveBeenCalled();
+  });
+
+  it('reports a 502 when the backend cannot be reached, not a 409', async () => {
+    // Finding 4: an adapter/network failure reaching the backend is
+    // retryable and not the caller's fault — it must not look like a 409
+    // ("your request conflicts with the resource's state").
+    await seedTask({ missionId: 'm_upstream', id: 't_upstream', status: 'running' });
+    authAs('owner_1');
+    mocks.cancelSession.mockRejectedValueOnce(new Error('network unreachable'));
+
+    const res = await POST(new Request('http://x', { method: 'POST' }), params('m_upstream', 't_upstream'));
+
+    expect(res.status).toBe(502);
+    const body = await res.json();
+    expect(body.error.message).toContain('Could not cancel session');
+    expect((await taskRow('t_upstream')).status).toBe('running');
   });
 });

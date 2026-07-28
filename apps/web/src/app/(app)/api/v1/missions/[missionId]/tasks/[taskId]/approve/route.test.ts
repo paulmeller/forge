@@ -138,6 +138,21 @@ describe('POST /api/v1/missions/[missionId]/tasks/[taskId]/approve', () => {
     expect(res.status).toBe(404);
   });
 
+  it('404s when the taskId belongs to a different mission than the URL names, and writes nothing', async () => {
+    // Deleting `|| task.missionId !== missionId` from the route breaks no
+    // OTHER test in this file — this is the one that catches it (Finding 1
+    // of the Task 5 review).
+    await seedTask({ missionId: 'm_consist_a', id: 't_consist', status: 'needs_human' });
+    authAs('owner_1');
+
+    const res = await POST(new Request('http://x', { method: 'POST' }), params('m_consist_b', 't_consist'));
+
+    expect(res.status).toBe(404);
+    const row = await taskRow('t_consist');
+    expect(row.status).toBe('needs_human');
+    expect(row.approvedBy).toBeNull();
+  });
+
   it('refuses to approve a task that is not awaiting a human, and leaves it untouched', async () => {
     await seedTask({ missionId: 'm_running', id: 't_running', status: 'running' });
     authAs('owner_1');

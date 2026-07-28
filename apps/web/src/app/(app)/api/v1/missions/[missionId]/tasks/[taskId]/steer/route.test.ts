@@ -118,6 +118,10 @@ describe('POST /api/v1/missions/[missionId]/tasks/[taskId]/steer', () => {
     expect(mocks.sendTurn).toHaveBeenCalledWith(
       expect.objectContaining({ sessionId: 'sess_1', text: 'please add tests' }),
     );
+    // Finding 6: the body must be the actual task, never a bare 200/null.
+    const body = await res.json();
+    expect(body).not.toBeNull();
+    expect(body.id).toBe('t1');
   });
 
   it("404s and writes nothing for another user's task", async () => {
@@ -151,5 +155,66 @@ describe('POST /api/v1/missions/[missionId]/tasks/[taskId]/steer', () => {
     const res = await POST(req({ message: 'hello' }), params('m_nosess', 't_nosess'));
 
     expect(res.status).toBe(409);
+  });
+
+  it('404s for a nonexistent task id, identically to a non-owned one', async () => {
+    authAs('owner_1');
+    const res = await POST(req({ message: 'hello' }), params('m_steer_missing', 't_does_not_exist'));
+    expect(res.status).toBe(404);
+    expect(mocks.sendTurn).not.toHaveBeenCalled();
+  });
+
+  it('404s when the taskId belongs to a different mission than the URL names', async () => {
+    // Deleting `|| task.missionId !== missionId` from the route breaks no
+    // OTHER test in this file — this is the one that catches it (Finding 1
+    // of the Task 5 review).
+    await seedTask({ missionId: 'm_consist_a', id: 't_consist', status: 'running' });
+    authAs('owner_1');
+
+    const res = await POST(req({ message: 'hello' }), params('m_consist_b', 't_consist'));
+
+    expect(res.status).toBe(404);
+    expect(mocks.sendTurn).not.toHaveBeenCalled();
+  });
+
+  it('refuses a whitespace-only message with a 400, identically to an empty one', async () => {
+    // Finding 2: schemas.ts's tasks.steer.body used to be z.string().min(1),
+    // which passes '   ' straight through to steerTaskForUser, whose own
+    // trim() then rejected it as a 409. Same semantic input, two different
+    // status classes. z.string().trim().min(1) makes both reject here, at
+    // 400, before the session is ever touched.
+    await seedTask({ missionId: 'm_whitespace', id: 't_whitespace', status: 'running' });
+    authAs('owner_1');
+
+    const res = await POST(req({ message: '   ' }), params('m_whitespace', 't_whitespace'));
+
+    expect(res.status).toBe(400);
+    expect(mocks.sendTurn).not.toHaveBeenCalled();
+  });
+
+  it('refuses a message over the 10,000-character cap with a 400', async () => {
+    await seedTask({ missionId: 'm_toolong', id: 't_toolong', status: 'running' });
+    authAs('owner_1');
+
+    const res = await POST(req({ message: 'a'.repeat(10_001) }), params('m_toolong', 't_toolong'));
+
+    expect(res.status).toBe(400);
+    expect(mocks.sendTurn).not.toHaveBeenCalled();
+  });
+
+  it('reports a 502 when the backend cannot be reached, not a 409', async () => {
+    // Finding 4: an adapter/network failure reaching the backend is
+    // retryable and not the caller's fault — it must not look like a 409
+    // ("your request conflicts with the resource's state").
+    await seedTask({ missionId: 'm_upstream', id: 't_upstream', status: 'running' });
+    authAs('owner_1');
+    mocks.sendTurn.mockRejectedValueOnce(new Error('network unreachable'));
+
+    const res = await POST(req({ message: 'hello' }), params('m_upstream', 't_upstream'));
+
+    expect(res.status).toBe(502);
+    const body = await res.json();
+    expect(body.error.message).toContain('Could not reach session');
+    expect((await taskRow('t_upstream')).status).toBe('running');
   });
 });
