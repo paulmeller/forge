@@ -9,6 +9,8 @@ import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
 
+import type { AutoMergePolicy } from '@forge/db';
+
 import { updateRepoSettings } from './settings-actions';
 
 export function SettingsTab({
@@ -17,12 +19,20 @@ export function SettingsTab({
   budgetUsd,
   aiReviewEnabled,
   selfVerifyEnabled,
+  autoMergePolicy,
+  requirePlanApproval,
 }: {
   containerId: string;
   concurrencyCap: number;
   budgetUsd: number | null;
   aiReviewEnabled: boolean;
   selfVerifyEnabled: boolean;
+  // Not yet editable here — the auto-merge and plan-approval form fields are
+  // a later task's UI. These are threaded through only so that saving the
+  // fields already on this tab round-trips the existing policies unchanged
+  // instead of overwriting them with a hardcoded default.
+  autoMergePolicy: AutoMergePolicy | null;
+  requirePlanApproval: boolean;
 }) {
   const [cap, setCap] = useState(String(concurrencyCap));
   const [budget, setBudget] = useState(budgetUsd !== null ? String(budgetUsd) : '');
@@ -41,6 +51,8 @@ export function SettingsTab({
         budgetUsd: parsedBudget,
         aiReviewEnabled: aiReview,
         selfVerifyEnabled: selfVerify,
+        autoMerge: autoMergePolicy ?? { enabled: false },
+        requirePlanApproval,
       });
       setMessage(
         result.ok ? { kind: 'ok', text: 'Saved.' } : { kind: 'error', text: result.error },
