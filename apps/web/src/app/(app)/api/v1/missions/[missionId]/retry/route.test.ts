@@ -8,7 +8,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 
 import type { LibSQLDatabase } from 'drizzle-orm/libsql';
 
-const DB_FILE = `/tmp/forge-start-route-${process.pid}.db`;
+const DB_FILE = `/tmp/forge-v1-retry-route-${process.pid}.db`;
 for (const suffix of ['', '-wal', '-shm']) {
   if (existsSync(DB_FILE + suffix)) rmSync(DB_FILE + suffix);
 }
@@ -16,7 +16,7 @@ process.env.DATABASE_URL = `file:${DB_FILE}`;
 
 const mocks = vi.hoisted(() => ({
   apiAuth: vi.fn(),
-  startMissionSpy: vi.fn(),
+  retryMissionSpy: vi.fn(),
 }));
 vi.mock('@/lib/api-auth', () => ({ apiAuth: mocks.apiAuth }));
 
@@ -24,9 +24,9 @@ vi.mock('@/lib/mission-transitions', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/mission-transitions')>();
   return {
     ...actual,
-    startMission: (...args: Parameters<typeof actual.startMission>) => {
-      mocks.startMissionSpy(...args);
-      return actual.startMission(...args);
+    retryMission: (...args: Parameters<typeof actual.retryMission>) => {
+      mocks.retryMissionSpy(...args);
+      return actual.retryMission(...args);
     },
   };
 });
@@ -41,7 +41,7 @@ beforeAll(async () => {
   db = dbMod.db as unknown as LibSQLDatabase<Record<string, unknown>>;
   client = dbMod.client as unknown as { close: () => void };
   await migrate(dbMod.db as never, {
-    migrationsFolder: resolve(__dirname, '../../../../../../../../../packages/db/migrations'),
+    migrationsFolder: resolve(__dirname, '../../../../../../../../../../packages/db/migrations'),
   });
   schema = await import('@forge/db');
   ({ POST } = await import('./route'));
@@ -56,7 +56,7 @@ afterAll(() => {
 
 afterEach(() => {
   mocks.apiAuth.mockReset();
-  mocks.startMissionSpy.mockClear();
+  mocks.retryMissionSpy.mockClear();
 });
 
 function authAs(id: string) {
@@ -67,22 +67,32 @@ function params(missionId: string) {
   return { params: Promise.resolve({ missionId }) };
 }
 
-async function insertMission(id: string, userId: string, over: Record<string, unknown> = {}) {
+async function insertMissionWithFailedTask(missionId: string, userId: string) {
   const now = new Date();
   await db.insert(schema.missions).values({
-    id,
+    id: missionId,
     userId,
     name: 'Test mission',
     goal: 'test',
-    status: 'planning',
+    status: 'completed',
     backend: 'managed-agents',
     agentId: 'agent_1',
     plannerStrategy: 'rule-based',
     webhookSecret: 'secret',
     createdAt: now,
     updatedAt: now,
-    ...over,
   });
+  const taskId = `tsk_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+  await db.insert(schema.tasks).values({
+    id: taskId,
+    missionId,
+    repo: 'acme/widgets',
+    baseBranch: 'main',
+    status: 'failed',
+    createdAt: now,
+    updatedAt: now,
+  });
+  return taskId;
 }
 
 async function statusOf(missionId: string): Promise<string | undefined> {
@@ -90,32 +100,40 @@ async function statusOf(missionId: string): Promise<string | undefined> {
   return row?.status;
 }
 
-describe('POST /api/missions/[missionId]/start', () => {
-  it('starts the mission for its owner', async () => {
+async function taskStatusOf(taskId: string): Promise<string | undefined> {
+  const [row] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId));
+  return row?.status;
+}
+
+describe('POST /api/v1/missions/[missionId]/retry', () => {
+  it('retries the mission (resets failed tasks) for its owner', async () => {
     const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
-    await insertMission(missionId, 'owner_1');
+    const taskId = await insertMissionWithFailedTask(missionId, 'owner_1');
 
     authAs('owner_1');
     const res = await POST(new Request('http://x', { method: 'POST' }), params(missionId));
     expect(res.status).toBe(200);
     expect(await statusOf(missionId)).toBe('running');
+    expect(await taskStatusOf(taskId)).toBe('queued');
   });
 
-  it('404s for a mission owned by someone else, and never transitions it', async () => {
+  it('404s for a mission owned by someone else, and never retries it', async () => {
     const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
-    await insertMission(missionId, 'owner_2');
+    const taskId = await insertMissionWithFailedTask(missionId, 'owner_2');
 
     authAs('attacker_1');
     const res = await POST(new Request('http://x', { method: 'POST' }), params(missionId));
     expect(res.status).toBe(404);
-    expect(await statusOf(missionId)).toBe('planning');
-    expect(mocks.startMissionSpy).not.toHaveBeenCalled();
+    expect((await res.json()).error.code).toBe('not_found');
+    expect(await statusOf(missionId)).toBe('completed');
+    expect(await taskStatusOf(taskId)).toBe('failed');
+    expect(mocks.retryMissionSpy).not.toHaveBeenCalled();
   });
 
   it('404s for a nonexistent mission id, identically to a non-owned one', async () => {
     authAs('owner_1');
     const res = await POST(new Request('http://x', { method: 'POST' }), params('msn_does_not_exist'));
     expect(res.status).toBe(404);
-    expect(mocks.startMissionSpy).not.toHaveBeenCalled();
+    expect(mocks.retryMissionSpy).not.toHaveBeenCalled();
   });
 });

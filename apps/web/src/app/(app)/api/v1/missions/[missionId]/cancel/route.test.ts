@@ -8,7 +8,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 
 import type { LibSQLDatabase } from 'drizzle-orm/libsql';
 
-const DB_FILE = `/tmp/forge-plan-route-${process.pid}.db`;
+const DB_FILE = `/tmp/forge-v1-cancel-route-${process.pid}.db`;
 for (const suffix of ['', '-wal', '-shm']) {
   if (existsSync(DB_FILE + suffix)) rmSync(DB_FILE + suffix);
 }
@@ -16,17 +16,17 @@ process.env.DATABASE_URL = `file:${DB_FILE}`;
 
 const mocks = vi.hoisted(() => ({
   apiAuth: vi.fn(),
-  runPlannerSpy: vi.fn(),
+  cancelMissionSpy: vi.fn(),
 }));
 vi.mock('@/lib/api-auth', () => ({ apiAuth: mocks.apiAuth }));
 
-vi.mock('@/lib/planner', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/planner')>();
+vi.mock('@/lib/mission-transitions', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/mission-transitions')>();
   return {
     ...actual,
-    runPlanner: (...args: Parameters<typeof actual.runPlanner>) => {
-      mocks.runPlannerSpy(...args);
-      return actual.runPlanner(...args);
+    cancelMission: (...args: Parameters<typeof actual.cancelMission>) => {
+      mocks.cancelMissionSpy(...args);
+      return actual.cancelMission(...args);
     },
   };
 });
@@ -41,7 +41,7 @@ beforeAll(async () => {
   db = dbMod.db as unknown as LibSQLDatabase<Record<string, unknown>>;
   client = dbMod.client as unknown as { close: () => void };
   await migrate(dbMod.db as never, {
-    migrationsFolder: resolve(__dirname, '../../../../../../../../../packages/db/migrations'),
+    migrationsFolder: resolve(__dirname, '../../../../../../../../../../packages/db/migrations'),
   });
   schema = await import('@forge/db');
   ({ POST } = await import('./route'));
@@ -56,7 +56,7 @@ afterAll(() => {
 
 afterEach(() => {
   mocks.apiAuth.mockReset();
-  mocks.runPlannerSpy.mockClear();
+  mocks.cancelMissionSpy.mockClear();
 });
 
 function authAs(id: string) {
@@ -73,12 +73,11 @@ async function insertMission(id: string, userId: string, over: Record<string, un
     id,
     userId,
     name: 'Test mission',
-    goal: 'do the thing in {{repo}}',
-    status: 'draft',
+    goal: 'test',
+    status: 'running',
     backend: 'managed-agents',
     agentId: 'agent_1',
     plannerStrategy: 'rule-based',
-    targetRepos: ['acme/widgets'],
     webhookSecret: 'secret',
     createdAt: now,
     updatedAt: now,
@@ -91,41 +90,43 @@ async function statusOf(missionId: string): Promise<string | undefined> {
   return row?.status;
 }
 
-async function taskCountFor(missionId: string): Promise<number> {
-  const rows = await db.select().from(schema.tasks).where(eq(schema.tasks.missionId, missionId));
-  return rows.length;
-}
-
-describe('POST /api/missions/[missionId]/plan', () => {
-  it('plans the mission (emits tasks) for its owner', async () => {
+describe('POST /api/v1/missions/[missionId]/cancel', () => {
+  it('cancels the mission for its owner', async () => {
     const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
     await insertMission(missionId, 'owner_1');
 
     authAs('owner_1');
     const res = await POST(new Request('http://x', { method: 'POST' }), params(missionId));
     expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.taskCount).toBe(1);
-    expect(await statusOf(missionId)).toBe('planning');
-    expect(await taskCountFor(missionId)).toBe(1);
+    expect(await statusOf(missionId)).toBe('cancelled');
   });
 
-  it('404s for a mission owned by someone else, runs the planner against nothing, and creates no tasks', async () => {
+  it('404s for a mission owned by someone else, and never transitions it', async () => {
     const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
     await insertMission(missionId, 'owner_2');
 
     authAs('attacker_1');
     const res = await POST(new Request('http://x', { method: 'POST' }), params(missionId));
     expect(res.status).toBe(404);
-    expect(await statusOf(missionId)).toBe('draft');
-    expect(await taskCountFor(missionId)).toBe(0);
-    expect(mocks.runPlannerSpy).not.toHaveBeenCalled();
+    expect((await res.json()).error.code).toBe('not_found');
+    expect(await statusOf(missionId)).toBe('running');
+    expect(mocks.cancelMissionSpy).not.toHaveBeenCalled();
   });
 
   it('404s for a nonexistent mission id, identically to a non-owned one', async () => {
     authAs('owner_1');
     const res = await POST(new Request('http://x', { method: 'POST' }), params('msn_does_not_exist'));
     expect(res.status).toBe(404);
-    expect(mocks.runPlannerSpy).not.toHaveBeenCalled();
+    expect(mocks.cancelMissionSpy).not.toHaveBeenCalled();
+  });
+
+  it('409s when the mission is not cancellable', async () => {
+    const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    await insertMission(missionId, 'owner_1', { status: 'completed' });
+
+    authAs('owner_1');
+    const res = await POST(new Request('http://x', { method: 'POST' }), params(missionId));
+    expect(res.status).toBe(409);
+    expect((await res.json()).error.code).toBe('WRONG_STATUS');
   });
 });

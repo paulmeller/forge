@@ -2,39 +2,24 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import { eq } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/libsql/migrator';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import type { LibSQLDatabase } from 'drizzle-orm/libsql';
 
-const DB_FILE = `/tmp/forge-cancel-route-${process.pid}.db`;
+const DB_FILE = `/tmp/forge-v1-mission-get-route-${process.pid}.db`;
 for (const suffix of ['', '-wal', '-shm']) {
   if (existsSync(DB_FILE + suffix)) rmSync(DB_FILE + suffix);
 }
 process.env.DATABASE_URL = `file:${DB_FILE}`;
 
-const mocks = vi.hoisted(() => ({
-  apiAuth: vi.fn(),
-  cancelMissionSpy: vi.fn(),
-}));
+const mocks = vi.hoisted(() => ({ apiAuth: vi.fn() }));
 vi.mock('@/lib/api-auth', () => ({ apiAuth: mocks.apiAuth }));
-
-vi.mock('@/lib/mission-transitions', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/mission-transitions')>();
-  return {
-    ...actual,
-    cancelMission: (...args: Parameters<typeof actual.cancelMission>) => {
-      mocks.cancelMissionSpy(...args);
-      return actual.cancelMission(...args);
-    },
-  };
-});
 
 let db: LibSQLDatabase<Record<string, unknown>>;
 let client: { close: () => void };
 let schema: typeof import('@forge/db');
-let POST: typeof import('./route').POST;
+let GET: typeof import('./route').GET;
 
 beforeAll(async () => {
   const dbMod = await import('@/lib/db');
@@ -44,7 +29,7 @@ beforeAll(async () => {
     migrationsFolder: resolve(__dirname, '../../../../../../../../../packages/db/migrations'),
   });
   schema = await import('@forge/db');
-  ({ POST } = await import('./route'));
+  ({ GET } = await import('./route'));
 });
 
 afterAll(() => {
@@ -56,7 +41,6 @@ afterAll(() => {
 
 afterEach(() => {
   mocks.apiAuth.mockReset();
-  mocks.cancelMissionSpy.mockClear();
 });
 
 function authAs(id: string) {
@@ -67,7 +51,7 @@ function params(missionId: string) {
   return { params: Promise.resolve({ missionId }) };
 }
 
-async function insertMission(id: string, userId: string, over: Record<string, unknown> = {}) {
+async function seedMission(id: string, userId: string) {
   const now = new Date();
   await db.insert(schema.missions).values({
     id,
@@ -81,41 +65,36 @@ async function insertMission(id: string, userId: string, over: Record<string, un
     webhookSecret: 'secret',
     createdAt: now,
     updatedAt: now,
-    ...over,
   });
 }
 
-async function statusOf(missionId: string): Promise<string | undefined> {
-  const [row] = await db.select().from(schema.missions).where(eq(schema.missions.id, missionId));
-  return row?.status;
-}
-
-describe('POST /api/missions/[missionId]/cancel', () => {
-  it('cancels the mission for its owner', async () => {
+describe('GET /api/v1/missions/[missionId]', () => {
+  it('404s a mission owned by another user, without leaking that it exists', async () => {
     const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
-    await insertMission(missionId, 'owner_1');
-
-    authAs('owner_1');
-    const res = await POST(new Request('http://x', { method: 'POST' }), params(missionId));
-    expect(res.status).toBe(200);
-    expect(await statusOf(missionId)).toBe('cancelled');
-  });
-
-  it('404s for a mission owned by someone else, and never transitions it', async () => {
-    const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
-    await insertMission(missionId, 'owner_2');
+    await seedMission(missionId, 'someone_else');
 
     authAs('attacker_1');
-    const res = await POST(new Request('http://x', { method: 'POST' }), params(missionId));
+    const res = await GET(new Request('http://x'), params(missionId));
     expect(res.status).toBe(404);
-    expect(await statusOf(missionId)).toBe('running');
-    expect(mocks.cancelMissionSpy).not.toHaveBeenCalled();
+    const body = await res.json();
+    // Identical to a genuinely missing id — existence must not be observable.
+    expect(body.error.code).toBe('not_found');
   });
 
   it('404s for a nonexistent mission id, identically to a non-owned one', async () => {
     authAs('owner_1');
-    const res = await POST(new Request('http://x', { method: 'POST' }), params('msn_does_not_exist'));
+    const res = await GET(new Request('http://x'), params('msn_does_not_exist'));
     expect(res.status).toBe(404);
-    expect(mocks.cancelMissionSpy).not.toHaveBeenCalled();
+    expect((await res.json()).error.code).toBe('not_found');
+  });
+
+  it('returns a mission the caller owns', async () => {
+    const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    await seedMission(missionId, 'u1');
+
+    authAs('u1');
+    const res = await GET(new Request('http://x'), params(missionId));
+    expect(res.status).toBe(200);
+    expect((await res.json()).id).toBe(missionId);
   });
 });
