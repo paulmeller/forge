@@ -14,10 +14,11 @@ export const GET = withApiAuth<{ params: Promise<{ missionId: string }> }>(
     const { missionId } = await params;
 
     // Ownership is checked on the MISSION before any ledger row is read —
-    // the audit trail must not be cross-readable. getMission(missionId,
-    // user.id) is the sole gate; see the task route's doc comment for why a
-    // second ownership check alongside it would be redundant, not extra
-    // safety.
+    // the audit trail must not be cross-readable. listLedgerForMission takes
+    // no userId, so this getMission(missionId, user.id) is the only
+    // ownership check on the path. A second gate on a different id would not
+    // add safety here — see the task routes' doc comments for the case where
+    // one masked a broken scope entirely.
     const mission = await getMission(missionId, user.id);
     if (!mission) return notFound('Mission');
 

@@ -10,12 +10,14 @@ export const GET = withApiAuth<{ params: Promise<{ missionId: string; taskId: st
   async (user, _req, { params }) => {
     const { missionId, taskId } = await params;
 
-    // getTask(taskId, user.id) is the sole ownership gate — see the approve
-    // route's doc comment for why a second getMission(missionId, user.id)
-    // ownership check would mask a broken ownership scope here instead of
-    // catching it. The URL's missionId is validated for path consistency
-    // only, against the already-ownership-proven task's own missionId
-    // column.
+    // A read, so getTask(taskId, user.id) really is the only ownership check
+    // on this path — unlike the mutating task routes, which check again
+    // inside the lib call they delegate to (see the approve route). Do not
+    // add a second gate on a DIFFERENT id (getMission(missionId, user.id)):
+    // its 404 would fire for "you don't own the mission in the URL" and go
+    // on answering 404 with getTask's userId filter removed, proving the
+    // wrong thing. The URL's missionId is compared against the
+    // already-ownership-proven task's own missionId column instead.
     const task = await getTask(taskId, user.id);
     if (!task || task.missionId !== missionId) return notFound('Task');
 

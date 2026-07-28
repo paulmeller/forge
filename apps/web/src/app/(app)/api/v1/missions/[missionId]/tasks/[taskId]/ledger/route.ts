@@ -13,13 +13,13 @@ export const GET = withApiAuth<{ params: Promise<{ missionId: string; taskId: st
   async (user, req, { params }) => {
     const { missionId, taskId } = await params;
 
-    // getTask(taskId, user.id) is the sole ownership gate — ownership is
-    // resolved before any ledger row is read, and the audit trail must not
-    // be cross-readable. See the task GET route's doc comment for why a
-    // second getMission(missionId, user.id) check alongside it would mask a
-    // broken ownership scope rather than add safety. The URL's missionId is
-    // validated for path consistency only, against the already-ownership-
-    // proven task's own missionId column.
+    // listLedgerForTask takes no userId, so getTask(taskId, user.id) really
+    // is the only ownership check on this path — ownership is resolved
+    // before any ledger row is read, and the audit trail must not be
+    // cross-readable. See the task GET route's doc comment for why a second
+    // gate on a DIFFERENT id (getMission(missionId, user.id)) would mask a
+    // broken scope rather than add safety. The URL's missionId is compared
+    // against the already-ownership-proven task's own missionId column.
     const task = await getTask(taskId, user.id);
     if (!task || task.missionId !== missionId) return notFound('Task');
 

@@ -11,12 +11,15 @@ export const POST = withApiAuth<{ params: Promise<{ missionId: string; taskId: s
   async (user, _req, { params }) => {
     const { missionId, taskId } = await params;
 
-    // getTask(taskId, user.id) is the sole ownership gate — see the approve
-    // route's doc comment for why a second getMission(missionId, user.id)
-    // ownership check would mask a broken ownership scope here instead of
-    // catching it. The URL's missionId is validated for path consistency
-    // only, against the already-ownership-proven task's own missionId
-    // column.
+    // Ownership is checked twice on this path — here, and again inside
+    // reviewTask, which repeats getTask(taskId, user.id) so the Server
+    // Action transport is gated too. Same function, same predicate, same id,
+    // so neither hides a break in the other; see the approve route's doc
+    // comment for why that is benign while a second check on a DIFFERENT id
+    // (getMission(missionId, user.id)) would not be. This call is also what
+    // the missionId path-consistency check below compares against: the URL's
+    // missionId is matched to the already-ownership-proven task's own
+    // missionId column, never re-queried.
     const task = await getTask(taskId, user.id);
     if (!task || task.missionId !== missionId) return notFound('Task');
 
