@@ -70,8 +70,35 @@ describe('the plugin endpoints whose ownership guard cannot fire are switched of
   });
 });
 
+describe('the unauthenticated device-status oracle is switched off', () => {
+  /**
+   * `deviceVerify` is `GET /api/auth/device?user_code=…`. It takes no session,
+   * and it answers differently for a code that does not exist, one that has
+   * expired, and one that is pending / approved / denied. That is a free
+   * confirmation oracle for a secret: it tells a holder of a guessed or
+   * shoulder-surfed code whether it is real, still live, and whether a human
+   * has acted on it. Nothing in Forge calls it.
+   */
+  it('disables /device', () => {
+    expect(auth.options.disabledPaths).toContain('/device');
+  });
+
+  it('matches the plugin path exactly, so /device/code and /device/token survive', () => {
+    // better-auth's `onRequest` does `disabledPaths.includes(normalizedPath)` —
+    // exact string equality, not a prefix test. This pins that reading: if it
+    // were a prefix match, disabling '/device' would have silently killed the
+    // whole flow and every other device test here would still pass.
+    const disabled = auth.options.disabledPaths ?? [];
+    expect(disabled).not.toContain('/device/code');
+    expect(disabled).not.toContain('/device/token');
+  });
+});
+
 describe('rate limiting for the device endpoints', () => {
-  const rules = auth.options.rateLimit?.customRules ?? {};
+  // Widened deliberately: the inferred type is the literal set of keys that
+  // are present, so asking whether an *absent* key is absent would be a type
+  // error rather than the assertion it is.
+  const rules: Record<string, unknown> = auth.options.rateLimit?.customRules ?? {};
 
   it('caps /device/code, which is unauthenticated and creates a row per call', () => {
     expect(rules['/device/code']).toBeDefined();
@@ -81,8 +108,11 @@ describe('rate limiting for the device endpoints', () => {
     expect(rules['/device/token']).toBeDefined();
   });
 
-  it('caps the /device status lookup', () => {
-    expect(rules['/device']).toBeDefined();
+  it('does not carry a dead rule for the disabled /device path', () => {
+    // `onRequest` returns 404 for a disabled path before the limiter is
+    // consulted, so a rule here would never run. Keeping one would read like
+    // an active control.
+    expect(rules['/device']).toBeUndefined();
   });
 
   it('pins the header the client IP is read from rather than leaving it implicit', () => {

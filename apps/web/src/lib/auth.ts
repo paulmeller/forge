@@ -136,10 +136,25 @@ export const auth = betterAuth({
       verificationUri: `${env.BETTER_AUTH_URL}/device`,
     }),
   ],
-  // The two endpoints from finding 1. `disabledPaths` is enforced by the
-  // router's `onRequest` (404 before anything runs), so it closes the HTTP
-  // surface `toNextJsHandler(auth)` mounts without touching `auth.api`.
-  disabledPaths: ['/device/approve', '/device/deny'],
+  // `disabledPaths` is enforced by the router's `onRequest` — an exact-string
+  // `includes` against the normalized pathname, so `/device` switches off the
+  // plugin's `deviceVerify` endpoint WITHOUT touching `/device/code` or
+  // `/device/token`, and the 404 is returned before anything else runs. It
+  // closes the HTTP surface `toNextJsHandler(auth)` mounts; it does NOT touch
+  // `auth.api`, which is why auth-call-sites.test.ts exists.
+  //
+  //   /device/approve, /device/deny — the endpoints whose ownership guard
+  //     cannot fire on a fresh row (see the numbered note above). Forge
+  //     approves through `decideDeviceRequest` instead.
+  //   /device — `deviceVerify`: `GET /api/auth/device?user_code=…`, no session
+  //     required, answering `{user_code, status}` and distinguishing
+  //     not-found / expired / pending / approved / denied. That is a free
+  //     unauthenticated confirmation oracle for a secret: it tells anyone
+  //     holding a guessed or observed code whether it is real, still live, and
+  //     whether a human has acted on it yet. Nothing in Forge calls it — the
+  //     CLI learns the outcome from `/device/token`, and the consent page uses
+  //     `findDeviceRequest` — so it is pure attack surface.
+  disabledPaths: ['/device', '/device/approve', '/device/deny'],
   rateLimit: {
     customRules: {
       // Unauthenticated and row-creating: the tightest of the three.
@@ -150,8 +165,10 @@ export const auth = betterAuth({
       // `slow_down` response handles a client that polls faster than it said
       // it would.
       '/device/token': { window: 60, max: 60 },
-      // Status lookups. Not used by Forge's own flow, but reachable.
-      '/device': { window: 60, max: 20 },
+      // There is deliberately no `/device` rule. That path is in
+      // `disabledPaths`, and `onRequest` returns 404 for a disabled path
+      // *before* it consults the limiter — so a rule there would be dead
+      // config that reads like a live control.
     },
   },
   advanced: {
