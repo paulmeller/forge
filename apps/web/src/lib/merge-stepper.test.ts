@@ -7,7 +7,6 @@ const PR = 'https://github.com/o/r/pull/1';
 describe('deriveMergeStepper', () => {
   it('is hidden when there is no PR yet', () => {
     expect(deriveMergeStepper('running', null, null)).toEqual({ kind: 'hidden' });
-    expect(deriveMergeStepper('opening_pr', null, null)).toEqual({ kind: 'hidden' });
   });
 
   it('shows CI active, review and merge upcoming while awaiting_ci', () => {

@@ -71,7 +71,6 @@ const MERGE_STALL_STATUSES: TaskStatus[] = ['ready_to_merge', 'merging'];
  */
 const REPRODUCE_SETTLE_STATUSES: TaskStatus[] = [
   'turn_ended',
-  'opening_pr',
   'awaiting_ci',
   'awaiting_verify',
   'awaiting_ai_review',

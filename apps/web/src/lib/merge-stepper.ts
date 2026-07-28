@@ -71,7 +71,7 @@ export function deriveMergeStepper(
     };
   }
 
-  // queued/dispatching/running/turn_ended/opening_pr/resolved/abandoned:
+  // queued/dispatching/running/turn_ended/resolved/abandoned:
   // a PR shouldn't realistically exist yet (or the task is done/abandoned
   // via a path that doesn't need this display) — hide rather than guess.
   return { kind: 'hidden' };

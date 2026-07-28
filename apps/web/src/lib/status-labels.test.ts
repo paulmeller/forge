@@ -16,7 +16,6 @@ describe('statusLabel', () => {
     expect(statusLabel('needs_human')).toBe('Needs you');
     expect(statusLabel('fix_review')).toBe('Reviewing fix');
     expect(statusLabel('awaiting_ci')).toBe('Waiting on CI');
-    expect(statusLabel('opening_pr')).toBe('Opening PR');
     expect(statusLabel('not_reproduced')).toBe('Not reproduced');
     expect(statusLabel('running')).toBe('Running');
   });

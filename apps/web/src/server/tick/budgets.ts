@@ -49,7 +49,6 @@ const ALL_TASK_STATUSES: TaskStatus[] = [
   'dispatching',
   'running',
   'turn_ended',
-  'opening_pr',
   'awaiting_ci',
   'awaiting_verify',
   'awaiting_ai_review',

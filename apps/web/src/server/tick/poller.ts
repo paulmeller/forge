@@ -25,7 +25,7 @@ export const AUTO_ALLOW_TOOLS = new Set<string>([
   'create_or_update_file',
 ]);
 
-const POLLABLE_STATUSES: TaskStatus[] = ['dispatching', 'running', 'turn_ended', 'opening_pr'];
+const POLLABLE_STATUSES: TaskStatus[] = ['dispatching', 'running', 'turn_ended'];
 
 export type PollResult = {
   tasksPolled: number;

@@ -9,7 +9,6 @@ export const STATUS_LABELS: Record<string, string> = {
   dispatching: 'Dispatching',
   running: 'Running',
   turn_ended: 'Turn ended',
-  opening_pr: 'Opening PR',
   awaiting_ci: 'Waiting on CI',
   awaiting_verify: 'Verifying',
   awaiting_ai_review: 'AI review',

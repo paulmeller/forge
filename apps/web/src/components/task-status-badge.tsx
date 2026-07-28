@@ -7,7 +7,6 @@ const VARIANT: Record<TaskStatus, 'default' | 'secondary' | 'outline' | 'destruc
   dispatching: 'secondary',
   running: 'default',
   turn_ended: 'secondary',
-  opening_pr: 'secondary',
   awaiting_ci: 'secondary',
   awaiting_verify: 'secondary',
   awaiting_ai_review: 'secondary',

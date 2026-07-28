@@ -11,7 +11,6 @@ const IN_FLIGHT: TaskStatus[] = [
   'dispatching',
   'running',
   'turn_ended',
-  'opening_pr',
   'awaiting_ci',
   'merging',
 ];

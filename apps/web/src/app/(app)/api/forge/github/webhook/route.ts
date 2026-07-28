@@ -251,7 +251,7 @@ const TERMINAL_TASK_STATUSES = new Set<TaskStatus>([
 // defence in depth on top of that fix, not a substitute for it — it guards
 // against any other path that might someday leave a stale prUrl on an
 // early-stage Task, not just the retry path already closed.
-const PRE_PR_TASK_STATUSES: TaskStatus[] = ['queued', 'dispatching', 'running', 'turn_ended', 'opening_pr'];
+const PRE_PR_TASK_STATUSES: TaskStatus[] = ['queued', 'dispatching', 'running', 'turn_ended'];
 
 /**
  * Tasks are keyed by the PR URL Forge recorded when it opened the PR.

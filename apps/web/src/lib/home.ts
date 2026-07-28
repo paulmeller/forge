@@ -16,7 +16,6 @@ const NOW_RUNNING_STATUSES = [
   'queued',
   'dispatching',
   'running',
-  'opening_pr',
   'awaiting_ci',
   'awaiting_verify',
   'awaiting_ai_review',

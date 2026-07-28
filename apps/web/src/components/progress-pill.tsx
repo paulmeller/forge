@@ -41,7 +41,7 @@ export function Chip({
 
 export type MissionRollup = {
   total: number;
-  inFlight: number; // dispatching, running, turn_ended, opening_pr, awaiting_ci, merging
+  inFlight: number; // dispatching, running, turn_ended, awaiting_ci, merging
   awaitingReview: number;
   merged: number;
   resolved: number; // triage reproduce Tasks settled with a verdict (no PR)

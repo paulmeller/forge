@@ -30,7 +30,6 @@ const taskStatusVariant: Record<string, 'default' | 'secondary' | 'outline' | 'd
   dispatching: 'secondary',
   running: 'default',
   turn_ended: 'secondary',
-  opening_pr: 'secondary',
   awaiting_ci: 'secondary',
   ready_to_merge: 'secondary',
   needs_human: 'secondary',
@@ -164,7 +163,7 @@ export default async function TaskDetailPage({
             className="h-[400px]"
           />
           {task.sessionId &&
-          ['dispatching', 'running', 'turn_ended', 'opening_pr'].includes(task.status) ? (
+          ['dispatching', 'running', 'turn_ended'].includes(task.status) ? (
             <SteerInput taskId={task.id} />
           ) : null}
         </CardContent>

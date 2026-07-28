@@ -35,7 +35,7 @@ export type ActiveTaskInfo = {
 };
 
 const RUNNING_STATUSES = new Set(['queued', 'dispatching', 'running']);
-const ABORTABLE_STATUSES = new Set(['dispatching', 'running', 'turn_ended', 'opening_pr']);
+const ABORTABLE_STATUSES = new Set(['dispatching', 'running', 'turn_ended']);
 
 function formatStarted(task: Task | null): string | null {
   const at = task?.dispatchedAt ?? task?.createdAt ?? null;

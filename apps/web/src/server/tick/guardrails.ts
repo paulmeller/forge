@@ -40,7 +40,6 @@ export const AGENT_ACTIVE_STATUSES: TaskStatus[] = [
   'dispatching',
   'running',
   'turn_ended',
-  'opening_pr',
 ];
 
 export type Limits = { maxTurns: number; maxTokens: number; noProgressTokens: number };

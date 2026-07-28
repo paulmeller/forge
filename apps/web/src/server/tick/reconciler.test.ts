@@ -45,7 +45,6 @@ describe('MISSION_TERMINAL_TASK_STATUSES', () => {
     expect(MISSION_TERMINAL_TASK_STATUSES).not.toContain('dispatching');
     expect(MISSION_TERMINAL_TASK_STATUSES).not.toContain('running');
     expect(MISSION_TERMINAL_TASK_STATUSES).not.toContain('turn_ended');
-    expect(MISSION_TERMINAL_TASK_STATUSES).not.toContain('opening_pr');
     expect(MISSION_TERMINAL_TASK_STATUSES).not.toContain('awaiting_ci');
     expect(MISSION_TERMINAL_TASK_STATUSES).not.toContain('awaiting_ai_review');
     expect(MISSION_TERMINAL_TASK_STATUSES).not.toContain('merging');
