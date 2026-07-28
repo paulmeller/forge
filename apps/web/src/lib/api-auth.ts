@@ -27,10 +27,18 @@ const unauthorized = (): [null, NextResponse] => [
  * already reads.
  */
 function withBearerAlias(incoming: Headers): Headers {
+  const explicit = incoming.get('authorization');
   const apiKey = incoming.get('x-api-key');
-  if (!apiKey || incoming.get('authorization')) return incoming;
+  if (!explicit && !apiKey) return incoming;
   const resolved = new Headers(incoming);
-  resolved.set('authorization', `Bearer ${apiKey}`);
+  if (!explicit && apiKey) resolved.set('authorization', `Bearer ${apiKey}`);
+  // A presented token is an explicit identity claim. Leaving the cookie
+  // attached lets it win silently one layer down — the bearer plugin appends
+  // its synthesized cookie to the existing one and better-call's parser keeps
+  // the first occurrence — so the caller would act as the cookie's user while
+  // believing it acted as the token's. That is a wrong-user action, not a
+  // failed one, so the cookie goes.
+  resolved.delete('cookie');
   return resolved;
 }
 

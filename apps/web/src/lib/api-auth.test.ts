@@ -99,4 +99,73 @@ describe('apiAuth', () => {
     const [user] = await apiAuth();
     expect(user?.id).toBe('u2');
   });
+
+  /**
+   * One layer down, the bearer plugin APPENDS its synthesized cookie
+   * (`existingCookie + '; ' + newCookie`) and better-call's parser keeps the
+   * FIRST occurrence of a name — so a session cookie left attached silently
+   * beats the presented token. A client with a cookie jar would then act as
+   * the cookie's user while believing it acted as the token's: a wrong-user
+   * action, not a failed one. These mocks reproduce that precedence, so they
+   * only pass if apiAuth() removes the cookie when a token is presented.
+   */
+  const cookieWinsGetSession = (async (ctx: { headers: Headers }) => {
+    const cookie = ctx.headers.get('cookie');
+    if (cookie?.includes('cookie_user_token')) {
+      return { user: { id: 'cookie_user', name: 'Cookie', email: 'cookie@x' } } as never;
+    }
+    const authz = ctx.headers.get('authorization');
+    if (authz === 'Bearer token_user_token') {
+      return { user: { id: 'token_user', name: 'Token', email: 'token@x' } } as never;
+    }
+    return null as never;
+  }) as never;
+
+  it('resolves to the bearer token user, not the cookie user, when both are present', async () => {
+    vi.mocked(headers).mockResolvedValue(new Headers({
+      cookie: 'better-auth.session_token=cookie_user_token',
+      authorization: 'Bearer token_user_token',
+    }));
+    vi.mocked(auth.api.getSession).mockImplementation(cookieWinsGetSession);
+
+    const [user] = await apiAuth();
+    expect(user?.id).toBe('token_user');
+  });
+
+  it('resolves to the x-api-key user, not the cookie user, when both are present', async () => {
+    vi.mocked(headers).mockResolvedValue(new Headers({
+      cookie: 'better-auth.session_token=cookie_user_token',
+      'x-api-key': 'token_user_token',
+    }));
+    vi.mocked(auth.api.getSession).mockImplementation(cookieWinsGetSession);
+
+    const [user] = await apiAuth();
+    expect(user?.id).toBe('token_user');
+  });
+
+  it('does not forward the cookie at all once a token is presented', async () => {
+    vi.mocked(headers).mockResolvedValue(new Headers({
+      cookie: 'better-auth.session_token=cookie_user_token',
+      authorization: 'Bearer token_user_token',
+    }));
+    let seen: Headers | undefined;
+    vi.mocked(auth.api.getSession).mockImplementation((async (ctx: { headers: Headers }) => {
+      seen = ctx.headers;
+      return { user: { id: 'token_user', name: 'Token', email: 'token@x' } } as never;
+    }) as never);
+
+    await apiAuth();
+    expect(seen?.get('cookie')).toBeNull();
+    expect(seen?.get('authorization')).toBe('Bearer token_user_token');
+  });
+
+  it('leaves the cookie alone when no token is presented', async () => {
+    vi.mocked(headers).mockResolvedValue(new Headers({
+      cookie: 'better-auth.session_token=cookie_user_token',
+    }));
+    vi.mocked(auth.api.getSession).mockImplementation(cookieWinsGetSession);
+
+    const [user] = await apiAuth();
+    expect(user?.id).toBe('cookie_user');
+  });
 });

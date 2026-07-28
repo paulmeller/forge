@@ -1,7 +1,6 @@
 import { betterAuth } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { bearer } from 'better-auth/plugins/bearer';
-import { deviceAuthorization } from 'better-auth/plugins/device-authorization';
 import { sql } from 'drizzle-orm';
 import { integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
@@ -79,9 +78,45 @@ export const auth = betterAuth({
   // bearer converts `Authorization: Bearer <token>` into the session cookie
   // better-auth already understands, so apiAuth()/withAuth() need no change
   // and every ownership check keeps working against a real user session.
-  // device-authorization is the `gh auth login` flow a CLI uses to obtain
-  // one; it stores its device/user codes in the `deviceCode` table above.
-  plugins: [bearer(), deviceAuthorization()],
+  //
+  // `requireSignature` is deliberately left off. For a token containing no
+  // `.` — exactly the shape of `session.token` — the plugin signs the value
+  // itself with the server secret and then verifies its own signature, so the
+  // check can never fail and buys nothing; the DB lookup on `session.token` is
+  // the real gate. Turning it on would reject the raw session tokens the
+  // device flow issues, so it cannot be enabled on its own — it would have to
+  // land together with a change to what that flow returns. This is a
+  // considered trade-off, not an oversight.
+  //
+  // `deviceAuthorization()` (the `gh auth login` flow a CLI uses to obtain a
+  // token) is deliberately NOT registered. `toNextJsHandler(auth)` mounts the
+  // whole better-auth router publicly, so registering it puts `device/code`,
+  // `device/token`, `device`, `device/approve` and `device/deny` live at once,
+  // and in 1.6.9 all three of these hold:
+  //   1. `deviceApprove` guards ownership with
+  //      `if (record.userId && record.userId !== session.user.id)`. A fresh
+  //      row has `userId` NULL, so the guard never fires and any logged-in
+  //      user's approval binds the row to themselves — handing the
+  //      code-holder a full session for that user.
+  //   2. `validateClient` is undefined, so `client_id` is unvalidated and any
+  //      string is accepted.
+  //   3. `scope` is accepted, stored and echoed back, but `/device/token`
+  //      returns an ordinary unscoped session. A CLI asking for
+  //      `missions:read` gets a token that can delete the account.
+  // Nothing supplies the missing proof, because the consent page that would
+  // name the client and require the human to type the code does not exist —
+  // `verification_uri_complete` points at a 404.
+  //
+  // Three preconditions must ALL be met before it goes back in:
+  //   a. a consent page exists at the verification URI that names the
+  //      requesting client and requires the human to enter the user code;
+  //   b. `validateClient` is supplied with an allow-list of known client ids;
+  //   c. `scope` is either actually enforced on the issued credential or
+  //      rejected outright rather than silently ignored.
+  // The `deviceCode` table stays in the schema so re-enabling needs no
+  // migration — but re-enabling must be a deliberate act, not a one-line
+  // revert of this comment.
+  plugins: [bearer()],
 });
 
 export type Auth = typeof auth;

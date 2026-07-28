@@ -561,6 +561,23 @@ export type LedgerEvent = typeof ledgerEvents.$inferSelect;
 export type NewLedgerEvent = typeof ledgerEvents.$inferInsert;
 
 /**
+ * better-auth's `user` table, redeclared here ONLY so `deviceCode.userId` has
+ * something to point its foreign key at. It is deliberately **not exported**:
+ * drizzle-kit only collects exported tables, and this table is owned by the
+ * hand-written 0004_auth_tables.sql (and mirrored inline in
+ * apps/web/src/lib/auth.ts), so exporting it would make drizzle-kit believe it
+ * is a new table and emit a `CREATE TABLE user` that fails against every
+ * database where 0004 has already run. The reference still resolves in
+ * generated SQL — 0021 emits `REFERENCES user(id)` — because drizzle reads the
+ * referenced table's *name*, not its registration.
+ *
+ * Do not export this, and do not add columns to it expecting a migration.
+ */
+const authUser = sqliteTable('user', {
+  id: text('id').primaryKey(),
+});
+
+/**
  * better-auth's device-authorization plugin table — the `gh auth login`-style
  * device code flow a CLI uses to obtain a session token. Lives here rather
  * than inline in apps/web/src/lib/auth.ts like the four core better-auth
@@ -572,16 +589,29 @@ export type NewLedgerEvent = typeof ledgerEvents.$inferInsert;
  * Field names are camelCase to match better-auth's own default column
  * naming (mirroring the user/session/account/verification tables), not this
  * file's usual snake_case convention.
+ *
+ * The plugin itself is currently UNREGISTERED — see the preconditions listed
+ * beside `plugins:` in apps/web/src/lib/auth.ts. The table stays so that
+ * re-enabling needs no schema work, which is also why it is hardened now
+ * rather than later: `deviceCode` and `userCode` are the secrets the flow
+ * looks rows up by and must each identify exactly one row, and an orphaned
+ * `userId` must not outlive the user it names.
  */
 export const deviceCode = sqliteTable('deviceCode', {
   id: text('id').primaryKey(),
   deviceCode: text('deviceCode').notNull(),
   userCode: text('userCode').notNull(),
-  userId: text('userId'),
+  userId: text('userId').references(() => authUser.id, { onDelete: 'cascade' }),
   expiresAt: integer('expiresAt').notNull(),
   status: text('status').notNull(),
   lastPolledAt: integer('lastPolledAt'),
   pollingInterval: integer('pollingInterval'),
   clientId: text('clientId'),
   scope: text('scope'),
-});
+}, (t) => [
+  // Both columns are lookup keys the flow trusts to identify exactly one row —
+  // the same role `session.token` plays, and that column carries
+  // `session_token_unique` for the same reason.
+  uniqueIndex('device_code_unique').on(t.deviceCode),
+  uniqueIndex('device_user_code_unique').on(t.userCode),
+]);
