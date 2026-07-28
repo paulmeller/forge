@@ -2,16 +2,16 @@
 
 import { randomUUID } from 'node:crypto';
 
-import { ledgerEvents, missions, tasks, type TaskStatus } from '@forge/db';
+import { ledgerEvents, missions, tasks } from '@forge/db';
 import { eq } from 'drizzle-orm';
 
-import { getAdapter } from '@/server/tick/adapters';
 import { db } from '@/lib/db';
 import { env } from '@/lib/env';
 import { buildCreateIssuePayload } from '@/lib/github-issue-create';
 import { resolveMissionDefaults, userCanAccessRepo } from '@/lib/mission-defaults-db';
 import { pauseMission, resumeMission } from '@/lib/mission-transitions';
 import { updateNextIssueRefs } from '@/lib/next-marker';
+import { abortTaskForUser, steerTaskForUser } from '@/lib/task-session-ops';
 import { buildTriageTaskRows, type TriageIssue } from '@/lib/triage-planner';
 import { withAuth } from '@/lib/with-auth';
 import {
@@ -136,143 +136,32 @@ export async function createIssue(
   return { ok: true };
 }
 
-// Terminal Task statuses (mirrors apps/tick/src/reconciler.ts's
-// MISSION_TERMINAL_TASK_STATUSES, minus 'needs_human' which is
-// mission-terminal but not Task-terminal — no cross-app import needed for
-// this small a check).
-const TERMINAL_TASK_STATUSES: TaskStatus[] = ['merged', 'resolved', 'abandoned', 'failed'];
-
 /**
- * Abort a running Task's session. Only meaningful for a Task with an active
- * session (running/dispatching/etc.) — marks it failed with haltReason
- * 'manual_abort', mirroring the shape budgets.ts's hardStop already uses for
- * the same kind of forced stop.
+ * Abort a running Task's session. Thin transport over `abortTaskForUser`
+ * (lib/task-session-ops.ts) — shared with the `/api/v1` abort route so the
+ * auth-ownership behaviour cannot drift between the two transports. This
+ * wrapper only resolves the caller via withAuth(); everything else (the
+ * ownership-scoped lookup, the terminal-status guard, the adapter call, the
+ * transactional write) lives in the shared function.
  */
 export async function abortTask(
   taskId: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const user = await withAuth();
-
-  const [row] = await db
-    .select({ task: tasks, ownerId: missions.userId, backend: missions.backend })
-    .from(tasks)
-    .innerJoin(missions, eq(tasks.missionId, missions.id))
-    .where(eq(tasks.id, taskId))
-    .limit(1);
-  if (!row || row.ownerId !== user.id) return { ok: false, error: 'Task not found' };
-  const task = row.task;
-  if (!task.sessionId) return { ok: false, error: 'Task has no active session to abort' };
-  if (TERMINAL_TASK_STATUSES.includes(task.status)) {
-    return { ok: false, error: 'Task has already finished, nothing to abort' };
-  }
-
-  try {
-    // Route through the mission's own backend rather than assuming
-    // managed-agents: a Gemini mission's session lives behind a different API
-    // entirely, and backendSessionRef is the handle that survives a restart.
-    await getAdapter(row.backend).cancelSession(task.sessionId, task.backendSessionRef);
-  } catch (err) {
-    return {
-      ok: false,
-      error: `Could not cancel session: ${err instanceof Error ? err.message : 'unknown error'}`,
-    };
-  }
-
-  const now = new Date();
-  await db.transaction(async (tx) => {
-    await tx
-      .update(tasks)
-      .set({
-        status: 'failed',
-        haltReason: 'manual_abort',
-        lastError: 'Aborted by operator',
-        // TERMINAL_TASK_STATUSES above deliberately excludes ready_to_merge,
-        // needs_human and merging, so an operator can abort a Task sitting
-        // in any of those — and any of them can carry a human approvedBy
-        // (needs_human can also carry an escalationReason). Neither
-        // describes the abort outcome, so both must be cleared here exactly
-        // like every other place a Task is forced out of the state an
-        // approval covered.
-        approvedBy: null,
-        escalationReason: null,
-        updatedAt: now,
-        completedAt: now,
-      })
-      .where(eq(tasks.id, taskId));
-
-    await tx.insert(ledgerEvents).values({
-      id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
-      missionId: task.missionId,
-      taskId: task.id,
-      eventType: 'task.aborted',
-      payload: { sessionId: task.sessionId },
-      createdAt: now,
-    });
-  });
-
-  return { ok: true };
+  return abortTaskForUser(taskId, user.id);
 }
 
 /**
- * Send a mid-run instruction into a Task's live session. The message is
- * appended to the session's event stream (same `user.message` shape the
- * dispatcher uses for the opening turn) and recorded in the audit ledger.
+ * Send a mid-run instruction into a Task's live session. Thin transport over
+ * `steerTaskForUser` (lib/task-session-ops.ts) — shared with the `/api/v1`
+ * steer route, same rationale as `abortTask` above.
  */
 export async function steerTask(
   taskId: string,
   message: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const user = await withAuth();
-
-  const text = message.trim();
-  if (!text) return { ok: false, error: 'Message is empty' };
-
-  const [row] = await db
-    .select({ task: tasks, ownerId: missions.userId, backend: missions.backend })
-    .from(tasks)
-    .innerJoin(missions, eq(tasks.missionId, missions.id))
-    .where(eq(tasks.id, taskId))
-    .limit(1);
-  if (!row || row.ownerId !== user.id) return { ok: false, error: 'Task not found' };
-  const task = row.task;
-  if (!task.sessionId) return { ok: false, error: 'Task has no active session to steer' };
-  if (TERMINAL_TASK_STATUSES.includes(task.status)) {
-    return { ok: false, error: 'Task has already finished, nothing to steer' };
-  }
-
-  try {
-    // Route through the mission's own backend, not a hardcoded Anthropic
-    // client. Like the tick engine's other sendTurn call sites, a backend that
-    // rotates its session handle (Gemini) returns a new ref we must persist,
-    // or a later cancel/poll would target the stale one.
-    const result = await getAdapter(row.backend).sendTurn({
-      sessionId: task.sessionId,
-      text,
-      backendSessionRef: task.backendSessionRef,
-    });
-    if (result.backendSessionRef) {
-      await db
-        .update(tasks)
-        .set({ backendSessionRef: result.backendSessionRef, updatedAt: new Date() })
-        .where(eq(tasks.id, task.id));
-    }
-  } catch (err) {
-    return {
-      ok: false,
-      error: `Could not reach session: ${err instanceof Error ? err.message : 'unknown error'}`,
-    };
-  }
-
-  await db.insert(ledgerEvents).values({
-    id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
-    missionId: task.missionId,
-    taskId: task.id,
-    eventType: 'task.steered',
-    payload: { sessionId: task.sessionId, message: text },
-    createdAt: new Date(),
-  });
-
-  return { ok: true };
+  return steerTaskForUser(taskId, user.id, message);
 }
 
 /** Pause the repo's container mission — the dispatcher will stop claiming any of its issue leaves' tasks (Task 3 of this plan). */
