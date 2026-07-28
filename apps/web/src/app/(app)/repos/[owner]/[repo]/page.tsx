@@ -17,6 +17,8 @@ import { withAuth } from '@/lib/with-auth';
 import { findWorkspaceMission } from '@/lib/workspace-mission';
 import { mergeIssuesWithGroups } from '@/lib/workspace-issues';
 
+import type { AutoMergePolicy } from '@forge/db';
+
 const RUNNING_TASK_STATUSES = new Set(['queued', 'dispatching', 'running']);
 
 import { ActivityTab } from './activity-tab';
@@ -159,7 +161,7 @@ export default async function RepoWorkspacePage({
                 budgetUsd={mission.budgetUsd}
                 aiReviewEnabled={mission.aiReviewEnabled}
                 selfVerifyEnabled={mission.selfVerifyEnabled}
-                autoMergePolicy={mission.autoMergePolicy}
+                autoMergePolicy={mission.autoMergePolicy as AutoMergePolicy | null}
                 requirePlanApproval={(await getRepoPolicy(repo)).requirePlanApproval}
               />
             ) : (

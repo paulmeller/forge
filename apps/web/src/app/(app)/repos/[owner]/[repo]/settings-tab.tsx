@@ -8,6 +8,10 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
+import { Textarea } from '@/components/ui/textarea';
+
+import { parseLines } from '@/lib/parse-lines';
+import { parseOptionalNumber } from '@/lib/parse-optional-number';
 
 import type { AutoMergePolicy } from '@forge/db';
 
@@ -27,10 +31,6 @@ export function SettingsTab({
   budgetUsd: number | null;
   aiReviewEnabled: boolean;
   selfVerifyEnabled: boolean;
-  // Not yet editable here — the auto-merge and plan-approval form fields are
-  // a later task's UI. These are threaded through only so that saving the
-  // fields already on this tab round-trips the existing policies unchanged
-  // instead of overwriting them with a hardcoded default.
   autoMergePolicy: AutoMergePolicy | null;
   requirePlanApproval: boolean;
 }) {
@@ -38,6 +38,16 @@ export function SettingsTab({
   const [budget, setBudget] = useState(budgetUsd !== null ? String(budgetUsd) : '');
   const [aiReview, setAiReview] = useState(aiReviewEnabled);
   const [selfVerify, setSelfVerify] = useState(selfVerifyEnabled);
+  const [amEnabled, setAmEnabled] = useState(autoMergePolicy?.enabled ?? false);
+  const [maxAdd, setMaxAdd] = useState(autoMergePolicy?.maxAdditions?.toString() ?? '');
+  const [maxDel, setMaxDel] = useState(autoMergePolicy?.maxDeletions?.toString() ?? '');
+  const [maxFiles, setMaxFiles] = useState(autoMergePolicy?.maxFilesChanged?.toString() ?? '');
+  const [checks, setChecks] = useState((autoMergePolicy?.requiredChecks ?? []).join('\n'));
+  const [paths, setPaths] = useState((autoMergePolicy?.allowedPathPatterns ?? []).join('\n'));
+  const [requireApproval, setRequireApproval] = useState(
+    autoMergePolicy?.requireHumanApproval ?? false,
+  );
+  const [planApproval, setPlanApproval] = useState(requirePlanApproval);
   const [pending, startTransition] = useTransition();
   const [message, setMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
 
@@ -51,8 +61,16 @@ export function SettingsTab({
         budgetUsd: parsedBudget,
         aiReviewEnabled: aiReview,
         selfVerifyEnabled: selfVerify,
-        autoMerge: autoMergePolicy ?? { enabled: false },
-        requirePlanApproval,
+        autoMerge: {
+          enabled: amEnabled,
+          maxAdditions: parseOptionalNumber(maxAdd),
+          maxDeletions: parseOptionalNumber(maxDel),
+          maxFilesChanged: parseOptionalNumber(maxFiles),
+          requiredChecks: parseLines(checks),
+          allowedPathPatterns: parseLines(paths),
+          requireHumanApproval: requireApproval,
+        },
+        requirePlanApproval: planApproval,
       });
       setMessage(
         result.ok ? { kind: 'ok', text: 'Saved.' } : { kind: 'error', text: result.error },
@@ -109,6 +127,101 @@ export function SettingsTab({
               Self-verify gate
             </FieldLabel>
           </Field>
+          <Field orientation="horizontal">
+            <Checkbox
+              id="amEnabled"
+              checked={amEnabled}
+              onCheckedChange={(checked) => setAmEnabled(checked === true)}
+            />
+            <FieldLabel htmlFor="amEnabled" className="font-normal">
+              Auto-merge
+            </FieldLabel>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="maxAdd">Max additions</FieldLabel>
+            <Input
+              id="maxAdd"
+              type="number"
+              min={0}
+              placeholder="No cap"
+              value={maxAdd}
+              onChange={(e) => setMaxAdd(e.target.value)}
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="maxDel">Max deletions</FieldLabel>
+            <Input
+              id="maxDel"
+              type="number"
+              min={0}
+              placeholder="No cap"
+              value={maxDel}
+              onChange={(e) => setMaxDel(e.target.value)}
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="maxFiles">Max files changed</FieldLabel>
+            <Input
+              id="maxFiles"
+              type="number"
+              min={0}
+              placeholder="No cap"
+              value={maxFiles}
+              onChange={(e) => setMaxFiles(e.target.value)}
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="checks">Required checks</FieldLabel>
+            <Textarea
+              id="checks"
+              rows={3}
+              placeholder="One check name per line"
+              value={checks}
+              onChange={(e) => setChecks(e.target.value)}
+            />
+            <FieldDescription>
+              Blocks the merge unless the branch actually requires each of these. Leave blank to
+              rely on branch protection alone.
+            </FieldDescription>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="paths">Allowed paths</FieldLabel>
+            <Textarea
+              id="paths"
+              rows={3}
+              placeholder="One glob per line, e.g. docs/**"
+              value={paths}
+              onChange={(e) => setPaths(e.target.value)}
+            />
+            <FieldDescription>Blank means any path may change.</FieldDescription>
+          </Field>
+          <Field orientation="horizontal">
+            <Checkbox
+              id="requireApproval"
+              checked={requireApproval}
+              onCheckedChange={(checked) => setRequireApproval(checked === true)}
+            />
+            <FieldLabel htmlFor="requireApproval" className="font-normal">
+              Require human approval
+            </FieldLabel>
+          </Field>
+          <FieldDescription>
+            Only tasks someone approved will auto-merge. This records that a human looked — it
+            does not require a second person, so you can approve your own work.
+          </FieldDescription>
+          <Field orientation="horizontal">
+            <Checkbox
+              id="planApproval"
+              checked={planApproval}
+              onCheckedChange={(checked) => setPlanApproval(checked === true)}
+            />
+            <FieldLabel htmlFor="planApproval" className="font-normal">
+              Require plan approval for @forge
+            </FieldLabel>
+          </Field>
+          <FieldDescription>
+            When on, an @forge comment produces a plan you approve before any agent starts.
+          </FieldDescription>
           <Field orientation="horizontal">
             <Button onClick={handleSave} disabled={pending} size="sm">
               {pending ? <Spinner data-icon="inline-start" /> : null}
