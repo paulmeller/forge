@@ -1,8 +1,9 @@
 import { z } from 'zod';
+import { missionStatus } from '@forge/db';
 import { createMissionSchema } from '@/lib/missions';
 
 export const schemas = {
-  'missions.list': { query: z.object({ status: z.string().optional() }) },
+  'missions.list': { query: z.object({ status: z.enum(missionStatus).optional() }) },
   'missions.create': { body: createMissionSchema },
   'missions.get': { params: z.object({ missionId: z.string() }) },
   'missions.plan': { params: z.object({ missionId: z.string() }) },

@@ -3,9 +3,10 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { and, desc, eq, isNotNull, isNull, or } from 'drizzle-orm';
 import { z } from 'zod';
 
-import { backend, missions, plannerStrategy, type Mission, type NewMission } from '@forge/db';
+import { backend, missionStatus, missions, plannerStrategy, type Mission, type NewMission } from '@forge/db';
 
 import { db } from './db';
+import { userCanAccessRepo } from './mission-defaults-db';
 import { withAuth } from './with-auth';
 
 const repoSlugPattern = /^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/;
@@ -60,13 +61,57 @@ export function parseRepoList(raw: string | null | undefined): string[] {
 export type CreateMissionInput = z.infer<typeof createMissionSchema>;
 
 /**
+ * Thrown by createMissionForUser when the caller asked to target one or more
+ * repos their GitHub App installation does not cover. Deliberately not a
+ * ZodError — this is an authorization failure discovered after schema
+ * validation, not a shape problem with the request — so route handlers can
+ * distinguish "bad input" (400) from "not allowed" (403) and the Server
+ * Action path (which already treats any non-ZodError Error as a surfaceable
+ * message) needs no special casing to show it.
+ */
+export class RepoAccessError extends Error {
+  constructor(public readonly repos: string[]) {
+    super(
+      repos.length === 1
+        ? `No access to repo "${repos[0]}"`
+        : `No access to repos: ${repos.join(', ')}`,
+    );
+    this.name = 'RepoAccessError';
+  }
+}
+
+/**
  * Create a mission for a specific user. Use createMissionAuthed() from
  * server components (auto-reads the session).
+ *
+ * Every targetRepo must pass userCanAccessRepo before anything is written.
+ * This is the one place the web UI's Server Action and POST /api/v1/missions
+ * both funnel through, so gating only the route would leave the Server
+ * Action path (and any other future caller of createMissionForUser) open.
+ *
+ * The whole call is rejected if ANY repo fails the check — never silently
+ * filtered — because a caller who asked for three repos and got a mission
+ * scoped to one has been told something false about what was created.
+ *
+ * If the access lookup itself throws, that error propagates as-is (fails
+ * closed): it is not caught and reinterpreted as either "granted" or
+ * "denied", and — because it's awaited before the insert below — no mission
+ * row can be written while the caller's access is unproven.
  */
 export async function createMissionForUser(
   userId: string,
   input: CreateMissionInput,
 ): Promise<Mission> {
+  if (input.targetRepos.length > 0) {
+    const results = await Promise.all(
+      input.targetRepos.map(async (repo) => ({ repo, allowed: await userCanAccessRepo(userId, repo) })),
+    );
+    const denied = results.filter((r) => !r.allowed).map((r) => r.repo);
+    if (denied.length > 0) {
+      throw new RepoAccessError(denied);
+    }
+  }
+
   const now = new Date();
   const values: NewMission = {
     id: `msn_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
@@ -115,14 +160,19 @@ export async function createMission(input: CreateMissionInput): Promise<Mission>
  * work). Expressed as "NOT a container": either it isn't repo-scoped at
  * all (campaign), or it's specifically issue-scoped (issueRef set), or it
  * has a parent itself (defensive — containers are always roots).
+ *
+ * `status`, when given, narrows to that lifecycle status only — this is
+ * what GET /api/v1/missions's `?status=` query filter (declared in
+ * lib/api/schemas.ts's `missions.list` entry) actually runs against.
  */
-export async function listMissionsForUser(userId: string): Promise<Mission[]> {
+export async function listMissionsForUser(userId: string, status?: string): Promise<Mission[]> {
   return db
     .select()
     .from(missions)
     .where(
       and(
         eq(missions.userId, userId),
+        status ? eq(missions.status, status as (typeof missionStatus)[number]) : undefined,
         or(
           isNull(missions.workspaceRepo),
           isNotNull(missions.issueRef),

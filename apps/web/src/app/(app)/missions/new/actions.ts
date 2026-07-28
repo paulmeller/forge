@@ -3,7 +3,7 @@
 import { redirect } from 'next/navigation';
 import { ZodError } from 'zod';
 
-import { createMission, createMissionSchema, parseRepoList } from '@/lib/missions';
+import { createMission, createMissionSchema, parseRepoList, RepoAccessError } from '@/lib/missions';
 import { deriveMissionName } from '@/lib/mission-defaults';
 
 export type CreateMissionState = {
@@ -60,6 +60,12 @@ export async function createMissionAction(
         if (key && !fieldErrors[key]) fieldErrors[key] = issue.message;
       }
       return { error: 'Please correct the errors below.', fieldErrors };
+    }
+    if (err instanceof RepoAccessError) {
+      return {
+        error: 'Please correct the errors below.',
+        fieldErrors: { targetRepos: err.message },
+      };
     }
     return { error: err instanceof Error ? err.message : 'Unexpected error' };
   }

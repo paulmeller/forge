@@ -28,5 +28,40 @@ export function buildOpenApiDocument(): unknown {
       body: def.body ? z.toJSONSchema(def.body) : undefined,
     };
   }
-  return { openapi: '3.1.0', info: { title: 'Forge API', version: '1.0.0' }, paths };
+  return {
+    openapi: '3.1.0',
+    info: { title: 'Forge API', version: '1.0.0' },
+    paths,
+    components: {
+      schemas: {
+        // Recorded per Task 4b Step 3: the pre-v1 POST /api/missions returned
+        // { error: 'validation failed', issues: err.issues } — a full
+        // per-field Zod issue array, so a caller could tell exactly which
+        // field failed. Every v1 route instead uses this one fixed envelope
+        // everywhere, joining multi-issue Zod errors into a single message
+        // string. That is a deliberate trade-off (one predictable shape for
+        // every route, at the cost of per-field addressability for a CLI),
+        // not an oversight — recorded here so it's a decision on record.
+        Error: {
+          type: 'object',
+          description:
+            'Fixed error envelope used by every v1 route. Trade-off: collapses ' +
+            'multi-field Zod validation failures into one joined message ' +
+            'string, rather than the per-field issue array the deleted ' +
+            'POST /api/missions used to return.',
+          properties: {
+            error: {
+              type: 'object',
+              properties: {
+                code: { type: 'string' },
+                message: { type: 'string' },
+              },
+              required: ['code', 'message'],
+            },
+          },
+          required: ['error'],
+        },
+      },
+    },
+  };
 }

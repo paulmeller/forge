@@ -12,7 +12,15 @@
         "type": "object",
         "properties": {
           "status": {
-            "type": "string"
+            "type": "string",
+            "enum": [
+              "draft",
+              "planning",
+              "running",
+              "paused",
+              "completed",
+              "cancelled"
+            ]
           }
         },
         "additionalProperties": false
@@ -538,6 +546,34 @@
           "requirePlanApproval"
         ],
         "additionalProperties": false
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "description": "Fixed error envelope used by every v1 route. Trade-off: collapses multi-field Zod validation failures into one joined message string, rather than the per-field issue array the deleted POST /api/missions used to return.",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ]
+          }
+        },
+        "required": [
+          "error"
+        ]
       }
     }
   }
