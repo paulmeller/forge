@@ -1,11 +1,19 @@
 'use server';
 
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNotNull, isNull } from 'drizzle-orm';
 
 import { githubInstallationRepos, missions } from '@forge/db';
 
 import { db } from '@/lib/db';
 import { withAuth } from '@/lib/with-auth';
+
+/**
+ * Internal control-flow signal for "no matching container" inside the
+ * transaction below — thrown (never returned) so `db.transaction` rolls
+ * back any partial write instead of committing one half of the pair. Never
+ * escapes this module.
+ */
+class RepoSettingsNotFoundError extends Error {}
 
 export type AutoMergePolicyInput = {
   enabled: boolean;
@@ -47,38 +55,92 @@ export async function updateRepoSettings(
     }
   }
 
-  const [updated] = await db
-    .update(missions)
-    .set({
-      concurrencyCap: input.concurrencyCap,
-      budgetUsd: input.budgetUsd,
-      aiReviewEnabled: input.aiReviewEnabled,
-      selfVerifyEnabled: input.selfVerifyEnabled,
-      autoMergePolicy: input.autoMerge,
-      updatedAt: new Date(),
-    })
-    .where(and(eq(missions.id, containerId), eq(missions.userId, user.id)))
-    .returning();
+  try {
+    return await db.transaction(async (tx) => {
+      // requirePlanApproval governs Mission *creation*, so it cannot live on
+      // a Mission — it stays on the repo row, keyed by `workspaceRepo`.
+      //
+      // `workspaceRepo` — NOT `targetRepos[0]` — is the repo name here.
+      // `targetRepos` is attacker-controlled: `createMissionSchema`
+      // (missions.ts) lets any authenticated user create an ordinary
+      // mission with an arbitrary `targetRepos: string[]`, validated only
+      // against an `owner/repo` regex, with no check that the caller has
+      // any installation covering that repo. Deriving the repo from it here
+      // would let someone create their own throwaway mission naming a
+      // victim's repo and flip that victim's plan-approval gate — the
+      // ownership check below only proves the caller owns *a* mission row,
+      // not that the row is a genuine repo container.
+      //
+      // `workspaceRepo` is written only by trusted server-side
+      // container-creation code (workspace-mission.ts) and never appears in
+      // createMissionSchema at all, so it cannot be smuggled in the same way.
+      //
+      // The WHERE below requires workspaceRepo IS NOT NULL, issueRef IS
+      // NULL, and parentMissionId IS NULL — the same three conditions
+      // isContainerMission (mission-shape.ts) uses to define a genuine
+      // container. isNotNull(workspaceRepo) alone would not be enough: an
+      // issue leaf mission also has workspaceRepo set (workspace-mission.ts,
+      // getOrCreateIssueMission), so without also excluding leaves this
+      // endpoint could be pointed at a leaf mission's id and write
+      // repo-wide concurrency/budget fields onto that leaf's own row
+      // instead of its container's. We mirror isContainerMission's three
+      // conditions as SQL predicates here (rather than importing the
+      // predicate itself) because it operates on an already-fetched row,
+      // not as a composable WHERE clause, and the guarantee needs to be
+      // enforced by the query itself so a non-container row is never
+      // touched in the first place.
+      const [updated] = await tx
+        .update(missions)
+        .set({
+          concurrencyCap: input.concurrencyCap,
+          budgetUsd: input.budgetUsd,
+          aiReviewEnabled: input.aiReviewEnabled,
+          selfVerifyEnabled: input.selfVerifyEnabled,
+          autoMergePolicy: input.autoMerge,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(missions.id, containerId),
+            eq(missions.userId, user.id),
+            isNotNull(missions.workspaceRepo),
+            isNull(missions.issueRef),
+            isNull(missions.parentMissionId),
+          ),
+        )
+        .returning();
 
-  if (!updated) {
-    return { ok: false, error: 'Repo settings not found' };
+      if (!updated) {
+        throw new RepoSettingsNotFoundError();
+      }
+
+      const repo = updated.workspaceRepo;
+      if (!repo) {
+        // Structurally unreachable: isNotNull(missions.workspaceRepo) above
+        // guarantees any row this UPDATE can touch has a non-null
+        // workspaceRepo. This is deliberately a *different* thrown type
+        // than RepoSettingsNotFoundError (not caught below, so it surfaces
+        // as a real error instead of a graceful `{ ok: false }`) — landing
+        // here means the WHERE guarantee above was violated, which is a
+        // genuine invariant break, not an ordinary "not found". Silently
+        // returning `{ ok: true }` here (the original bug) or swallowing
+        // this into `{ ok: false }` would both hide that regression instead
+        // of failing loudly. The transaction still rolls back the mission
+        // write that already happened in this same `tx`.
+        throw new Error('updateRepoSettings: matched a container with no workspaceRepo');
+      }
+
+      await tx
+        .update(githubInstallationRepos)
+        .set({ repoPolicy: { requirePlanApproval: input.requirePlanApproval } })
+        .where(eq(githubInstallationRepos.repo, repo));
+
+      return { ok: true } as const;
+    });
+  } catch (err) {
+    if (err instanceof RepoSettingsNotFoundError) {
+      return { ok: false, error: 'Repo settings not found' };
+    }
+    throw err;
   }
-
-  // requirePlanApproval governs Mission *creation*, so it cannot live on a
-  // Mission — it stays on the repo row.
-  //
-  // The repo name is taken from the container we just ownership-checked, NOT
-  // from a parameter. Accepting it from the caller would let someone pass
-  // another account's repo alongside a container they legitimately own and
-  // disable that account's plan-approval gate — the ownership check covers
-  // the Mission, not an independent field beside it.
-  const repo = (updated.targetRepos as string[] | null)?.[0];
-  if (repo) {
-    await db
-      .update(githubInstallationRepos)
-      .set({ repoPolicy: { requirePlanApproval: input.requirePlanApproval } })
-      .where(eq(githubInstallationRepos.repo, repo));
-  }
-
-  return { ok: true };
 }
