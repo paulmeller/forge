@@ -650,6 +650,47 @@ git commit -m "feat(api): v1 mission endpoints; delete the six uncalled routes"
 
 ---
 
+## Task 4b: Make the schema registry load-bearing, and gate `targetRepos`
+
+Added after Task 4's review found two gaps that get worse the more routes are built on top of them. Runs after Task 5 so it can cover those routes too.
+
+**Files:**
+- Modify: `apps/web/src/lib/missions.ts` and its test
+- Modify: every route under `apps/web/src/app/(app)/api/v1/` that takes a query or body
+- Modify: `docs/api/openapi.json` (regenerate)
+
+- [ ] **Step 1: A caller must not create a mission targeting a repo they cannot access**
+
+`createMissionForUser` writes `targetRepos: input.targetRepos` straight from caller input with no access check, and `createMissionSchema` does not constrain it. Until now that sat behind a browser session and a web form. Task 4 published it as `POST /api/v1/missions` — a documented, machine-drivable endpoint — which materially changes the exposure of a gap that was previously filed and deferred.
+
+`userCanAccessRepo(userId, repo)` already exists at `apps/web/src/lib/mission-defaults-db.ts:65` and is the same predicate used to gate `workOnIssue` and `toggleNextMarker`. Apply it in `createMissionForUser`, which is where both transports meet — the web UI should not permit this either, and gating it in the route would leave the Server Action path open.
+
+Reject the whole call if any entry in `targetRepos` fails the check. Do not silently filter the list: a caller who asked for three repos and got a mission targeting one has been told something false about what was created. Fail closed if the access lookup itself errors.
+
+Test: a user with access to `a/b` but not `c/d` gets a rejection for `targetRepos: ['a/b', 'c/d']`, **and no mission row is written**. Mutation: remove the check, confirm that named test fails.
+
+- [ ] **Step 2: Route validation must flow through `schemas`**
+
+No route imports `schemas` at all. `missions.list` declares a `status` query filter that `GET /api/v1/missions` ignores entirely, so the generated spec advertises a capability that silently does nothing — and `openapi.ts`'s claim that "drift is structurally impossible" is currently false. A registry nothing reads is documentation pretending to be a contract.
+
+For each v1 route taking a query or body, parse it through its registry entry and return `fail('invalid_request', …, 400)` on failure. Where a route cannot yet honour a declared parameter, **remove it from the registry** rather than leaving it advertised — the spec must describe what the handlers do, not what they might.
+
+Wire `missions.list`'s `status` filter through to `listMissionsForUser` if that is a small change; if it is not, drop `status` from the registry and note it. Either is acceptable. Advertising it while ignoring it is not.
+
+Regenerate with `pnpm api:spec` and commit the result.
+
+- [ ] **Step 3: Record the validation-detail trade-off**
+
+The deleted `POST /api/missions` returned `{ error: 'validation failed', issues: err.issues }` — a full per-field Zod issue array. The v1 envelope collapses that to one joined string, so a CLI can no longer point at which field failed. Keep the fixed `{ code, message }` envelope, but note the loss in the spec's error-shape section so it is a decision on record rather than an accident.
+
+- [ ] **Step 4: Verify and commit**
+
+```bash
+cd /Users/paulmeller/Projects/agentstep/agentstep-forge && pnpm api:spec && pnpm typecheck && pnpm -r lint && pnpm -r test
+```
+
+---
+
 ## Task 5: Task endpoints — the operator surface
 
 These are the operations that exist today **only** as Server Actions. This is what makes the API operable rather than merely readable.
