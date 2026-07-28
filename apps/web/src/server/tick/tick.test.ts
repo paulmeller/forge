@@ -26,6 +26,7 @@ const mocks = vi.hoisted(() => ({
   reconciler: undefined as unknown,
   dispatcher: undefined as unknown,
   memory: undefined as unknown,
+  deviceCodes: undefined as unknown,
 }));
 
 vi.mock('./poller', () => ({
@@ -112,6 +113,9 @@ vi.mock('./dispatcher', () => ({
 vi.mock('./memory', () => ({
   runMemoryExpiry: (mocks.memory = recorder('memory', { expired: 0, reconfirmationNeeded: 0 })),
 }));
+vi.mock('./device-codes', () => ({
+  runDeviceCodeSweep: (mocks.deviceCodes = recorder('deviceCodes', { deleted: 0 })),
+}));
 
 const { runTick } = await import('./tick');
 
@@ -143,6 +147,19 @@ describe('runTick — sub-runner call order', () => {
       'reconciler',
       'dispatcher',
       'memory',
+      'deviceCodes',
     ]);
+  });
+
+  it('reports the device-code sweep in the tick result', async () => {
+    const result = await runTick(log);
+    expect(result.deviceCodes).toEqual({ deleted: 0 });
+  });
+
+  it('keeps ticking when the device-code sweep throws', async () => {
+    (mocks.deviceCodes as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('boom'));
+    const result = await runTick(log);
+    expect(result.deviceCodes).toEqual({ deleted: 0 });
+    expect(result.memory).toEqual({ expired: 0, reconfirmationNeeded: 0 });
   });
 });
