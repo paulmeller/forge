@@ -73,7 +73,29 @@ export const PUT = withApiAuth<Ctx>(async (user, req, { params }) => {
   const found = await findOwnedContainerByRepo(user.id, `${owner}/${repoName}`);
   if (!found) return notFound('Repo');
 
-  await db.transaction((tx) => writeRepoPolicy(tx, user.id, found.workspaceRepo!, requirePlanApproval));
+  const written = await db.transaction((tx) =>
+    writeRepoPolicy(tx, user.id, found.workspaceRepo!, requirePlanApproval),
+  );
+
+  // Owning a container mission for this repo and holding an installation row
+  // for it are two different facts (see writeRepoPolicy). They diverge once
+  // the repo is dropped from the installation, or the App uninstalled, after
+  // the container was created — and then the UPDATE above matches nothing.
+  //
+  // 404, not 409: 409 means "your request conflicts with the target
+  // resource's current state", which promises there IS a resource and invites
+  // a retry once the conflict clears. There is no conflicting row here —
+  // there is no row at all. What the caller addressed, `{owner}/{repo}`'s
+  // policy, does not exist for them, which is precisely 404. It also keeps
+  // every failure of this endpoint on the one `not_found` code the CLI
+  // already handles, and keeps absence indistinguishable from non-ownership
+  // (this endpoint's GET/PUT 404 identically for "not yours").
+  //
+  // What must NOT happen is the previous behaviour: an unconditional
+  // `ok({ requirePlanApproval })` asserting a value that was never persisted.
+  // An operator turning approval ON, being told it succeeded, and having the
+  // stored row still say `false` means agents keep dispatching unapproved.
+  if (written === 0) return notFound('Repo policy');
 
   return ok({ requirePlanApproval });
 });

@@ -78,28 +78,47 @@ export async function findOwnedContainerByRepo(userId: string, repo: string): Pr
  * users can each legitimately hold their own installation row for the
  * identical repo string. Matching on `repo` alone would flip every such row
  * at once.
+ *
+ * Returns HOW MANY rows were actually written. That number is not decorative:
+ * mission ownership (a container mission exists for this repo) and
+ * installation coverage (a `github_installation_repos` row exists under an
+ * installation this user owns) are two different facts, and they diverge as
+ * soon as the repo is removed from the installation, or the App is
+ * uninstalled, after the container was created. When they diverge this
+ * function legitimately writes NOTHING — and a caller that reported success
+ * anyway would tell an operator their repo is gated when the stored policy
+ * still says it is not, leaving agents dispatching without plan approval. The
+ * count is the only signal that distinguishes "persisted" from "matched no
+ * row", so callers must branch on it rather than assume.
  */
 export async function writeRepoPolicy(
   txOrDb: DbLike,
   userId: string,
   repo: string,
   requirePlanApproval: boolean,
-): Promise<void> {
+): Promise<number> {
   const ownInstallations = await txOrDb
     .select({ id: githubInstallations.id })
     .from(githubInstallations)
     .where(eq(githubInstallations.userId, userId));
   const ownInstallationIds = ownInstallations.map((row) => row.id);
 
-  if (ownInstallationIds.length > 0) {
-    await txOrDb
-      .update(githubInstallationRepos)
-      .set({ repoPolicy: { requirePlanApproval } })
-      .where(
-        and(
-          eq(githubInstallationRepos.repo, repo),
-          inArray(githubInstallationRepos.installationId, ownInstallationIds),
-        ),
-      );
-  }
+  if (ownInstallationIds.length === 0) return 0;
+
+  // `.returning()` rather than a driver-specific rowsAffected: the rows the
+  // UPDATE matched are what "written" means here, and SQLite reports matched
+  // rows even when the new value equals the old one — so re-asserting a policy
+  // that is already set still counts as persisted, which is correct.
+  const written = await txOrDb
+    .update(githubInstallationRepos)
+    .set({ repoPolicy: { requirePlanApproval } })
+    .where(
+      and(
+        eq(githubInstallationRepos.repo, repo),
+        inArray(githubInstallationRepos.installationId, ownInstallationIds),
+      ),
+    )
+    .returning({ id: githubInstallationRepos.id });
+
+  return written.length;
 }

@@ -143,6 +143,15 @@ export async function updateRepoSettings(
       // parameter) — see writeRepoPolicy's doc comment (lib/repo-settings.ts)
       // for both of those, shared verbatim with the /api/v1 policy route so
       // the two transports cannot drift.
+      // The rows-written count is deliberately not branched on here, unlike
+      // the /api/v1 policy route. This action's primary write is the mission
+      // UPDATE above, which DID persist; the repo row is a secondary write
+      // that legitimately matches nothing when the caller holds a container
+      // but no installation row for the repo. Failing the action would roll
+      // that mission write back and lose settings the operator did change.
+      // The Settings page only renders requirePlanApproval for repos reached
+      // through an installation, so this divergence is not reachable from the
+      // UI the way a direct PUT is.
       await writeRepoPolicy(tx, user.id, repo, input.requirePlanApproval);
 
       return { ok: true } as const;

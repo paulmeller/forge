@@ -201,6 +201,49 @@ describe('PUT /api/v1/repos/[owner]/[repo]/policy', () => {
     expect((await repoRow('acme/theirs')).repoPolicy).toEqual({ requirePlanApproval: true });
   });
 
+  /**
+   * Owning a container mission and holding an installation row for the repo
+   * are two DIFFERENT facts. The ownership gate keys on the container; the
+   * write is scoped to (repo, installationId IN own). They diverge as soon as
+   * the repo is removed from the installation, or the App uninstalled, after
+   * the container was created — and then the UPDATE matches zero rows.
+   *
+   * The route used to return `ok({ requirePlanApproval })` unconditionally
+   * here: a 200 asserting a value that was never persisted.
+   */
+  it('404s instead of reporting success when the caller owns the container but no installation row covers the repo', async () => {
+    await seedContainer({ id: 'm_no_install', userId: 'u1', workspaceRepo: 'acme/orphan' });
+    // No installation row for acme/orphan at all.
+    authAs('u1');
+
+    const res = await PUT(putRequest({ requirePlanApproval: true }), params('acme', 'orphan'));
+
+    expect(res.status).toBe(404);
+    expect((await res.json()).error.code).toBe('not_found');
+  });
+
+  /**
+   * The specific harmful case: a real, PRE-EXISTING `{requirePlanApproval:
+   * false}` row survives under an installation the caller no longer owns. The
+   * write no-ops, so the repo stays ungated. Reporting 200 here tells the
+   * operator plan approval is required while agents keep dispatching without
+   * it — the row assertion is what pins that, not just the status code.
+   */
+  it('does not report success when the surviving policy row belongs to an installation the caller no longer owns', async () => {
+    const repo = 'acme/left-behind';
+    await seedContainer({ id: 'm_stale', userId: 'u1', workspaceRepo: repo });
+    await seedInstallationRepo('former_owner', 'ghi_former', repo, { requirePlanApproval: false });
+    authAs('u1');
+
+    const res = await PUT(putRequest({ requirePlanApproval: true }), params('acme', 'left-behind'));
+
+    expect(res.status).not.toBe(200);
+    expect(res.status).toBe(404);
+    // The stored policy is still the ungated one the operator believed they
+    // had just changed.
+    expect((await repoRow(repo)).repoPolicy).toEqual({ requirePlanApproval: false });
+  });
+
   it('404s and writes nothing for a repo with no container mission at all', async () => {
     authAs('u1');
 
