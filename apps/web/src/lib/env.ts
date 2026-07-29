@@ -163,6 +163,14 @@ export const env = {
   get VERIFY_MODEL(): string {
     return optional('VERIFY_MODEL') ?? 'claude-haiku-4-5'; // checker ≠ maker
   },
+  // How long to let an agent work on a CI failure before deciding it is not
+  // coming back. A CI retry is only re-sent when the PR head SHA changes (the
+  // agent pushed a fix); this bounds the opposite case, where it never pushes
+  // and the Task would otherwise sit in awaiting_ci forever. 10 min is enough
+  // to read a log, fix, and push, without holding a dead Task all day.
+  get RETRY_STALL_MS(): number {
+    return Number(optional('RETRY_STALL_MS') ?? 600_000);
+  },
   get GATE_STALL_MS(): number {
     return Number(optional('GATE_STALL_MS') ?? 1_800_000); // 30 min gate stall sweep
   },
