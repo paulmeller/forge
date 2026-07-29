@@ -15,6 +15,7 @@ import {
 import { db } from '@/lib/db';
 import { env } from '@/lib/env';
 import { resolveAutoMergePolicy } from './auto-merge-policy';
+import { branchIsTaskOwned, newestCommitDate } from './branch-ownership';
 import { client as getOctokit, PR_URL_RE } from './auto-merge';
 import { extractVerdictFromLedger } from './triage-verdict';
 
@@ -593,13 +594,18 @@ async function tryOpenPr(
       `forge/fix-${task.id.slice(4, 12)}`,
     ].filter((b) => b && !b.endsWith('-') && !b.endsWith('/'));
 
-    // Also check for any branch pushed in the last 10 minutes
+    // Discover branches the agent actually pushed. It names its own branch
+    // (Claude Code pushes `claude/<slug>`), so the candidates above rarely
+    // match — discovery is required. Adoption is gated by branchIsTaskOwned
+    // below: a discovered branch is only this task's if its head commit is
+    // newer than the task's dispatch. Without that gate, a task that pushed
+    // nothing adopted a six-week-old branch merely ahead of main.
     const { data: branches } = await gh().repos.listBranches({ owner, repo, per_page: 30 });
     const defaultBranch = task.baseBranch || 'main';
-    const recentBranches = branches.filter((b) => b.name !== defaultBranch).map((b) => b.name);
+    const discovered = branches.filter((b) => b.name !== defaultBranch).map((b) => b.name);
 
-    // Try candidates first, then any non-default branch
-    const allCandidates = [...new Set([...candidates, ...recentBranches])];
+    // Task-derived names first (owned by construction), then discovered names.
+    const allCandidates = [...new Set([...candidates, ...discovered])];
 
     for (const branch of allCandidates) {
       try {
@@ -611,6 +617,19 @@ async function tryOpenPr(
           head: branch,
         });
         if (comparison.ahead_by === 0) continue;
+
+        // Provenance gate: only open a PR from a branch this task produced.
+        // A task-derived name is trusted; any discovered branch must have been
+        // pushed after the task was dispatched, or it is a stranger and we
+        // leave the task for the stall sweep rather than attribute someone
+        // else's work to it.
+        if (!branchIsTaskOwned(branch, candidates, newestCommitDate(comparison.commits), task.dispatchedAt)) {
+          log.info(
+            { taskId: task.id, branch, dispatchedAt: task.dispatchedAt },
+            'reconciler:branch_not_task_owned_skipped',
+          );
+          continue;
+        }
 
         // Check if a PR already exists for this branch
         const { data: existingPrs } = await gh().pulls.list({
