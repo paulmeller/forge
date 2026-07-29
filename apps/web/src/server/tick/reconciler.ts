@@ -376,6 +376,58 @@ export async function runReconciler(log: Logger): Promise<ReconcileResult> {
     const nudgeCount = Number(seen?.n ?? 0);
     const canContinue = task.kind !== 'reproduce' && Boolean(task.sessionId);
 
+    // The agent is told to push to the branch Forge named, but it may commit and
+    // forget, or push under a name of its own. Before nudging it to keep
+    // working, hand it the exact command — `HEAD` is whatever it committed on,
+    // so this both pushes forgotten work and creates the Forge-named branch when
+    // the agent used a different name. No searching, no naming choice.
+    //
+    // Sent once, gated on a ledger event, exactly like the nudge budget and the
+    // CI retry budget: the tick re-evaluates this task every 60s, and a request
+    // per tick would interrupt the agent instead of letting it act.
+    const branch = forgeBranchName(task.id);
+    const [pushAsk] = await db
+      .select({ n: sql<number>`count(*)` })
+      .from(ledgerEvents)
+      .where(and(eq(ledgerEvents.taskId, task.id), eq(ledgerEvents.eventType, 'push.requested')));
+    const pushRequested = Number(pushAsk?.n ?? 0) > 0;
+
+    if (canContinue && !pushRequested) {
+      // Claim before the side effect — sendTurn is not idempotent.
+      const [claimed] = await db
+        .update(tasks)
+        .set({ updatedAt: now })
+        .where(and(eq(tasks.id, task.id), eq(tasks.status, 'turn_ended')))
+        .returning({ id: tasks.id });
+      if (!claimed) continue;
+
+      try {
+        await getAdapter(mission.backend).sendTurn({
+          sessionId: task.sessionId!,
+          text:
+            `Your work is not on the remote yet. Run exactly this, then stop:\n\n` +
+            `    git push origin HEAD:${branch}\n\n` +
+            `Do not open a pull request — Forge opens it from that branch.`,
+          backendSessionRef: task.backendSessionRef,
+        });
+      } catch (err) {
+        // Session gone. Record the attempt anyway so the next tick escalates
+        // rather than asking a dead session again.
+        log.info({ taskId: task.id, err }, 'reconciler:push_request_failed');
+      }
+
+      await db.insert(ledgerEvents).values({
+        id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
+        missionId: task.missionId,
+        taskId: task.id,
+        eventType: 'push.requested',
+        payload: { branch },
+        createdAt: now,
+      });
+      log.info({ taskId: task.id, branch }, 'reconciler:push_requested');
+      continue; // stay turn_ended; the next tick re-checks the branch
+    }
+
     if (canContinue && decideContinuation(nudgeCount, env.TASK_CONTINUATION_MAX) === 'continue') {
       // Claim the task with a compare-and-swap BEFORE the nudge, exactly like
       // every other CAS in this file — the nudge is a non-idempotent call to
@@ -429,13 +481,21 @@ export async function runReconciler(log: Logger): Promise<ReconcileResult> {
     }
 
     if (canContinue) {
-      // Budget spent and still no branch: hand it to a human with the reason,
-      // never a silent abandon. Claim first so a racing pass can't also act.
+      // Budget spent and still nothing on the remote: hand it to a human with
+      // the reason, never a silent abandon. Claim first so a racing pass can't
+      // also act.
+      //
+      // `no_commits` when Forge already handed the agent the exact push command
+      // and the branch still does not exist — the honest statement is that the
+      // agent committed nothing, not that a branch went missing.
+      // `stalled_no_branch` otherwise (a reproduce task, or no session to ask).
+      const reason = pushRequested ? 'no_commits' : 'stalled_no_branch';
       const [claimed] = await db
         .update(tasks)
         .set({
           status: 'needs_human',
-          escalationReason: 'stalled_no_branch',
+          escalationReason: reason,
+          lastError: pushRequested ? `no commits on ${branch} after a push was requested` : null,
           updatedAt: now,
           completedAt: now,
         })
@@ -448,7 +508,7 @@ export async function runReconciler(log: Logger): Promise<ReconcileResult> {
         missionId: task.missionId,
         taskId: task.id,
         eventType: 'gate.escalated',
-        payload: { reason: 'stalled_no_branch', nudges: nudgeCount },
+        payload: { reason, nudges: nudgeCount, branch },
         createdAt: now,
       });
       tasksStalledEscalated += 1;
