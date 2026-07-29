@@ -9,8 +9,9 @@ import { fetchAgentsMd } from './agents-md';
 import { env } from '@/lib/env';
 import { db } from '@/lib/db';
 import { getRelevantMemories, formatMemoriesForPrompt } from './memory';
-import { renderPrompt } from './prompt';
+import { renderOwnedVars, renderPrompt } from './prompt';
 import { getSkill, getSkillBySlug } from './skill-loader';
+import { forgeBranchName } from './branch-name';
 
 export const INFLIGHT_STATUSES: TaskStatus[] = [
   'dispatching',
@@ -227,6 +228,11 @@ export async function dispatchOne(mission: Mission, task: Task): Promise<void> {
   const vars: Record<string, unknown> = {
     repo: task.repo,
     base_branch: task.baseBranch,
+    // The branch Forge will open the pull request from. Exposed so a goal
+    // template can name it explicitly; AGENTS.md instructs the agent to push
+    // here and not to open a PR itself (it cannot — the sandbox egress
+    // allowlist omits api.github.com).
+    forge_branch: forgeBranchName(task.id),
     ...((task.promptVars as Record<string, unknown>) ?? {}),
   };
 
@@ -274,7 +280,9 @@ export async function dispatchOne(mission: Mission, task: Task): Promise<void> {
   // on git housekeeping or self-recovers from a failed first commit.
   const parts: string[] = [];
   if (agentsMd.content) {
-    parts.push(agentsMd.content);
+    // AGENTS.md comes from the target repository, so only Forge's own
+    // placeholders are substituted — see renderOwnedVars.
+    parts.push(renderOwnedVars(agentsMd.content, vars, ['forge_branch']));
   }
   if (skill) {
     parts.push(renderPrompt(skill.promptTemplate, vars));

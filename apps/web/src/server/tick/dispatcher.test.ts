@@ -252,6 +252,10 @@ async function claim(overrides: Partial<Mission> = {}, maxSlots?: number): Promi
 beforeEach(() => {
   mocks.reset();
   vi.clearAllMocks();
+  // vi.clearAllMocks() clears call history but not configured resolved
+  // values, so a mockResolvedValue set by one test would otherwise leak
+  // into every test declared after it. Restore the default here.
+  mocks.fetchAgentsMd.mockResolvedValue({ content: '', file: null, truncated: false });
 });
 
 describe('INFLIGHT_STATUSES', () => {
@@ -475,6 +479,43 @@ describe('dispatchOne', () => {
 
     const { prompt } = mocks.adapter.createSession.mock.calls[0]![0];
     expect(prompt).not.toContain('git config');
+  });
+
+  it('exposes the Forge-assigned branch to the goal template', async () => {
+    // The agent cannot push to a name it was never told. This is the other
+    // half of Forge owning the branch: Forge names it AND says so.
+    mocks.state.env.GITHUB_APP_TOKEN = 'ghp_test';
+    mocks.adapter.createSession.mockResolvedValue({ sessionId: 'ses_1' });
+    mocks.fetchAgentsMd.mockResolvedValue({
+      content: 'Push to: {{forge_branch}}',
+      file: null,
+      truncated: false,
+    });
+
+    await dispatchOne(mission(), task('t1'));
+
+    const { prompt } = mocks.adapter.createSession.mock.calls[0]![0];
+    expect(prompt).toContain('forge/t1');
+  });
+
+  it("does not blank a target repo's own template text in AGENTS.md", async () => {
+    // AGENTS.md is fetched live from the repository the task targets, so it
+    // may legitimately contain unrelated {{word}} text (Handlebars/Jinja
+    // examples, docs about templating). Only Forge's own vars — forge_branch —
+    // may be substituted; everything else must survive untouched.
+    mocks.state.env.GITHUB_APP_TOKEN = 'ghp_test';
+    mocks.fetchAgentsMd.mockResolvedValue({
+      content: 'Push to {{forge_branch}}. Handlebars example: {{user}}.',
+      file: null,
+      truncated: false,
+    });
+    mocks.adapter.createSession.mockResolvedValue({ sessionId: 'ses_1' });
+
+    await dispatchOne(mission(), task('t1'));
+
+    const { prompt } = mocks.adapter.createSession.mock.calls[0]![0];
+    expect(prompt).toContain('forge/t1'); // Forge's var resolved
+    expect(prompt).toContain('{{user}}'); // the repo's own text survived
   });
 
   it('persists backendSessionRef equal to the session id returned by createSession, in the same update as sessionId', async () => {

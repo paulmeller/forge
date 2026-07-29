@@ -32,7 +32,12 @@ vi.mock('@octokit/rest', () => ({
 
 // The continuation path sends a follow-up turn through the backend adapter;
 // fake it so no real session is contacted.
-const mockAdapter = vi.hoisted(() => ({ sendTurn: vi.fn(async () => ({})) }));
+type SentTurn = { sessionId: string; text: string; backendSessionRef?: string | null };
+const mockAdapter = vi.hoisted(() => ({
+  // Typed so tests can inspect which session a turn went to — this file's
+  // shared DB means the sweep also processes tasks left by earlier tests.
+  sendTurn: vi.fn(async (_input: { sessionId: string; text: string; backendSessionRef?: string | null }) => ({})),
+}));
 vi.mock('./adapters', () => ({ getAdapter: () => mockAdapter }));
 
 const DB_FILE = `/tmp/forge-recon-pr-${process.pid}.db`;
@@ -212,6 +217,16 @@ describe('runReconciler — PR-opening gate (tryOpenPr)', () => {
     const taskId = `tsk_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
     await insertMission(missionId);
     await insertStalledTask(taskId, missionId, { sessionId: 'sesn_live' });
+    // Forge asks for the push before it nudges, so seed that ask — this test's
+    // subject is the continuation nudge, not the push request.
+    await db.insert(schema.ledgerEvents).values({
+      id: `lev_${randomUUID().replaceAll('-', '').slice(0, 12)}`,
+      missionId,
+      taskId,
+      eventType: 'push.requested',
+      payload: {},
+      createdAt: new Date(),
+    });
     mockOctokit.repos.compareCommits.mockResolvedValue({ data: { ahead_by: 0 } });
 
     await runReconciler(noopLog);
@@ -233,6 +248,16 @@ describe('runReconciler — PR-opening gate (tryOpenPr)', () => {
     const taskId = `tsk_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
     await insertMission(missionId);
     await insertStalledTask(taskId, missionId, { sessionId: 'sesn_stuck' });
+    // Forge asks for the push before it nudges, so seed that ask — this test's
+    // subject is the continuation nudge, not the push request.
+    await db.insert(schema.ledgerEvents).values({
+      id: `lev_${randomUUID().replaceAll('-', '').slice(0, 12)}`,
+      missionId,
+      taskId,
+      eventType: 'push.requested',
+      payload: {},
+      createdAt: new Date(),
+    });
     // Two nudges already happened → budget of 2 is spent.
     for (let i = 0; i < 2; i += 1) {
       await db.insert(schema.ledgerEvents).values({
@@ -252,7 +277,10 @@ describe('runReconciler — PR-opening gate (tryOpenPr)', () => {
     expect(mockAdapter.sendTurn).not.toHaveBeenCalled();
     const task = await getTask(taskId);
     expect(task?.status).toBe('needs_human');
-    expect(task?.escalationReason).toBe('stalled_no_branch');
+    // Forge had already handed this agent the exact push command (seeded above)
+    // and nothing reached the remote, so the honest reason is that it committed
+    // nothing — not that a branch went missing.
+    expect(task?.escalationReason).toBe('no_commits');
     const events = await getLedgerEvents(taskId);
     expect(events.some((e) => e.eventType === 'gate.escalated')).toBe(true);
     expect(events.some((e) => e.eventType === 'task.abandoned')).toBe(false);
@@ -316,5 +344,164 @@ describe('runReconciler — reclaiming work stranded by a guardrail halt', () =>
     expect(task?.status).toBe('needs_human');
     expect(task?.escalationReason).toBe('stalled_no_branch');
     expect(mockOctokit.pulls.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('runReconciler — the PR comes from the Forge-named branch', () => {
+  // Forge assigns forge/<taskId> and the agent pushes to it. Discovery is gone:
+  // Forge used to list the repo and adopt anything ahead of base, which once
+  // attached a six-week-old stranger branch to a task that had pushed nothing.
+  it('opens the PR from the Forge-named branch', async () => {
+    const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const taskId = `tsk_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    await insertMission(missionId);
+    await insertStalledTask(taskId, missionId, { sessionId: 'sess_1' });
+
+    mockOctokit.repos.compareCommits.mockResolvedValue({
+      data: { ahead_by: 1, files: [{ filename: 'a.ts' }] },
+    });
+    mockOctokit.pulls.list.mockResolvedValue({ data: [] });
+    mockOctokit.pulls.create.mockResolvedValue({
+      data: { html_url: 'https://github.com/acme/api/pull/9', number: 9 },
+    });
+
+    await runReconciler(noopLog);
+
+    expect(mockOctokit.repos.compareCommits).toHaveBeenCalledWith(
+      expect.objectContaining({ head: `forge/${taskId}` }),
+    );
+    expect(mockOctokit.pulls.create).toHaveBeenCalledWith(
+      expect.objectContaining({ head: `forge/${taskId}` }),
+    );
+    const task = await getTask(taskId);
+    expect(task?.status).toBe('awaiting_ci');
+  });
+
+  it('never adopts a branch the agent named itself', async () => {
+    const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const taskId = `tsk_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    await insertMission(missionId);
+    // dispatchedAt in the past so the branch's commit looks "after dispatch" —
+    // exactly the condition under which the old provenance-gated discovery
+    // WOULD have adopted this stranger branch. Without this the old gate fails
+    // closed on a null dispatchedAt and the test proves nothing.
+    await insertStalledTask(taskId, missionId, {
+      sessionId: 'sess_2',
+      dispatchedAt: new Date(Date.now() - 3_600_000),
+    });
+
+    // The discriminating case: a stray agent-named branch that IS ahead of
+    // base, while forge/<taskId> does not exist. The old discovery would list
+    // the repo, find this branch, and open a PR from it. An exact-name check
+    // must not — the branch is not this task's, whatever its commit dates say.
+    mockOctokit.repos.listBranches.mockResolvedValue({ data: [{ name: 'claude/some-slug' }] });
+    mockOctokit.repos.compareCommits.mockImplementation(async ({ head }) => {
+      if (head === 'claude/some-slug') {
+        return {
+          data: {
+            ahead_by: 3,
+            files: [{ filename: 'x.ts' }],
+            commits: [{ commit: { committer: { date: new Date().toISOString() } } }],
+          },
+        };
+      }
+      throw Object.assign(new Error('Not Found'), { status: 404 });
+    });
+
+    await runReconciler(noopLog);
+
+    expect(mockOctokit.pulls.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('runReconciler — Forge dictates the salvage push (#56)', () => {
+  // The agent is told to push to forge/<taskId>, but may commit and forget, or
+  // push under its own name. Forge then sends the exact command rather than
+  // searching for whatever branch appeared — the agent is a shell for a command
+  // Forge wrote, with no naming choice.
+  const noBranch = () =>
+    mockOctokit.repos.compareCommits.mockRejectedValue(
+      Object.assign(new Error('Not Found'), { status: 404 }),
+    );
+
+  it('sends the exact push command targeting the Forge-named branch', async () => {
+    noBranch();
+    const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const taskId = `tsk_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    await insertMission(missionId);
+    await insertStalledTask(taskId, missionId, { sessionId: 'sess_push' });
+
+    await runReconciler(noopLog);
+
+    const sent = mockAdapter.sendTurn.mock.calls
+      .map((c) => c[0] as SentTurn)
+      .find((a) => a.sessionId === 'sess_push');
+    expect(sent?.text).toContain(`git push origin HEAD:forge/${taskId}`);
+    const events = await getLedgerEvents(taskId);
+    expect(events.some((e) => e.eventType === 'push.requested')).toBe(true);
+    // Still turn_ended — the next tick re-checks the branch.
+    expect((await getTask(taskId))?.status).toBe('turn_ended');
+  });
+
+  it('escalates no_commits once a push was asked for and the continuation budget is spent', async () => {
+    noBranch();
+    const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const taskId = `tsk_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    await insertMission(missionId);
+    await insertStalledTask(taskId, missionId, { sessionId: 'sess_spent' });
+    // A push was already requested, and the nudge budget is exhausted.
+    for (const t of ['push.requested', 'task.continued', 'task.continued', 'task.continued']) {
+      await db.insert(schema.ledgerEvents).values({
+        id: `lev_${randomUUID().replaceAll('-', '').slice(0, 12)}`,
+        missionId,
+        taskId,
+        eventType: t,
+        payload: {},
+        createdAt: new Date(),
+      });
+    }
+
+    await runReconciler(noopLog);
+
+    const toThisSession = mockAdapter.sendTurn.mock.calls
+      .map((c) => c[0] as SentTurn)
+      .filter((a) => a.sessionId === 'sess_spent');
+    expect(toThisSession).toHaveLength(0);
+    const task = await getTask(taskId);
+    expect(task?.status).toBe('needs_human');
+    expect(task?.escalationReason).toBe('no_commits');
+  });
+});
+
+describe('runReconciler — reclaims work pushed before a halt (#62 via exact name)', () => {
+  it('reclaims a no_commits escalation when the Forge-named branch does exist', async () => {
+    // A guardrail can halt an agent after it pushed. The escalation said there
+    // was nothing on the remote; the branch proves otherwise, so the label was
+    // wrong on its face and the work must not be stranded.
+    const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const taskId = `tsk_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    await insertMission(missionId);
+    await insertStalledTask(taskId, missionId, {
+      status: 'needs_human',
+      escalationReason: 'no_commits',
+      completedAt: new Date(),
+    });
+
+    mockOctokit.repos.compareCommits.mockResolvedValue({
+      data: { ahead_by: 1, files: [{ filename: 'a.ts' }] },
+    });
+    mockOctokit.pulls.list.mockResolvedValue({ data: [] });
+    mockOctokit.pulls.create.mockResolvedValue({
+      data: { html_url: 'https://github.com/acme/api/pull/12', number: 12 },
+    });
+
+    await runReconciler(noopLog);
+
+    expect(mockOctokit.repos.compareCommits).toHaveBeenCalledWith(
+      expect.objectContaining({ head: `forge/${taskId}` }),
+    );
+    const task = await getTask(taskId);
+    expect(task?.status).toBe('awaiting_ci');
+    expect(task?.escalationReason).toBeNull();
   });
 });

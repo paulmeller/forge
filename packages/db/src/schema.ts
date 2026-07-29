@@ -90,6 +90,11 @@ export const escalationReason = [
   // gate-stall sweep (it legitimately waits on slow external CI), so without
   // this the Task would wedge there forever.
   'ci_retry_stalled',
+  // The agent's turn ended, Forge asked it to push to the branch Forge
+  // assigned, and still nothing is on the remote — so there is nothing to open
+  // a pull request from. Distinct from stalled_no_branch, which described the
+  // old inference; this states the fact.
+  'no_commits',
 ] as const;
 export type EscalationReason = (typeof escalationReason)[number];
 
