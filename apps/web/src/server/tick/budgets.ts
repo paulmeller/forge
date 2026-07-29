@@ -6,6 +6,7 @@ import { ledgerEvents, missions, tasks, type Mission, type TaskStatus } from '@f
 
 import { getAdapter } from './adapters';
 import { db } from '@/lib/db';
+import { tokensToUsd } from '@/lib/token-pricing';
 import { verifyCancelled } from './cancel-verify';
 import { INFLIGHT_STATUSES } from './dispatcher';
 
@@ -21,7 +22,10 @@ export type BudgetResult = {
   hardStopped: number;
 };
 
-export const TOKEN_PRICE_USD_PER_1M = 5;
+// Re-exported from the shared source so existing importers of this path keep
+// working; the value lives in lib/token-pricing.ts now (one rate, every
+// surface agrees).
+export { TOKEN_PRICE_USD_PER_1M } from '@/lib/token-pricing';
 
 /**
  * Pure budget threshold check. Returns the max percentage crossed (token or
@@ -32,7 +36,7 @@ export function computeBudgetPct(opts: {
   budgetTokens: number | null;
   budgetUsd: number | null;
 }): { tokenPct: number; usdPct: number; maxPct: number; spentUsd: number } {
-  const spentUsd = (opts.spentTokens / 1_000_000) * TOKEN_PRICE_USD_PER_1M;
+  const spentUsd = tokensToUsd(opts.spentTokens);
   const tokenPct =
     opts.budgetTokens && opts.budgetTokens > 0 ? (opts.spentTokens / opts.budgetTokens) * 100 : 0;
   const usdPct = opts.budgetUsd && opts.budgetUsd > 0 ? (spentUsd / opts.budgetUsd) * 100 : 0;

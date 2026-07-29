@@ -3,9 +3,8 @@ import { and, inArray, sql } from 'drizzle-orm';
 import { ledgerEvents, tasks, type TaskStatus } from '@forge/db';
 
 import { db } from './db';
+import { tokensToUsd } from './token-pricing';
 import type { MissionRollup, TaskRollup } from '@/components/progress-pill';
-
-const TOKEN_PRICE_USD_PER_1M = 5; // rough blended for budget display only
 
 const IN_FLIGHT: TaskStatus[] = [
   'dispatching',
@@ -92,7 +91,7 @@ export async function rollupMissions(missionIds: string[]): Promise<Map<string, 
     const c = counts.get(id) ?? empty();
     rollups.set(id, {
       ...c,
-      spentUsd: (c.spentTokens / 1_000_000) * TOKEN_PRICE_USD_PER_1M,
+      spentUsd: tokensToUsd(c.spentTokens),
       lastEventAt: lastByMission.get(id) ?? null,
     });
   }
@@ -157,10 +156,9 @@ export async function rollupTasks(taskIds: string[]): Promise<Map<string, TaskRo
   return rollups;
 }
 
-// Used by callers to render a budget gauge: convert tokens to USD.
-export function tokensToUsd(tokens: number): number {
-  return (tokens / 1_000_000) * TOKEN_PRICE_USD_PER_1M;
-}
+// Re-exported so existing importers of this path (mission tabs, queue section)
+// keep working; the implementation lives in token-pricing.ts now.
+export { tokensToUsd };
 
 const SPARKLINE_BUCKETS = 30;
 const SPARKLINE_WINDOW_MS = 24 * 60 * 60 * 1000; // 24h
