@@ -16,7 +16,8 @@ import { db } from '@/lib/db';
 import { env } from '@/lib/env';
 import { getAdapter } from './adapters';
 import { resolveAutoMergePolicy } from './auto-merge-policy';
-import { branchIsTaskOwned, newestCommitDate } from './branch-ownership';
+import { forgeBranchName } from './branch-name';
+import { checkForgeBranch } from './completion';
 import { CONTINUATION_PROMPT, decideContinuation } from './continuation';
 import { client as getOctokit, PR_URL_RE } from './auto-merge';
 import { extractVerdictFromLedger } from './triage-verdict';
@@ -744,139 +745,105 @@ async function tryOpenPr(
   const [owner, repo] = task.repo.split('/');
   if (!owner || !repo) return false;
 
+  const defaultBranch = task.baseBranch || 'main';
+  const branch = forgeBranchName(task.id);
+
   try {
-    // Look for branches the agent might have pushed
-    const candidates = [
-      `forge/${task.id}`,
-      `feat/issue-${task.issueRef?.split('#')[1] ?? ''}`,
-      `forge/fix-${task.id.slice(4, 12)}`,
-    ].filter((b) => b && !b.endsWith('-') && !b.endsWith('/'));
+    // One question: does the branch Forge assigned carry work? There is no
+    // candidate list and no repo listing. Forge named this branch before the
+    // agent ran, so finding it is a lookup, not a search — which is what stops
+    // a task being attributed work it never did.
+    const state = await checkForgeBranch(gh(), {
+      owner,
+      repo,
+      baseBranch: defaultBranch,
+      taskId: task.id,
+    });
+    if (!state.present) return false;
 
-    // Discover branches the agent actually pushed. It names its own branch
-    // (Claude Code pushes `claude/<slug>`), so the candidates above rarely
-    // match — discovery is required. Adoption is gated by branchIsTaskOwned
-    // below: a discovered branch is only this task's if its head commit is
-    // newer than the task's dispatch. Without that gate, a task that pushed
-    // nothing adopted a six-week-old branch merely ahead of main.
-    const { data: branches } = await gh().repos.listBranches({ owner, repo, per_page: 30 });
-    const defaultBranch = task.baseBranch || 'main';
-    const discovered = branches.filter((b) => b.name !== defaultBranch).map((b) => b.name);
-
-    // Task-derived names first (owned by construction), then discovered names.
-    const allCandidates = [...new Set([...candidates, ...discovered])];
-
-    for (const branch of allCandidates) {
-      try {
-        // Check if this branch has commits ahead of the default branch
-        const { data: comparison } = await gh().repos.compareCommits({
-          owner,
-          repo,
-          base: defaultBranch,
-          head: branch,
-        });
-        if (comparison.ahead_by === 0) continue;
-
-        // Provenance gate: only open a PR from a branch this task produced.
-        // A task-derived name is trusted; any discovered branch must have been
-        // pushed after the task was dispatched, or it is a stranger and we
-        // leave the task for the stall sweep rather than attribute someone
-        // else's work to it.
-        if (!branchIsTaskOwned(branch, candidates, newestCommitDate(comparison.commits), task.dispatchedAt)) {
-          log.info(
-            { taskId: task.id, branch, dispatchedAt: task.dispatchedAt },
-            'reconciler:branch_not_task_owned_skipped',
-          );
-          continue;
-        }
-
-        // Check if a PR already exists for this branch
-        const { data: existingPrs } = await gh().pulls.list({
-          owner,
-          repo,
-          head: `${owner}:${branch}`,
-          state: 'open',
-        });
-        if (existingPrs.length > 0) {
-          // PR already exists — just record it
-          const pr = existingPrs[0]!;
-          const now = new Date();
-          await db
-            .update(tasks)
-            .set({
-              status: 'awaiting_ci',
-              prUrl: pr.html_url,
-              prNumber: pr.number,
-              diffAdditions: comparison.total_commits,
-              updatedAt: now,
-            })
-            .where(eq(tasks.id, task.id));
-          log.info({ taskId: task.id, prNumber: pr.number }, 'reconciler:existing_pr_found');
-          return true;
-        }
-
-        // Derive PR title from the linked issue (if any) or the mission name
-        let title = `Forge: ${mission.name}`;
-        if (task.issueRef) {
-          const issueNum = task.issueRef.split('#')[1];
-          if (issueNum) {
-            try {
-              const { data: issue } = await gh().issues.get({
-                owner,
-                repo,
-                issue_number: Number(issueNum),
-              });
-              title = issue.title;
-            } catch {
-              /* fall back to mission name */
-            }
-          }
-        } else if (mission.name.startsWith('GH:')) {
-          title = mission.name.replace(/^GH:\s*\S+\s*—\s*/, '');
-        }
-
-        const { data: pr } = await gh().pulls.create({
-          owner,
-          repo,
-          title,
-          body: `Automated by Forge.\n\nMission: ${mission.name}\nTask: ${task.id}\nBranch: ${branch}`,
-          head: branch,
-          base: defaultBranch,
-        });
-
-        const now = new Date();
-        await db
-          .update(tasks)
-          .set({
-            status: 'awaiting_ci',
-            prUrl: pr.html_url,
-            prNumber: pr.number,
-            diffAdditions: comparison.files?.length ?? 0,
-            updatedAt: now,
-          })
-          .where(eq(tasks.id, task.id));
-
-        await db.insert(ledgerEvents).values({
-          id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
-          missionId: mission.id,
-          taskId: task.id,
-          eventType: 'gate.pr_opened',
-          payload: {
-            prNumber: pr.number,
-            prUrl: pr.html_url,
-            branch,
-            aheadBy: comparison.ahead_by,
-            openedBy: 'forge-reconciler',
-          },
-          createdAt: now,
-        });
-
-        log.info({ taskId: task.id, prNumber: pr.number, branch }, 'reconciler:pr_opened');
-        return true;
-      } catch {
-        // Branch doesn't exist or comparison failed — try next
-        continue;
-      }
+    // A PR may already exist for this branch (a re-run, or a retry that pushed
+    // again) — record it rather than creating a duplicate.
+    const { data: existingPrs } = await gh().pulls.list({
+      owner,
+      repo,
+      head: `${owner}:${branch}`,
+      state: 'open',
+    });
+    if (existingPrs.length > 0) {
+      const pr = existingPrs[0]!;
+      const now = new Date();
+      await db
+        .update(tasks)
+        .set({
+          status: 'awaiting_ci',
+          prUrl: pr.html_url,
+          prNumber: pr.number,
+          diffAdditions: state.aheadBy,
+          updatedAt: now,
+        })
+        .where(eq(tasks.id, task.id));
+      log.info({ taskId: task.id, prNumber: pr.number }, 'reconciler:existing_pr_found');
+      return true;
     }
+
+    // Derive PR title from the linked issue (if any) or the mission name
+    let title = `Forge: ${mission.name}`;
+    if (task.issueRef) {
+      const issueNum = task.issueRef.split('#')[1];
+      if (issueNum) {
+        try {
+          const { data: issue } = await gh().issues.get({
+            owner,
+            repo,
+            issue_number: Number(issueNum),
+          });
+          title = issue.title;
+        } catch {
+          /* fall back to mission name */
+        }
+      }
+    } else if (mission.name.startsWith('GH:')) {
+      title = mission.name.replace(/^GH:\s*\S+\s*—\s*/, '');
+    }
+
+    const { data: pr } = await gh().pulls.create({
+      owner,
+      repo,
+      title,
+      body: `Automated by Forge.\n\nMission: ${mission.name}\nTask: ${task.id}\nBranch: ${branch}`,
+      head: branch,
+      base: defaultBranch,
+    });
+
+    const now = new Date();
+    await db
+      .update(tasks)
+      .set({
+        status: 'awaiting_ci',
+        prUrl: pr.html_url,
+        prNumber: pr.number,
+        diffAdditions: state.filesChanged,
+        updatedAt: now,
+      })
+      .where(eq(tasks.id, task.id));
+
+    await db.insert(ledgerEvents).values({
+      id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
+      missionId: mission.id,
+      taskId: task.id,
+      eventType: 'gate.pr_opened',
+      payload: {
+        prNumber: pr.number,
+        prUrl: pr.html_url,
+        branch,
+        aheadBy: state.aheadBy,
+        openedBy: 'forge-reconciler',
+      },
+      createdAt: now,
+    });
+
+    log.info({ taskId: task.id, prNumber: pr.number, branch }, 'reconciler:pr_opened');
+    return true;
   } catch (err) {
     log.warn(
       { taskId: task.id, err: err instanceof Error ? err.message : String(err) },

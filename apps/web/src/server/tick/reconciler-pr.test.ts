@@ -318,3 +318,70 @@ describe('runReconciler — reclaiming work stranded by a guardrail halt', () =>
     expect(mockOctokit.pulls.create).not.toHaveBeenCalled();
   });
 });
+
+describe('runReconciler — the PR comes from the Forge-named branch', () => {
+  // Forge assigns forge/<taskId> and the agent pushes to it. Discovery is gone:
+  // Forge used to list the repo and adopt anything ahead of base, which once
+  // attached a six-week-old stranger branch to a task that had pushed nothing.
+  it('opens the PR from the Forge-named branch', async () => {
+    const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const taskId = `tsk_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    await insertMission(missionId);
+    await insertStalledTask(taskId, missionId, { sessionId: 'sess_1' });
+
+    mockOctokit.repos.compareCommits.mockResolvedValue({
+      data: { ahead_by: 1, files: [{ filename: 'a.ts' }] },
+    });
+    mockOctokit.pulls.list.mockResolvedValue({ data: [] });
+    mockOctokit.pulls.create.mockResolvedValue({
+      data: { html_url: 'https://github.com/acme/api/pull/9', number: 9 },
+    });
+
+    await runReconciler(noopLog);
+
+    expect(mockOctokit.repos.compareCommits).toHaveBeenCalledWith(
+      expect.objectContaining({ head: `forge/${taskId}` }),
+    );
+    expect(mockOctokit.pulls.create).toHaveBeenCalledWith(
+      expect.objectContaining({ head: `forge/${taskId}` }),
+    );
+    const task = await getTask(taskId);
+    expect(task?.status).toBe('awaiting_ci');
+  });
+
+  it('never adopts a branch the agent named itself', async () => {
+    const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const taskId = `tsk_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    await insertMission(missionId);
+    // dispatchedAt in the past so the branch's commit looks "after dispatch" —
+    // exactly the condition under which the old provenance-gated discovery
+    // WOULD have adopted this stranger branch. Without this the old gate fails
+    // closed on a null dispatchedAt and the test proves nothing.
+    await insertStalledTask(taskId, missionId, {
+      sessionId: 'sess_2',
+      dispatchedAt: new Date(Date.now() - 3_600_000),
+    });
+
+    // The discriminating case: a stray agent-named branch that IS ahead of
+    // base, while forge/<taskId> does not exist. The old discovery would list
+    // the repo, find this branch, and open a PR from it. An exact-name check
+    // must not — the branch is not this task's, whatever its commit dates say.
+    mockOctokit.repos.listBranches.mockResolvedValue({ data: [{ name: 'claude/some-slug' }] });
+    mockOctokit.repos.compareCommits.mockImplementation(async ({ head }) => {
+      if (head === 'claude/some-slug') {
+        return {
+          data: {
+            ahead_by: 3,
+            files: [{ filename: 'x.ts' }],
+            commits: [{ commit: { committer: { date: new Date().toISOString() } } }],
+          },
+        };
+      }
+      throw Object.assign(new Error('Not Found'), { status: 404 });
+    });
+
+    await runReconciler(noopLog);
+
+    expect(mockOctokit.pulls.create).not.toHaveBeenCalled();
+  });
+});
