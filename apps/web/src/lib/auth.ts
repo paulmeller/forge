@@ -221,7 +221,15 @@ export const auth = betterAuth({
   //     whether a human has acted on it yet. Nothing in Forge calls it — the
   //     CLI learns the outcome from `/device/token`, and the consent page uses
   //     `findDeviceRequest` — so it is pure attack surface.
-  disabledPaths: ['/device', '/device/approve', '/device/deny'],
+  //   /list-sessions — returns each session verbatim, and `session.token`
+  //     carries no `returned: false`, so better-auth's output filter (which
+  //     strips only fields marked that way) hands the raw credential to the
+  //     caller. One XSS, or one leaked CLI token, then harvests every session
+  //     in the account — including the long-lived device-issued one, which
+  //     outlives the victim signing the browser out. Nothing in the browser
+  //     calls it; /sessions reaches `auth.api.listSessions` in-process, which
+  //     `disabledPaths` does not touch.
+  disabledPaths: ['/device', '/device/approve', '/device/deny', '/list-sessions'],
   rateLimit: {
     customRules: {
       // Unauthenticated and row-creating: the tightest of the three.

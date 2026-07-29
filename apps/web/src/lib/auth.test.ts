@@ -105,6 +105,29 @@ describe('the unauthenticated device-status oracle is switched off', () => {
   });
 });
 
+describe('the session list is not reachable over HTTP', () => {
+  /**
+   * `/list-sessions` returns each session row as-is, and the core `token`
+   * field carries no `returned: false` — better-auth's output filter strips
+   * only fields marked that way, so the raw credential goes to the caller.
+   * The bearer plugin turns that token straight back into a session, so one
+   * XSS on any authenticated page, or one leaked CLI token, harvests every
+   * session in the account. The device-issued session is the worst of them:
+   * it is long-lived and survives the victim signing the browser out.
+   *
+   * /sessions reaches the same data through `auth.api.listSessions`
+   * in-process, which `disabledPaths` does not affect — so switching the HTTP
+   * route off costs Forge nothing.
+   */
+  it('disables /list-sessions', () => {
+    expect(auth.options.disabledPaths).toContain('/list-sessions');
+  });
+
+  it('leaves revoke-session reachable — it takes a token, it does not hand one out', () => {
+    expect(auth.options.disabledPaths ?? []).not.toContain('/revoke-session');
+  });
+});
+
 describe('rate limiting for the device endpoints', () => {
   // Widened deliberately: the inferred type is the literal set of keys that
   // are present, so asking whether an *absent* key is absent would be a type

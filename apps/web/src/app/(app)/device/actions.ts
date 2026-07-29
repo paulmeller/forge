@@ -17,9 +17,16 @@ export type DeviceDecisionState = { error?: string; decided?: DeviceDecision; cl
  * granted.
  *
  * Deliberately does nothing without a code. There is no "show me the pending
- * request" path — the point of asking for the code is that knowing it is the
- * evidence that the person at this browser is the person who started the flow
- * on the device.
+ * request" path, so a crafted link cannot land someone on a pre-filled consent
+ * screen one click from approving. Note what that does NOT establish: knowing
+ * the code is not evidence that this person started the flow, because whoever
+ * started it chose the code and can simply pass it on. Typing defeats the
+ * one-click variant, not social engineering — see lib/auth.ts.
+ *
+ * This lookup is itself an authenticated oracle: a caller who guesses a live
+ * code learns its client. Server Actions post to the page route, so neither
+ * better-auth's limiter nor guardRateLimitEvasion covers this path. 32^8 codes
+ * over a 5-minute window makes that impractical rather than prevented.
  */
 export async function lookupDeviceAction(formData: FormData): Promise<DeviceLookupState> {
   const user = await withAuth();
