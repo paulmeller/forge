@@ -41,6 +41,14 @@ pnpm -r typecheck    # must pass
 pnpm -r test         # must pass
 ```
 
+**If the toolchain is unavailable, push anyway — do not stall.** A sandboxed
+run's network is restricted to the git host, so `pnpm`/corepack may be unable
+to reach a package registry and these commands will hang in retry loops. Do
+not spend your turn working around it: commit your work and push your branch.
+CI runs the same checks on the pull request, which is what the gate is for.
+Work that is committed but never pushed is lost when the sandbox ends — so
+pushing always beats verifying locally.
+
 ## Commit format
 
 `<type>: <description>` where type is feat/fix/docs/chore/test.
