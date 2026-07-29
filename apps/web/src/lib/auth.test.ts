@@ -152,4 +152,24 @@ describe('rate limiting for the device endpoints', () => {
   it('pins the header the client IP is read from rather than leaving it implicit', () => {
     expect(auth.options.advanced?.ipAddress?.ipAddressHeaders).toEqual(['x-forwarded-for']);
   });
+
+  it('does not disable IP tracking', () => {
+    // better-auth's `getIp` starts with
+    // `if (options.advanced?.ipAddress?.disableIpTracking) return null;` —
+    // an unconditional bailout that skips the header list entirely.
+    // `resolveRateLimitIp` (auth-rate-limit.ts) has no equivalent, so if this
+    // were ever set the mirror would stop matching what better-auth actually
+    // does: better-auth would key every request off null (rate limiting
+    // skipped router-wide) while our guard kept resolving real IPs from
+    // `X-Forwarded-For` and letting requests through. Setting this reads like
+    // a privacy improvement, which is exactly why it needs a failing test
+    // rather than a reviewer catching it.
+    //
+    // Cast like `plugins` above: the object literal passed to
+    // `advanced.ipAddress` only sets `ipAddressHeaders`, so that's the full
+    // shape TS infers for it, and a direct `.disableIpTracking` read is a
+    // nonexistent-property error.
+    const ipAddress = auth.options.advanced?.ipAddress as unknown as { disableIpTracking?: boolean } | undefined;
+    expect(ipAddress?.disableIpTracking).toBeUndefined();
+  });
 });
