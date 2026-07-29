@@ -472,3 +472,36 @@ describe('runReconciler — Forge dictates the salvage push (#56)', () => {
     expect(task?.escalationReason).toBe('no_commits');
   });
 });
+
+describe('runReconciler — reclaims work pushed before a halt (#62 via exact name)', () => {
+  it('reclaims a no_commits escalation when the Forge-named branch does exist', async () => {
+    // A guardrail can halt an agent after it pushed. The escalation said there
+    // was nothing on the remote; the branch proves otherwise, so the label was
+    // wrong on its face and the work must not be stranded.
+    const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const taskId = `tsk_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    await insertMission(missionId);
+    await insertStalledTask(taskId, missionId, {
+      status: 'needs_human',
+      escalationReason: 'no_commits',
+      completedAt: new Date(),
+    });
+
+    mockOctokit.repos.compareCommits.mockResolvedValue({
+      data: { ahead_by: 1, files: [{ filename: 'a.ts' }] },
+    });
+    mockOctokit.pulls.list.mockResolvedValue({ data: [] });
+    mockOctokit.pulls.create.mockResolvedValue({
+      data: { html_url: 'https://github.com/acme/api/pull/12', number: 12 },
+    });
+
+    await runReconciler(noopLog);
+
+    expect(mockOctokit.repos.compareCommits).toHaveBeenCalledWith(
+      expect.objectContaining({ head: `forge/${taskId}` }),
+    );
+    const task = await getTask(taskId);
+    expect(task?.status).toBe('awaiting_ci');
+    expect(task?.escalationReason).toBeNull();
+  });
+});

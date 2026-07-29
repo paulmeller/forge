@@ -311,7 +311,11 @@ export async function runReconciler(log: Logger): Promise<ReconcileResult> {
     .where(
       and(
         eq(tasks.status, 'needs_human'),
-        eq(tasks.escalationReason, 'stalled_no_branch'),
+        // Every stall reason a pushed branch disproves. Keyed on the exact
+        // Forge-named branch now, not provenance-gated discovery — so this is
+        // also what rescues work pushed before a guardrail halt, which never
+        // passes through turn_ended and so is never seen by the sweep above.
+        inArray(tasks.escalationReason, ['stalled_no_branch', 'no_commits', 'ci_retry_stalled']),
         isNull(tasks.prUrl),
       ),
     );
