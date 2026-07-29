@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-  env: { FORGE_DEVICE_CLIENT_IDS: undefined as string | undefined },
+  env: {
+    FORGE_DEVICE_CLIENT_IDS: undefined as string | undefined,
+    BETTER_AUTH_SECRET: 'test-secret-for-consent-tokens',
+  },
 }));
 
 vi.mock('@/lib/env', () => ({ env: mocks.env }));
@@ -11,12 +14,15 @@ const {
   FORGE_CLI_CLIENT_ID,
   allowedDeviceClientIds,
   isAllowedDeviceClient,
+  issueDeviceConsentToken,
   rejectDeviceScope,
   normalizeUserCode,
+  verifyDeviceConsentToken,
 } = await import('./device-auth');
 
 beforeEach(() => {
   mocks.env.FORGE_DEVICE_CLIENT_IDS = undefined;
+  mocks.env.BETTER_AUTH_SECRET = 'test-secret-for-consent-tokens';
 });
 
 describe('the device-flow client allow-list', () => {
@@ -104,5 +110,96 @@ describe('normalizeUserCode', () => {
   it('returns an empty string for input with nothing code-like in it', () => {
     expect(normalizeUserCode('   ')).toBe('');
     expect(normalizeUserCode('---')).toBe('');
+  });
+});
+
+/**
+ * The consent token is what makes the two-step consent page two steps
+ * *server-side*. Without it, one request carrying `{userCode, op:'approve'}`
+ * and a valid session cookie is a completed approval, and "the human typed the
+ * code first" is a claim only the browser makes.
+ */
+describe('the device consent token', () => {
+  const CODE = 'ABCD2345';
+  const USER = 'usr_alice';
+
+  it('verifies a token it just minted for the same code and user', () => {
+    // The positive case first: a check that only ever rejects would pass every
+    // negative test below while breaking the page completely.
+    expect(verifyDeviceConsentToken(issueDeviceConsentToken(CODE, USER), CODE, USER)).toBe(true);
+  });
+
+  it('rejects a token minted for a different code', () => {
+    // The whole point: an attacker's code cannot be approved with a token
+    // obtained by looking up some other code.
+    expect(verifyDeviceConsentToken(issueDeviceConsentToken('ZZZZ9999', USER), CODE, USER)).toBe(
+      false,
+    );
+  });
+
+  it('rejects a token minted by a different user', () => {
+    expect(verifyDeviceConsentToken(issueDeviceConsentToken(CODE, 'usr_bob'), CODE, USER)).toBe(
+      false,
+    );
+  });
+
+  it('accepts the code in whatever punctuation the human typed', () => {
+    // The token is bound to the normalized code, and verification normalizes
+    // too, so a hyphenated resubmission of the same code still verifies.
+    const token = issueDeviceConsentToken(CODE, USER);
+    expect(verifyDeviceConsentToken(token, 'abcd-2345', USER)).toBe(true);
+  });
+
+  it('rejects a token that has expired', () => {
+    const issuedAt = 1_000_000_000_000;
+    const token = issueDeviceConsentToken(CODE, USER, issuedAt);
+
+    expect(verifyDeviceConsentToken(token, CODE, USER, issuedAt + 60_000)).toBe(true);
+    expect(verifyDeviceConsentToken(token, CODE, USER, issuedAt + 5 * 60 * 1000)).toBe(false);
+    expect(verifyDeviceConsentToken(token, CODE, USER, issuedAt + 60 * 60 * 1000)).toBe(false);
+  });
+
+  it('rejects a token whose expiry has been pushed out without re-signing', () => {
+    // The obvious forgery: keep the signature, edit the deadline. The expiry
+    // is inside the signed message, so it does not verify.
+    const issuedAt = 1_000_000_000_000;
+    const token = issueDeviceConsentToken(CODE, USER, issuedAt);
+    const [, signature] = token.split('.');
+    const forged = `${issuedAt + 10 * 60 * 60 * 1000}.${signature}`;
+
+    expect(verifyDeviceConsentToken(forged, CODE, USER, issuedAt + 60_000)).toBe(false);
+  });
+
+  it('rejects a signature signed with a different server secret', () => {
+    const token = issueDeviceConsentToken(CODE, USER);
+    mocks.env.BETTER_AUTH_SECRET = 'some-other-secret';
+    expect(verifyDeviceConsentToken(token, CODE, USER)).toBe(false);
+  });
+
+  it('rejects malformed tokens rather than throwing', () => {
+    // `timingSafeEqual` throws on a length mismatch, and a hand-written token
+    // is the easiest way to hit that. Each of these must be a quiet `false`.
+    for (const bad of [
+      '',
+      '.',
+      'not-a-token',
+      'abc.def',
+      `.${issueDeviceConsentToken(CODE, USER).split('.')[1]}`,
+      `${Date.now() + 60_000}.`,
+      `${Date.now() + 60_000}.short`,
+      ` ${Date.now() + 60_000}.sig`,
+      `0x${(Date.now() + 60_000).toString(16)}.sig`,
+      `${Number.MAX_SAFE_INTEGER}0.sig`,
+    ]) {
+      expect(verifyDeviceConsentToken(bad, CODE, USER), JSON.stringify(bad)).toBe(false);
+    }
+  });
+
+  it('does not put the user code or the user id in the clear', () => {
+    // It is rendered into a hidden form field, so it should not restate the
+    // secret the page exists to protect.
+    const token = issueDeviceConsentToken(CODE, USER);
+    expect(token).not.toContain(CODE);
+    expect(token).not.toContain(USER);
   });
 });

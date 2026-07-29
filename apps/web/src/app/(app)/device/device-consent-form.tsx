@@ -147,6 +147,14 @@ export function DeviceConsentForm() {
 
         <form action={decideFormAction} className="flex gap-2">
           <input type="hidden" name="userCode" value={lookup.request.userCode} />
+          {/*
+            The server's proof that step 1 happened — an HMAC over
+            (userCode, userId, expiry), minted by the lookup. The server
+            refuses a decision without a matching one, so the two-step shape
+            is enforced there and not merely rendered here. It grants nothing
+            on its own and is scoped to the session that obtained it.
+          */}
+          <input type="hidden" name="consentToken" value={lookup.request.consentToken} />
           <Button type="submit" name="op" value="approve" disabled={deciding}>
             {deciding ? <Spinner data-icon="inline-start" /> : null}
             Authorize
