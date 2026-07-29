@@ -464,21 +464,17 @@ describe('dispatchOne', () => {
     expect(mocks.adapter.createSession).not.toHaveBeenCalled();
   });
 
-  it('prepends the configured git identity setup ahead of everything else in the prompt', async () => {
+  it('does not put git identity setup in the prompt — the sandbox provisions it', async () => {
+    // Git identity used to be prepended as a "run git config first" instruction,
+    // which the agent had to remember to execute. The self-hosted Managed Agents
+    // sandbox now sets it during provisioning, so the prompt must not carry it.
     mocks.state.env.GITHUB_APP_TOKEN = 'ghp_test';
-    mocks.state.env.FORGE_GIT_AUTHOR_NAME = 'Custom Bot';
-    mocks.state.env.FORGE_GIT_AUTHOR_EMAIL = 'custom-bot@example.com';
     mocks.adapter.createSession.mockResolvedValue({ sessionId: 'ses_1' });
 
     await dispatchOne(mission(), task('t1'));
 
-    expect(mocks.adapter.createSession).toHaveBeenCalledTimes(1);
     const { prompt } = mocks.adapter.createSession.mock.calls[0]![0];
-    expect(prompt).toContain('git config --global user.name "Custom Bot"');
-    expect(prompt).toContain('git config --global user.email "custom-bot@example.com"');
-    expect(prompt.indexOf('git config --global user.name')).toBeLessThan(
-      prompt.indexOf('Work on'),
-    );
+    expect(prompt).not.toContain('git config');
   });
 
   it('persists backendSessionRef equal to the session id returned by createSession, in the same update as sessionId', async () => {

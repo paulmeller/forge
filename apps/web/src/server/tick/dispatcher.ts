@@ -31,14 +31,6 @@ export type DispatchResult = {
   failed: number;
 };
 
-function gitIdentitySetup(): string {
-  return (
-    'Before making any git commits, run:\n' +
-    `  git config --global user.name "${env.FORGE_GIT_AUTHOR_NAME}"\n` +
-    `  git config --global user.email "${env.FORGE_GIT_AUTHOR_EMAIL}"`
-  );
-}
-
 export async function runDispatcher(log: {
   info: (o: object, m?: string) => void;
   warn: (o: object, m?: string) => void;
@@ -275,8 +267,12 @@ export async function dispatchOne(mission: Mission, task: Task): Promise<void> {
   // Fetch AGENTS.md / CLAUDE.md for this repo
   const agentsMd = await fetchAgentsMd(task.repo, mission.id);
 
-  // Assemble prompt: Git setup → AGENTS.md → Skill → Goal → Memories
-  const parts: string[] = [gitIdentitySetup()];
+  // Assemble prompt: AGENTS.md → Skill → Goal → Memories. Git identity is no
+  // longer prepended here: the sandbox provisions it deterministically (a
+  // self-hosted Managed Agents sandbox is the operator's to configure, and it
+  // now runs `git config` after cloning), so the agent no longer spends a turn
+  // on git housekeeping or self-recovers from a failed first commit.
+  const parts: string[] = [];
   if (agentsMd.content) {
     parts.push(agentsMd.content);
   }
