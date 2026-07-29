@@ -85,15 +85,23 @@ const ciMocks = vi.hoisted(() => {
     awaitingTasks: [] as Task[],
     missionRow: undefined as { backend: string } | undefined,
     taskUpdateCalls: [] as Array<Partial<Task>>,
-    env: { GITHUB_APP_TOKEN: 'ghp_test' as string | undefined, TASK_RETRY_MAX: 3 },
+    // Rows the ci.retry_dispatched ledger lookup returns; empty = never retried.
+    retryDispatchRows: [] as Array<{ payload: unknown; createdAt: Date }>,
+    env: {
+      GITHUB_APP_TOKEN: 'ghp_test' as string | undefined,
+      TASK_RETRY_MAX: 3,
+      RETRY_STALL_MS: 600_000,
+    },
   };
 
   const reset = () => {
     state.awaitingTasks = [];
     state.missionRow = { backend: 'managed-agents' };
     state.taskUpdateCalls = [];
+    state.retryDispatchRows = [];
     state.env.GITHUB_APP_TOKEN = 'ghp_test';
     state.env.TASK_RETRY_MAX = 3;
+    state.env.RETRY_STALL_MS = 600_000;
   };
   reset();
 
@@ -113,14 +121,30 @@ const ciMocks = vi.hoisted(() => {
           if ('backend' in selection) {
             return { limit: vi.fn(async () => (state.missionRow ? [state.missionRow] : [])) };
           }
-          return { limit: vi.fn(async () => []) };
+          // The ci.retry_dispatched lookup (latestRetryDispatch) chains
+          // .orderBy(...).limit(1); state.retryDispatchRows lets a test seed a
+          // prior retry so the SHA-gating branches can be exercised.
+          const rows = vi.fn(async () => state.retryDispatchRows);
+          return {
+            limit: rows,
+            orderBy: vi.fn(() => ({ limit: rows })),
+          };
         }),
       })),
     })),
     update: vi.fn(() => ({
       set: vi.fn((values: Partial<Task>) => {
         state.taskUpdateCalls.push(values);
-        return { where: vi.fn(async () => undefined) };
+        // `.where()` is awaited directly by most call sites, but the
+        // needs_human escalation chains `.returning()` off it for its CAS —
+        // so return a thenable that also exposes returning().
+        const rows = [{ id: 'tsk_1' }];
+        return {
+          where: vi.fn(() => ({
+            then: (resolve: (v: unknown) => unknown) => resolve(undefined),
+            returning: vi.fn(async () => rows),
+          })),
+        };
       }),
     })),
     insert: vi.fn(() => ({ values: vi.fn(async () => undefined) })),
@@ -221,5 +245,71 @@ describe('retryWithFeedback (via runCiPoller)', () => {
     expect(payload).not.toHaveProperty('backendSessionRef');
     expect(payload).not.toHaveProperty('sessionId');
     expect(payload.status).toBe('failed');
+  });
+});
+
+// --- the retry storm (#60) ---
+//
+// The tick re-evaluates the same failing CI result every 60s. Gating only on
+// retryCount re-sent the failure to the agent on EVERY tick, burning a
+// 3-retry budget in ~90s while the agent was still working — observed live on
+// PR #59 (two identical "CI failed" messages, retryCount 1→2→3, task failed
+// with the PR still at one commit). Retries are now gated on the PR head SHA.
+describe('CI retry gating (#60)', () => {
+  const log = { info: vi.fn(), warn: vi.fn() };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    ciMocks.reset();
+    ciMocks.octokit.pulls.get.mockResolvedValue({ data: { head: { sha: 'sha_1' } } });
+    ciMocks.octokit.checks.listForRef.mockResolvedValue({
+      data: { total_count: 1, check_runs: [failingCheckRun] },
+    });
+    ciMocks.adapter.sendTurn.mockResolvedValue({});
+  });
+
+  it('does not resend for a SHA it already retried — the agent is still working', async () => {
+    ciMocks.state.awaitingTasks = [ciTask({ retryCount: 1 })];
+    ciMocks.state.retryDispatchRows = [
+      { payload: { sha: 'sha_1' }, createdAt: new Date(Date.now() - 60_000) }, // 1 min ago
+    ];
+
+    const result = await runCiPoller(log);
+
+    expect(ciMocks.adapter.sendTurn).not.toHaveBeenCalled();
+    expect(result.retried).toBe(0);
+    expect(result.stillPending).toBe(1);
+    // Nothing changed, so the task must not be written at all.
+    expect(ciMocks.state.taskUpdateCalls).toHaveLength(0);
+  });
+
+  it('sends again once the agent pushes a new SHA', async () => {
+    ciMocks.state.awaitingTasks = [ciTask({ retryCount: 1 })];
+    ciMocks.state.retryDispatchRows = [
+      { payload: { sha: 'sha_OLD' }, createdAt: new Date(Date.now() - 60_000) },
+    ];
+
+    const result = await runCiPoller(log);
+
+    expect(ciMocks.adapter.sendTurn).toHaveBeenCalledTimes(1);
+    expect(result.retried).toBe(1);
+    expect(ciMocks.state.taskUpdateCalls[0]!.retryCount).toBe(2);
+  });
+
+  it('escalates to needs_human when the retried SHA has not moved for RETRY_STALL_MS', async () => {
+    // Without this, SHA-gating would trade the storm for a permanent wedge:
+    // awaiting_ci is not in the reconciler's gate-stall sweep.
+    ciMocks.state.awaitingTasks = [ciTask({ retryCount: 1 })];
+    ciMocks.state.retryDispatchRows = [
+      { payload: { sha: 'sha_1' }, createdAt: new Date(Date.now() - 700_000) }, // > 10 min
+    ];
+
+    const result = await runCiPoller(log);
+
+    expect(ciMocks.adapter.sendTurn).not.toHaveBeenCalled();
+    expect(result.transitionedToFailed).toBe(1);
+    const payload = ciMocks.state.taskUpdateCalls[0]!;
+    expect(payload.status).toBe('needs_human');
+    expect(payload.escalationReason).toBe('ci_retry_stalled');
   });
 });

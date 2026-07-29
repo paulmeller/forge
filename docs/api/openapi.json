@@ -1753,7 +1753,8 @@
               "gate_stall",
               "auto_merge_failed",
               "merge_stall",
-              "stalled_no_branch"
+              "stalled_no_branch",
+              "ci_retry_stalled"
             ]
           },
           "reviewDecision": {

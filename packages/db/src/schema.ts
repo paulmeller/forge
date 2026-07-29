@@ -85,6 +85,11 @@ export const escalationReason = [
   // the continuation budget was spent — escalated to a human rather than
   // silently abandoned, so work in the sandbox is never dropped on the floor.
   'stalled_no_branch',
+  // CI failed, the agent was sent the logs, and nothing new was pushed within
+  // RETRY_STALL_MS. `awaiting_ci` is deliberately outside the reconciler's
+  // gate-stall sweep (it legitimately waits on slow external CI), so without
+  // this the Task would wedge there forever.
+  'ci_retry_stalled',
 ] as const;
 export type EscalationReason = (typeof escalationReason)[number];
 

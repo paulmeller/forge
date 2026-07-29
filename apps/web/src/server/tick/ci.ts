@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto';
 
 import { Octokit } from '@octokit/rest';
-import { and, eq, isNotNull } from 'drizzle-orm';
+import { and, desc, eq, isNotNull } from 'drizzle-orm';
 
 import { ledgerEvents, missions, tasks, type Task } from '@forge/db';
 
 import { getAdapter } from './adapters';
+import { decideCiRetry } from './ci-retry';
 import { db } from '@/lib/db';
 import { env } from '@/lib/env';
 import { resolveGateFlags } from './gate-flags';
@@ -114,6 +115,12 @@ async function checkOne(task: Task): Promise<Outcome> {
   const allComplete = checks.check_runs.every((c) => c.status === 'completed');
   if (!allComplete) return 'pending';
 
+  // The most recent retry we dispatched for this Task, if any. Read from the
+  // ledger rather than a new column: ci.retry_dispatched already records the
+  // sha it was sent for, the same way the continuation nudge budget is counted
+  // from task.continued events.
+  const lastRetry = await latestRetryDispatch(task.id);
+
   const failedRuns: FailedCheck[] = checks.check_runs
     .filter(
       (c) =>
@@ -128,12 +135,45 @@ async function checkOne(task: Task): Promise<Outcome> {
 
   if (failedRuns.length > 0) {
     // Phase 2 retry-with-feedback (PRD §7.5):
-    //   if retry_count < TASK_RETRY_MAX, send a follow-up turn to the same
-    //   session with the failing log; the agent fixes; CI re-runs.
-    //   The Task stays at awaiting_ci while the agent works (its session
-    //   transitions running → idle → running).
-    const max = env.TASK_RETRY_MAX;
-    if (task.retryCount < max && task.sessionId) {
+    //   send a follow-up turn to the same session with the failing log; the
+    //   agent fixes; CI re-runs. The Task stays at awaiting_ci while the agent
+    //   works (its session transitions running → idle → running).
+    //
+    // Gated on the PR head SHA, not on the tick: the tick re-evaluates the same
+    // failing CI result every 60s, so gating only on retryCount re-sent the
+    // failure every tick and burned the whole budget in ~90s while the agent
+    // was still working. See ci-retry.ts for the full reasoning.
+    const decision = decideCiRetry({
+      headSha: sha,
+      lastRetrySha: lastRetry?.sha ?? null,
+      lastRetryAt: lastRetry?.at ?? null,
+      retryCount: task.retryCount,
+      maxRetries: env.TASK_RETRY_MAX,
+      stallMs: env.RETRY_STALL_MS,
+      now: new Date(),
+    });
+
+    if (decision === 'wait') {
+      // The agent already has the logs for this exact SHA and is working.
+      // Deliberately does not touch updatedAt — nothing has changed.
+      return 'pending';
+    }
+
+    if (decision === 'escalate') {
+      // Retried for this SHA and nothing was pushed within RETRY_STALL_MS.
+      // awaiting_ci is not covered by the reconciler's gate-stall sweep (it
+      // legitimately waits on slow external CI), so escalate here or the Task
+      // wedges forever.
+      await transitionToNeedsHuman(
+        task,
+        'ci_retry_stalled',
+        `CI failed and no fix was pushed within ${env.RETRY_STALL_MS}ms`,
+        { sha, failedChecks: failedRuns.map((r) => `${r.name}:${r.conclusion}`) },
+      );
+      return 'failure';
+    }
+
+    if (decision === 'send' && task.sessionId) {
       const sent = await retryWithFeedback(task, failedRuns, sha);
       if (sent) return 'retry';
       // sendTurn failed for some reason — fall through to mark failed.
@@ -178,6 +218,55 @@ export function buildRetryPrompt(sha: string, failedChecks: FailedCheck[]): stri
     .join('\n');
 
   return `CI failed on the PR you opened. Sha: ${sha}.\n\nFailing checks:\n${summary}\n\nPlease investigate the logs at the linked URLs (use the github MCP get_workflow_run_logs tool if available, otherwise read the linked details), fix the issue on the same branch, and push the fix. Reply when done.`;
+}
+
+/**
+ * The sha and time of the latest `ci.retry_dispatched` for a Task, or null if
+ * we have never retried it. Ordered by the ledger's own createdAt so a clock
+ * skew between rows can't pick an older dispatch.
+ */
+async function latestRetryDispatch(taskId: string): Promise<{ sha: string; at: Date } | null> {
+  const rows = await db
+    .select({ payload: ledgerEvents.payload, createdAt: ledgerEvents.createdAt })
+    .from(ledgerEvents)
+    .where(and(eq(ledgerEvents.taskId, taskId), eq(ledgerEvents.eventType, 'ci.retry_dispatched')))
+    .orderBy(desc(ledgerEvents.createdAt))
+    .limit(1);
+  const row = rows[0];
+  const sha = (row?.payload as { sha?: unknown } | null)?.sha;
+  if (!row || typeof sha !== 'string') return null;
+  return { sha, at: row.createdAt };
+}
+
+/** Hand a CI-stalled Task to a human rather than letting it wedge in awaiting_ci. */
+async function transitionToNeedsHuman(
+  task: Task,
+  reason: 'ci_retry_stalled',
+  lastError: string,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  const now = new Date();
+  const [updated] = await db
+    .update(tasks)
+    .set({
+      status: 'needs_human',
+      escalationReason: reason,
+      lastError,
+      updatedAt: now,
+      completedAt: now,
+    })
+    .where(and(eq(tasks.id, task.id), eq(tasks.status, 'awaiting_ci')))
+    .returning({ id: tasks.id });
+  if (!updated) return; // lost the race; fine
+
+  await db.insert(ledgerEvents).values({
+    id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
+    missionId: task.missionId,
+    taskId: task.id,
+    eventType: 'gate.escalated',
+    payload: { reason, ...payload },
+    createdAt: now,
+  });
 }
 
 async function retryWithFeedback(
