@@ -257,3 +257,96 @@ bound: `apps/web/src/server/tick/device-codes.ts` sweeps every expired row on
 each tick, independent of whether the limiter held. The limiter is a cost
 control, never the sole mechanism — deliberately, because a header the platform
 does not guarantee cannot be load-bearing.
+
+## 12. Device authorization (CLI sign-in)
+
+Forge implements the RFC 8628 device grant so a command-line tool can obtain an
+API token. `POST /api/auth/device/code` returns a `user_code`, the human enters
+it at `https://<your-host>/device`, and the CLI polls
+`POST /api/auth/device/token` until it receives one.
+
+### If you are writing a CLI: print `verification_uri`, never `verification_uri_complete`
+
+The `/device/code` response contains both:
+
+```jsonc
+{
+  "user_code": "ABCD-2345",
+  "verification_uri": "https://<your-host>/device",
+  "verification_uri_complete": "https://<your-host>/device?user_code=ABCD-2345", // do not print this
+  "device_code": "...",
+  "interval": 5,
+  "expires_in": 300
+}
+```
+
+`verification_uri_complete` carries the user code **in a URL**, and a URL is the
+most-copied value in any system. It lands in shell history, terminal scrollback,
+CI job logs, proxy and load-balancer access logs, browser history, and — if the
+consent page ever links anywhere — the `Referer` header of the next request.
+
+The consequence is not the obvious one. Anyone who reads that code inside its
+lifetime can open `/device`, enter it, and approve it **as themselves**. The
+waiting CLI then receives a session in the *reader's* account, not the victim's:
+the victim's terminal is now signed in as someone else, and everything they do
+with it happens in that account. That is session fixation, and the direction of
+the harm makes it easy to miss.
+
+Forge cannot fix this for you. The plugin offers no option to suppress
+`verification_uri_complete`, and the consent page ignoring the `?user_code=`
+parameter does not help — the leak already happened at the HTTP layer, before
+any page ran. The only fix is on the CLI side:
+
+```
+# Correct
+Open https://<your-host>/device and enter the code:  ABCD-2345
+
+# Wrong — puts the code in every log that sees this URL
+Open https://<your-host>/device?user_code=ABCD-2345
+```
+
+Two supporting measures already in place: codes expire after 5 minutes
+(`expiresIn` in `apps/web/src/lib/auth.ts`), which bounds how long a leaked code
+is worth acting on, and the consent page never pre-fills the field from the URL,
+so a link cannot turn approval into a single click.
+
+### What approving a device code actually grants
+
+A full, unrestricted session — the same power the user has in the browser.
+There are no scopes: `/api/auth/device/token` issues an ordinary session token,
+so a scoped request is rejected outright rather than being stored and echoed
+back as a restriction nothing enforces
+(`rejectDeviceScope`, `apps/web/src/lib/device-auth.ts`).
+
+### The phishing case, stated plainly
+
+Requiring the human to type the code does **not** prove they started the flow.
+`/api/auth/device/code` needs no authentication, so anyone can obtain a code and
+then ask a user to enter it: *"Forge needs you to re-authorize — go to
+https://\<your real host\>/device and enter ABCD-2345."* The link is the genuine
+site, there is no lookalike domain and no query parameter, and the client
+allow-list guarantees the consent screen displays a name the user trusts. If
+they approve, the attacker's poll returns a session as them.
+
+This is RFC 8628 §5.1 remote phishing. It is inherent to the device grant, not
+specific to this implementation, and no server-side check on the consent page
+can distinguish it from a legitimate approval. What Forge does about it:
+
+- The consent screen states that the grant is full access and asks directly
+  whether the user started the sign-in, rather than implying the code proved it.
+- **`/sessions` lists every live session in the account and ends any of them.**
+  A session issued by this flow carries the polling CLI's IP address and user
+  agent rather than a browser's, which is usually how you spot one. This is the
+  remediation path — tell your users about it.
+- The code lifetime is 5 minutes.
+
+Operators supporting users should treat "someone asked me to enter a code" as a
+reportable event, and the response is: reject it, then check `/sessions`.
+
+### Adding a second trusted client
+
+`client_id` is checked against an exact-match allow-list containing only
+`forge-cli` by default. To add another, set `FORGE_DEVICE_CLIENT_IDS` to a
+comma-separated list (include `forge-cli` if you still want it). The name is
+shown to the user on the consent screen as the thing they are authorizing, so
+add nothing you would not vouch for.

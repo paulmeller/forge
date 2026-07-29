@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { CheckCircle2, ShieldAlert, XCircle } from 'lucide-react';
 import { useActionState } from 'react';
 
@@ -46,9 +47,17 @@ async function submitDecision(
  *   2. the request is named — which client, what it will get — and only then
  *      are Authorize and Reject offered, on that code.
  *
- * The code carried into step 2 is the one typed in step 1. It is never read
- * from the URL and there is no "the pending one" fallback anywhere in the
- * path: see actions.ts and lib/device-auth.ts.
+ * The code carried into step 2 is the one typed in step 1, and step 2 also
+ * carries the HMAC the lookup minted, so the order is enforced on the server
+ * rather than merely rendered here. It is never read from the URL and there is
+ * no "the pending one" fallback anywhere in the path: see actions.ts and
+ * lib/device-auth.ts.
+ *
+ * What this shape does NOT do is establish that the person typing started the
+ * flow. It cannot: the code's creator knows the code and can pass it on. The
+ * copy below therefore asks the human the question directly instead of
+ * implying the page already answered it, and points at /sessions, which is
+ * where an approval that should not have happened gets undone.
  */
 export function DeviceConsentForm() {
   const [lookup, lookupFormAction, lookingUp] = useActionState(submitLookup, noLookup);
@@ -61,7 +70,11 @@ export function DeviceConsentForm() {
         <AlertTitle>Device authorized</AlertTitle>
         <AlertDescription>
           {decision.clientId} can now act as you. Return to your terminal — it should finish signing
-          in within a few seconds. You can revoke this at any time by signing out of that session.
+          in within a few seconds. If this was not you, end it now at{' '}
+          <Link href="/sessions" className="underline">
+            Sessions
+          </Link>
+          ; the grant lasts until that session is signed out.
         </AlertDescription>
       </Alert>
     );
@@ -85,8 +98,18 @@ export function DeviceConsentForm() {
         <CardHeader>
           <CardTitle>Enter your code</CardTitle>
           <CardDescription>
-            Type the code exactly as your device is showing it. We ask you to type it — rather than
-            filling it in for you — because typing it is what proves this request is yours.
+            {/*
+              Corrected copy. This used to say typing the code "proves this
+              request is yours", which is not true and is a dangerous thing to
+              tell someone who is about to grant full account access: knowing
+              the code proves nothing about who generated it. The honest
+              version tells them what we do (never fill this in from a link,
+              so nothing is approved by a single click) and what only they can
+              check (that they started this themselves).
+            */}
+            Type the code exactly as your device is showing it. Forge never fills this in for you,
+            even from a link — so nothing can be authorized by a single click. Only continue if you
+            started this sign-in yourself, on a device you are holding.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -141,7 +164,28 @@ export function DeviceConsentForm() {
             */}
             {lookup.request.scope
               ? `Requested scope: ${lookup.request.scope}. Scopes are not enforced — this token can do anything you can.`
-              : 'Anything you can do in Forge, this device will be able to do, until you sign the session out. Only continue if you started this sign-in yourself.'}
+              : 'Anything you can do in Forge, this device will be able to do, until you sign the session out.'}
+          </AlertDescription>
+        </Alert>
+
+        {/*
+          The one question the server cannot answer for them. Knowing the code
+          does not establish that the person holding it started the flow —
+          whoever generated it knows it too — so the only check left is the
+          human's own memory of having started this, and it has to be asked
+          plainly at the moment of decision rather than implied.
+        */}
+        <Alert>
+          <ShieldAlert />
+          <AlertTitle>Did you start this sign-in?</AlertTitle>
+          <AlertDescription>
+            If someone else asked you to enter this code — in a message, an email, or over the
+            phone — reject it. Approving would sign them in as you, no matter where the code came
+            from or how legitimate the request looked. You can review and end sessions any time at{' '}
+            <Link href="/sessions" className="underline">
+              Sessions
+            </Link>
+            .
           </AlertDescription>
         </Alert>
 

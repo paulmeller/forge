@@ -47,6 +47,17 @@ describe('the device-authorization plugin is registered with its preconditions m
   it('points the verification URI at the consent page', () => {
     expect(devicePlugin?.options?.verificationUri).toMatch(/\/device$/);
   });
+
+  it('keeps the code lifetime short', () => {
+    // Not the plugin's 30m default. The window this bounds is the one for
+    // someone who OBSERVED a code they cannot re-mint — the plugin's
+    // `verification_uri_complete` carries `?user_code=…`, so a CLI that
+    // prints it leaks the code into logs, history and Referer, and a reader
+    // of those can approve it as themselves (session fixation). An attacker
+    // in conversation with the victim just mints a fresh code, so this is not
+    // a phishing control; see the note in auth.ts.
+    expect(devicePlugin?.options?.expiresIn).toBe('5m');
+  });
 });
 
 describe('the plugin endpoints whose ownership guard cannot fire are switched off', () => {

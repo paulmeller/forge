@@ -104,11 +104,48 @@ export const auth = betterAuth({
   //      ANSWER: `/device/approve` and `/device/deny` are switched off in
   //      `disabledPaths` below, and approval goes through
   //      `decideDeviceRequest` (lib/device-auth.ts) — a compare-and-swap on
-  //      `status = 'pending'` driven by the consent page at /device, which
-  //      requires the human to type the user code. The typing is the proof
-  //      that the person approving is the person who started the flow; the
-  //      CAS is what makes the first decision final, so a row bound to one
-  //      user can never be rebound to another.
+  //      `status = 'pending'` driven by the consent page at /device. The CAS
+  //      is what makes the first decision final, so a row bound to one user
+  //      can never be rebound to another. The consent page additionally
+  //      requires the human to type the user code, and requires the decision
+  //      to carry an HMAC minted by that lookup, so approving is a two-step
+  //      act by a signed-in human and not a single request.
+  //
+  // ── What typing the code does and does not prove ──────────────────────
+  //
+  // Be precise about this, because an earlier version of this comment said
+  // the typing "proves the person approving is the person who started the
+  // flow", and the decision to re-register the plugin appeared to rest on
+  // that. It is not true, and leaving it written down means the next reader
+  // re-derives a guarantee that does not exist.
+  //
+  //   IT DOES defeat the one-click variant. `verification_uri_complete`
+  //     carries `?user_code=…` and there is no option to suppress it. A
+  //     crafted link that pre-fills the field turns approval into one click
+  //     on a screen the human never read. The consent page ignores that
+  //     parameter, so there is always a code to type and always a screen
+  //     naming the client before anything is granted. That is real and
+  //     worth keeping.
+  //
+  //   IT DOES NOT prove the approver started the flow. Typing the code
+  //     proves the person KNOWS the code — and the attacker generated it,
+  //     so the attacker can simply tell them. `/device/code` needs no auth:
+  //     get a code, message the victim "Forge needs you to re-authorize, go
+  //     to https://<real-forge-host>/device and enter ABCD-2345", and every
+  //     anti-prefill measure here is untouched, because the link is the
+  //     genuine site with no query parameter. The `client_id` allow-list
+  //     even guarantees the screen shows a name the victim trusts. This is
+  //     RFC 8628 §5.1 remote phishing: inherent to the device grant, not
+  //     introduced by this implementation, and not closable on the consent
+  //     page — no server-side check can distinguish a human who was talked
+  //     into typing a code from one who read it off their own terminal.
+  //
+  // So the phishing case is mitigated, not prevented, and the mitigation is
+  // that the grant is visible and reversible: /sessions (lib/sessions.ts)
+  // lists every live session in the account — one issued by this flow
+  // carries the polling CLI's IP and user agent rather than a browser's —
+  // and ends any of them in one click. `expiresIn` below bounds how long a
+  // code is worth acting on at all.
   //   2. `validateClient` was undefined, so any `client_id` was accepted and
   //      a row created for it.
   //      ANSWER: `isAllowedDeviceClient` — an exact-match allow-list, one
@@ -120,20 +157,49 @@ export const auth = betterAuth({
   //      ANSWER: `rejectDeviceScope` fails any non-empty scope with a 400.
   //      Forge has no scopes; pretending otherwise is worse than refusing.
   //
-  // `expiresIn` is shortened from the plugin's 30m default: the window in
-  // which a stolen user code is worth phishing is exactly this long.
+  // `expiresIn` is 5m, down from the plugin's 30m default and from the 10m
+  // this branch first shipped.
+  //
+  // The window it actually narrows is not the phishing one. An attacker who
+  // is talking to the victim can mint a fresh code any time — `/device/code`
+  // needs no auth — so shortening the lifetime costs them one request. What
+  // it narrows is the window for someone who saw a code they cannot re-mint:
+  // `verification_uri_complete` puts `?user_code=…` in the URL, so a CLI that
+  // prints it leaks the code into request logs, shell history and `Referer`.
+  // Anyone reading those can approve that code AS THEMSELVES, handing the
+  // victim's CLI a session in the attacker's account — session fixation. That
+  // reader is racing a clock they cannot reset, and halving the clock halves
+  // their odds. (A CLI must print `verification_uri`, never
+  // `verification_uri_complete`. See the note on `verificationUri` below and
+  // docs/operator-setup.md §12.)
+  //
+  // 5m is not tight for a human: read a code off a terminal, open a browser,
+  // sign in if needed, type eight characters. It is deliberately not tighter
+  // — a budget people routinely miss trains them to rush the consent screen,
+  // and that screen is the only thing standing between them and a full-access
+  // grant.
   plugins: [
     bearer(),
     deviceAuthorization({
-      expiresIn: '10m',
+      expiresIn: '5m',
       interval: '5s',
       validateClient: isAllowedDeviceClient,
       onDeviceAuthRequest: rejectDeviceScope,
       // Absolute, so the value a CLI prints is right regardless of how the
-      // request reached us. `verification_uri_complete` appends
-      // `?user_code=…` and there is no option to suppress it — the consent
-      // page deliberately ignores that parameter rather than pre-filling the
-      // field, because a pre-filled code is a code the human never typed.
+      // request reached us.
+      //
+      // The plugin also derives `verification_uri_complete` from this by
+      // appending `?user_code=…`, and there is no option to suppress it. Two
+      // separate problems with that value, and only one of them is fixed
+      // here:
+      //   - a link that pre-fills the field makes approval one click. The
+      //     consent page ignores the parameter, so this one is closed.
+      //   - the code travels in a URL, and URLs end up in logs, history and
+      //     `Referer`. That leak is at the HTTP layer, so the consent page
+      //     ignoring the parameter does nothing about it. The only fix is
+      //     for the CLI to print `verification_uri` and the code separately
+      //     and never `verification_uri_complete` — documented for CLI
+      //     authors in docs/operator-setup.md §12.
       verificationUri: `${env.BETTER_AUTH_URL}/device`,
     }),
   ],

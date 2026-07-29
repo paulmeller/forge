@@ -19,10 +19,24 @@ export const metadata = {
  *
  * This component takes NO props. In particular it does not read
  * `searchParams`, even though `verification_uri_complete` puts the user code
- * there: a code arriving in a URL is a code the human did not type, and the
- * typing is the only evidence that the person approving is the person who
- * started the flow on the device. Adding a `searchParams` prop to "improve the
- * UX" would hand back the phishing path this page exists to close.
+ * there. Adding a `searchParams` prop to "improve the UX" would pre-fill the
+ * field from the URL, and a pre-filled field turns approval into one click on
+ * a screen nobody read — the whole consent step collapses into following a
+ * link.
+ *
+ * Be exact about what that buys, because the looser version of this sentence
+ * ("typing is the only evidence that the person approving is the person who
+ * started the flow") is false and used to be written here. Typing the code
+ * proves the human KNOWS the code. Whoever generated it knows it too and can
+ * simply tell them — `/device/code` needs no authentication, and a message
+ * saying "go to <this exact site>/device and enter ABCD-2345" defeats nothing
+ * on this page. That is RFC 8628 §5.1 remote phishing and it is inherent to
+ * the device grant; see the note beside `plugins:` in lib/auth.ts, and
+ * /sessions for the mitigation that does apply — every session this flow
+ * issues is listed there and revocable.
+ *
+ * So: no prefill closes the one-click path, which is real. It does not close
+ * the social-engineering path, which nothing here can.
  */
 export default async function DevicePage() {
   await withAuth();

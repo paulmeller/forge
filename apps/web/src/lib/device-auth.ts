@@ -249,9 +249,17 @@ export type DeviceDecisionOutcome =
  * Look up a still-decidable request by the code a human typed.
  *
  * Returns null — never a "the only pending one" fallback — when the code
- * doesn't resolve. The whole security property of this page is that the person
- * approving had to know the code, so a lookup that succeeds without the right
- * code would give the exploit back for free.
+ * doesn't resolve.
+ *
+ * Why that rule matters, stated accurately. Requiring the code does NOT prove
+ * the person at this browser started the flow: whoever generated the code
+ * knows it and can tell them (see the RFC 8628 §5.1 note in ./auth.ts). What
+ * it does is keep the page from being the thing that supplies the code. A
+ * lookup that fell back to "the only pending request" would let any signed-in
+ * visitor approve an authorization they had never heard of, and would make the
+ * page an enumeration oracle besides — so the strict lookup is load-bearing
+ * even though the property it protects is narrower than "this request is
+ * yours".
  *
  * There is deliberately no `if (userCode === '') return null` in front of the
  * query. It was written, and mutation testing killed nothing when it was
