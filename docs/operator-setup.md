@@ -199,3 +199,154 @@ Also confirm the webhook itself is **Active** and points at your deployment
 (`https://<your-host>/api/forge/github/webhook`) in the same settings page. An
 App registered from `localhost` gets an inactive placeholder hook URL, which
 silently delivers nothing.
+
+## 11. Production: make `X-Forwarded-For` trustworthy
+
+**This is an infrastructure step. Forge cannot do it for you, and until it is
+done the auth rate limits are per-attacker-chosen-string, not per-client.**
+
+Every rate limit on `/api/auth/*` — the unauthenticated, row-creating
+`/api/auth/device/code`, the password-guessing budget on `/api/auth/sign-in/*`,
+all of them — is keyed on the client IP, and the client IP is read from the
+**first** element of the `X-Forwarded-For` request header.
+
+Cloud Run, which `.github/workflows/deploy.yml` deploys straight to with
+`--allow-unauthenticated` and nothing in front, **appends** to that header
+rather than overwriting it. So the header a caller sends survives, in first
+position, with the real client address appended after it:
+
+```
+# what the caller sends
+X-Forwarded-For: 198.51.100.1
+# what the app receives
+X-Forwarded-For: 198.51.100.1, <real client address>
+```
+
+Two consequences:
+
+1. **The limiter's key is caller-chosen.** Rotating that first element gives a
+   fresh bucket per request, so a per-IP limit is not a per-client limit.
+2. **A first element that is not a valid IP used to switch limiting off
+   entirely** — better-auth's `getIp` returns null, and its limiter treats "no
+   IP" as "cannot limit, so don't". `X-Forwarded-For: x` was enough. Forge now
+   refuses such a request with a `429` at the route boundary
+   (`apps/web/src/lib/auth-rate-limit.ts`) rather than serving it unlimited.
+   That closes the "no limit at all" outcome. It does **not** fix (1).
+
+**The real fix** is a load balancer or WAF between the internet and Cloud Run
+that *overwrites* `X-Forwarded-For` with the address it observed, so the first
+element is the peer address and not a caller-supplied string. On GCP:
+
+- Put an **external HTTP(S) Application Load Balancer** in front of the Cloud
+  Run service with a serverless NEG backend, and restrict the service's ingress
+  to `internal-and-cloud-load-balancing` so it cannot be reached directly at
+  its `*.run.app` URL (a direct hit bypasses the balancer and everything below
+  it). `gcloud run services update <svc> --ingress=internal-and-cloud-load-balancing`.
+- Attach a **Cloud Armor** security policy to that backend. Cloud Armor's
+  own rate-limiting rules key on the connection's source address, which no
+  header can influence, so put the hard per-IP limits there rather than
+  relying on the application's.
+- Only after the balancer is in place, revisit
+  `advanced.ipAddress.ipAddressHeaders` in `apps/web/src/lib/auth.ts`. Do not
+  add a header (`x-real-ip`, `cf-connecting-ip`, …) before there is a proxy
+  that is guaranteed to set it: naming a header nothing writes makes the key
+  fully attacker-supplied.
+
+**What does not break without it.** The `deviceCode` table cannot grow without
+bound: `apps/web/src/server/tick/device-codes.ts` sweeps every expired row on
+each tick, independent of whether the limiter held. The limiter is a cost
+control, never the sole mechanism — deliberately, because a header the platform
+does not guarantee cannot be load-bearing.
+
+## 12. Device authorization (CLI sign-in)
+
+Forge implements the RFC 8628 device grant so a command-line tool can obtain an
+API token. `POST /api/auth/device/code` returns a `user_code`, the human enters
+it at `https://<your-host>/device`, and the CLI polls
+`POST /api/auth/device/token` until it receives one.
+
+### If you are writing a CLI: print `verification_uri`, never `verification_uri_complete`
+
+The `/device/code` response contains both:
+
+```jsonc
+{
+  "user_code": "ABCD-2345",
+  "verification_uri": "https://<your-host>/device",
+  "verification_uri_complete": "https://<your-host>/device?user_code=ABCD-2345", // do not print this
+  "device_code": "...",
+  "interval": 5,
+  "expires_in": 300
+}
+```
+
+`verification_uri_complete` carries the user code **in a URL**, and a URL is the
+most-copied value in any system. It lands in shell history, terminal scrollback,
+CI job logs, proxy and load-balancer access logs, browser history, and — if the
+consent page ever links anywhere — the `Referer` header of the next request.
+
+The consequence is not the obvious one. Anyone who reads that code inside its
+lifetime can open `/device`, enter it, and approve it **as themselves**. The
+waiting CLI then receives a session in the *reader's* account, not the victim's:
+the victim's terminal is now signed in as someone else, and everything they do
+with it happens in that account. That is session fixation, and the direction of
+the harm makes it easy to miss.
+
+Forge cannot fix this for you. The plugin offers no option to suppress
+`verification_uri_complete`, and the consent page ignoring the `?user_code=`
+parameter does not help — the leak already happened at the HTTP layer, before
+any page ran. The only fix is on the CLI side:
+
+```
+# Correct
+Open https://<your-host>/device and enter the code:  ABCD-2345
+
+# Wrong — puts the code in every log that sees this URL
+Open https://<your-host>/device?user_code=ABCD-2345
+```
+
+Two supporting measures already in place: codes expire after 5 minutes
+(`expiresIn` in `apps/web/src/lib/auth.ts`), which bounds how long a leaked code
+is worth acting on, and the consent page never pre-fills the field from the URL,
+so a link cannot turn approval into a single click.
+
+### What approving a device code actually grants
+
+A full, unrestricted session — the same power the user has in the browser.
+There are no scopes: `/api/auth/device/token` issues an ordinary session token,
+so a scoped request is rejected outright rather than being stored and echoed
+back as a restriction nothing enforces
+(`rejectDeviceScope`, `apps/web/src/lib/device-auth.ts`).
+
+### The phishing case, stated plainly
+
+Requiring the human to type the code does **not** prove they started the flow.
+`/api/auth/device/code` needs no authentication, so anyone can obtain a code and
+then ask a user to enter it: *"Forge needs you to re-authorize — go to
+https://\<your real host\>/device and enter ABCD-2345."* The link is the genuine
+site, there is no lookalike domain and no query parameter, and the client
+allow-list guarantees the consent screen displays a name the user trusts. If
+they approve, the attacker's poll returns a session as them.
+
+This is RFC 8628 §5.1 remote phishing. It is inherent to the device grant, not
+specific to this implementation, and no server-side check on the consent page
+can distinguish it from a legitimate approval. What Forge does about it:
+
+- The consent screen states that the grant is full access and asks directly
+  whether the user started the sign-in, rather than implying the code proved it.
+- **`/sessions` lists every live session in the account and ends any of them.**
+  A session issued by this flow carries the polling CLI's IP address and user
+  agent rather than a browser's, which is usually how you spot one. This is the
+  remediation path — tell your users about it.
+- The code lifetime is 5 minutes.
+
+Operators supporting users should treat "someone asked me to enter a code" as a
+reportable event, and the response is: reject it, then check `/sessions`.
+
+### Adding a second trusted client
+
+`client_id` is checked against an exact-match allow-list containing only
+`forge-cli` by default. To add another, set `FORGE_DEVICE_CLIENT_IDS` to a
+comma-separated list (include `forge-cli` if you still want it). The name is
+shown to the user on the consent screen as the thing they are authorizing, so
+add nothing you would not vouch for.

@@ -172,6 +172,15 @@ export const env = {
   get TICK_ALLOW_UNAUTHENTICATED(): boolean {
     return optional('TICK_ALLOW_UNAUTHENTICATED') === 'true';
   },
+  /**
+   * Comma-separated allow-list of `client_id`s the device-authorization flow
+   * accepts (lib/device-auth.ts). Unset means exactly the first-party CLI —
+   * this exists so an operator can add a second trusted client without a code
+   * change, not so the list can be widened casually.
+   */
+  get FORGE_DEVICE_CLIENT_IDS(): string | undefined {
+    return optional('FORGE_DEVICE_CLIENT_IDS');
+  },
   get FORGE_SKILLS_DIR(): string {
     // Monorepo dev/test default: cwd is apps/web → repo-root skills/.
     // The production image sets this explicitly (Task 7).

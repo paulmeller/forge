@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { FolderGit2, Home, MessageSquare, Rocket, Settings, SquarePen } from 'lucide-react';
+import { FolderGit2, Home, MessageSquare, Rocket, Settings, ShieldCheck, SquarePen } from 'lucide-react';
 
 import { NavUser } from '@/components/nav-user';
 import {
@@ -24,6 +24,11 @@ const NAV_ITEMS = [
   { href: '/missions', label: 'Missions', icon: Rocket },
   { href: '/chat', label: 'Chat', icon: MessageSquare },
   { href: '/setup', label: 'Setup', icon: Settings },
+  // Reachable without knowing the URL on purpose: it is the only way to end a
+  // session granted to a CLI through the device-authorization flow, which is
+  // the mitigation for a consent screen that cannot tell a phished approval
+  // from a legitimate one. See lib/sessions.ts.
+  { href: '/sessions', label: 'Sessions', icon: ShieldCheck },
 ] as const;
 
 export function ForgeSidebar({ userName, userEmail }: { userName: string; userEmail: string }) {

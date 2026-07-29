@@ -2,6 +2,7 @@ import { runAiReview } from './ai-review';
 import { runAutoMerge } from './auto-merge';
 import { runBudgets } from './budgets';
 import { runCiPoller } from './ci';
+import { runDeviceCodeSweep } from './device-codes';
 import { runDispatcher } from './dispatcher';
 import { runGuardrails } from './guardrails';
 import { runMemoryExpiry } from './memory';
@@ -27,6 +28,7 @@ export type TickResult = {
   aiReview: Awaited<ReturnType<typeof runAiReview>>;
   reconciler: Awaited<ReturnType<typeof runReconciler>>;
   memory: Awaited<ReturnType<typeof runMemoryExpiry>>;
+  deviceCodes: Awaited<ReturnType<typeof runDeviceCodeSweep>>;
 };
 
 /**
@@ -45,6 +47,7 @@ export type TickResult = {
  *   8. Reconcile: open late PRs, gate stall sweep, complete settled Missions.
  *   9. Dispatch queued Tasks on running Missions.
  *  10. Memory expiry.
+ *  11. Device-code expiry sweep.
  *
  * Two new steps insert into the existing order without reordering anything else.
  * Each step is wrapped so one failing subsystem doesn't silence the others.
@@ -148,6 +151,14 @@ export async function runTick(log: Logger): Promise<TickResult> {
     return { expired: 0, reconfirmationNeeded: 0 };
   });
 
+  // Ordering-independent: it only deletes rows nothing can still use, and no
+  // other step reads `deviceCode`. It sits last with the other expiry sweep
+  // so the ordering constraints above stay confined to steps 1–9.
+  const deviceCodes = await runDeviceCodeSweep(log).catch((err) => {
+    log.error({ err: String(err) }, 'tick:device_codes_crashed');
+    return { deleted: 0 };
+  });
+
   const durationMs = Date.now() - started;
   return {
     durationMs,
@@ -161,5 +172,6 @@ export async function runTick(log: Logger): Promise<TickResult> {
     budgets,
     reconciler,
     memory,
+    deviceCodes,
   };
 }

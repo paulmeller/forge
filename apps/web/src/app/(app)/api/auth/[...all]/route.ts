@@ -1,6 +1,7 @@
 import { toNextJsHandler } from 'better-auth/next-js';
 
 import { auth } from '@/lib/auth';
+import { guardRateLimitEvasion } from '@/lib/auth-rate-limit';
 
 const handlers = toNextJsHandler(auth);
 
@@ -43,5 +44,23 @@ function stripAuthTokenHeader(res: Response): Response {
   });
 }
 
-export const GET = async (req: Request) => stripAuthTokenHeader(await handlers.GET(req));
-export const POST = async (req: Request) => stripAuthTokenHeader(await handlers.POST(req));
+/**
+ * Two wrappers, in this order.
+ *
+ * `guardRateLimitEvasion` runs BEFORE the handler because the thing it is
+ * closing happens inside better-auth's own `onRequest`: when `getIp` cannot
+ * parse a client IP, `resolveRateLimitConfig` returns null and rate limiting
+ * is skipped for the request entirely — not reduced, skipped — and that is one
+ * caller-chosen `X-Forwarded-For` away behind Cloud Run, which appends to the
+ * header rather than overwriting it. `customRules` are consulted after that
+ * point, so no better-auth-level configuration can close it. See
+ * lib/auth-rate-limit.ts for the full reasoning and for why the guard mirrors
+ * `getIp` rather than inventing its own IP parsing.
+ *
+ * `stripAuthTokenHeader` runs after, on the response. Requests refused by the
+ * guard never reach the handler, so they carry no `set-auth-token` to strip.
+ */
+export const GET = async (req: Request) =>
+  guardRateLimitEvasion(req) ?? stripAuthTokenHeader(await handlers.GET(req));
+export const POST = async (req: Request) =>
+  guardRateLimitEvasion(req) ?? stripAuthTokenHeader(await handlers.POST(req));
