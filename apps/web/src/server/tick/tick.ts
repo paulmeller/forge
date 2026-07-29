@@ -130,6 +130,8 @@ export async function runTick(log: Logger): Promise<TickResult> {
       missionsChecked: 0,
       missionsCompleted: 0,
       tasksAbandoned: 0,
+      tasksContinued: 0,
+      tasksStalledEscalated: 0,
       tasksCascadeFailed: 0,
       prsOpened: 0,
       gatesEscalated: 0,

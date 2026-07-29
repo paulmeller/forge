@@ -139,6 +139,15 @@ export const env = {
   get TASK_MAX_TURNS(): number {
     return Number(optional('TASK_MAX_TURNS') ?? 30);
   },
+  // How many times Forge nudges an agent that ended its turn without pushing a
+  // branch ("continue — commit and push") before escalating to a human. This
+  // is the stalled-finish budget, distinct from TASK_MAX_TURNS (the runaway
+  // ceiling). Small on purpose: the common cause is "forgot to push", which
+  // one or two nudges fixes; a task that needs more prodding than this wants a
+  // human, not more grinding.
+  get TASK_CONTINUATION_MAX(): number {
+    return Number(optional('TASK_CONTINUATION_MAX') ?? 3);
+  },
   get TASK_NO_PROGRESS_TOKENS(): number {
     return Number(optional('TASK_NO_PROGRESS_TOKENS') ?? 200_000);
   },

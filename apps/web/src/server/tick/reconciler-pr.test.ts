@@ -30,6 +30,11 @@ vi.mock('@octokit/rest', () => ({
   Octokit: vi.fn(() => mockOctokit),
 }));
 
+// The continuation path sends a follow-up turn through the backend adapter;
+// fake it so no real session is contacted.
+const mockAdapter = vi.hoisted(() => ({ sendTurn: vi.fn(async () => ({})) }));
+vi.mock('./adapters', () => ({ getAdapter: () => mockAdapter }));
+
 const DB_FILE = `/tmp/forge-recon-pr-${process.pid}.db`;
 for (const suffix of ['', '-wal', '-shm']) {
   if (existsSync(DB_FILE + suffix)) rmSync(DB_FILE + suffix);
@@ -66,6 +71,7 @@ afterAll(() => {
 afterEach(() => {
   vi.clearAllMocks();
   mockOctokit.repos.listBranches.mockResolvedValue({ data: [] });
+  delete process.env.TASK_CONTINUATION_MAX;
 });
 
 async function insertMission(id: string, over: Record<string, unknown> = {}) {
@@ -198,5 +204,57 @@ describe('runReconciler — PR-opening gate (tryOpenPr)', () => {
     expect(abandoned?.payload).toMatchObject({
       reason: 'turn_ended with no PR and no branch found',
     });
+  });
+
+  it('nudges a stalled task with a live session instead of abandoning it', async () => {
+    process.env.TASK_CONTINUATION_MAX = '3';
+    const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const taskId = `tsk_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    await insertMission(missionId);
+    await insertStalledTask(taskId, missionId, { sessionId: 'sesn_live' });
+    mockOctokit.repos.compareCommits.mockResolvedValue({ data: { ahead_by: 0 } });
+
+    await runReconciler(noopLog);
+
+    // Nudged, not abandoned: a follow-up turn was sent and the task is running.
+    expect(mockAdapter.sendTurn).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 'sesn_live' }),
+    );
+    const task = await getTask(taskId);
+    expect(task?.status).toBe('running');
+    const events = await getLedgerEvents(taskId);
+    expect(events.some((e) => e.eventType === 'task.continued')).toBe(true);
+    expect(events.some((e) => e.eventType === 'task.abandoned')).toBe(false);
+  });
+
+  it('escalates to needs_human once the continuation budget is spent', async () => {
+    process.env.TASK_CONTINUATION_MAX = '2';
+    const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const taskId = `tsk_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    await insertMission(missionId);
+    await insertStalledTask(taskId, missionId, { sessionId: 'sesn_stuck' });
+    // Two nudges already happened → budget of 2 is spent.
+    for (let i = 0; i < 2; i += 1) {
+      await db.insert(schema.ledgerEvents).values({
+        id: `lev_${randomUUID().replaceAll('-', '').slice(0, 12)}`,
+        missionId,
+        taskId,
+        eventType: 'task.continued',
+        payload: { nudge: i + 1 },
+        createdAt: new Date(),
+      });
+    }
+    mockOctokit.repos.compareCommits.mockResolvedValue({ data: { ahead_by: 0 } });
+
+    await runReconciler(noopLog);
+
+    // No further nudge; handed to a human with the reason, never abandoned.
+    expect(mockAdapter.sendTurn).not.toHaveBeenCalled();
+    const task = await getTask(taskId);
+    expect(task?.status).toBe('needs_human');
+    expect(task?.escalationReason).toBe('stalled_no_branch');
+    const events = await getLedgerEvents(taskId);
+    expect(events.some((e) => e.eventType === 'gate.escalated')).toBe(true);
+    expect(events.some((e) => e.eventType === 'task.abandoned')).toBe(false);
   });
 });

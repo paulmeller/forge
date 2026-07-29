@@ -81,6 +81,10 @@ export const escalationReason = [
   'gate_stall',
   'auto_merge_failed',
   'merge_stall',
+  // The agent ended its turn without pushing a branch and did not finish after
+  // the continuation budget was spent — escalated to a human rather than
+  // silently abandoned, so work in the sandbox is never dropped on the floor.
+  'stalled_no_branch',
 ] as const;
 export type EscalationReason = (typeof escalationReason)[number];
 

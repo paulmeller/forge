@@ -14,8 +14,10 @@ import {
 
 import { db } from '@/lib/db';
 import { env } from '@/lib/env';
+import { getAdapter } from './adapters';
 import { resolveAutoMergePolicy } from './auto-merge-policy';
 import { branchIsTaskOwned, newestCommitDate } from './branch-ownership';
+import { CONTINUATION_PROMPT, decideContinuation } from './continuation';
 import { client as getOctokit, PR_URL_RE } from './auto-merge';
 import { extractVerdictFromLedger } from './triage-verdict';
 
@@ -28,6 +30,8 @@ export type ReconcileResult = {
   missionsChecked: number;
   missionsCompleted: number;
   tasksAbandoned: number;
+  tasksContinued: number;
+  tasksStalledEscalated: number;
   tasksCascadeFailed: number;
   prsOpened: number;
   gatesEscalated: number;
@@ -123,6 +127,8 @@ export function missionTerminalStatusesFor(policy: AutoMergePolicy | null): Task
  */
 export async function runReconciler(log: Logger): Promise<ReconcileResult> {
   let tasksAbandoned = 0;
+  let tasksContinued = 0;
+  let tasksStalledEscalated = 0;
   let missionsCompleted = 0;
 
   // (0) Cascade-fail queued tasks whose dependencies have failed/abandoned.
@@ -300,23 +306,90 @@ export async function runReconciler(log: Logger): Promise<ReconcileResult> {
     const opened = await tryOpenPr(task, mission, log);
     if (opened) {
       prsOpened += 1;
-    } else {
-      const now = new Date();
+      continue;
+    }
+
+    // No branch was produced. The agent ending its turn is not the work being
+    // done, so nudge it to finish rather than abandon at the first turn. The
+    // nudge is bounded (env.TASK_CONTINUATION_MAX); once spent, escalate to a
+    // human so sandbox work is never dropped silently. A `reproduce` task
+    // pushes no branch by design and is settled earlier (step 0b) — guarded
+    // here too. A task without a session cannot be continued.
+    const now = new Date();
+    const [seen] = await db
+      .select({ n: sql<number>`count(*)` })
+      .from(ledgerEvents)
+      .where(and(eq(ledgerEvents.taskId, task.id), eq(ledgerEvents.eventType, 'task.continued')));
+    const nudgeCount = Number(seen?.n ?? 0);
+    const canContinue = task.kind !== 'reproduce' && Boolean(task.sessionId);
+
+    if (canContinue && decideContinuation(nudgeCount, env.TASK_CONTINUATION_MAX) === 'continue') {
+      try {
+        await getAdapter(mission.backend).sendTurn({
+          sessionId: task.sessionId!,
+          text: CONTINUATION_PROMPT,
+        });
+        await db
+          .update(tasks)
+          .set({ status: 'running', updatedAt: now })
+          .where(and(eq(tasks.id, task.id), eq(tasks.status, 'turn_ended')));
+        await db.insert(ledgerEvents).values({
+          id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
+          missionId: task.missionId,
+          taskId: task.id,
+          eventType: 'task.continued',
+          payload: { nudge: nudgeCount + 1, reason: 'turn_ended with no branch' },
+          createdAt: now,
+        });
+        tasksContinued += 1;
+        log.info({ taskId: task.id, nudge: nudgeCount + 1 }, 'reconciler:task_continued');
+        continue;
+      } catch (err) {
+        // sendTurn failed — the session is gone (a poller race we lost). Fall
+        // through to abandon rather than leaving the task wedged.
+        log.info({ taskId: task.id, err }, 'reconciler:continue_failed_session_gone');
+      }
+    } else if (canContinue) {
+      // Budget spent and still no branch: hand it to a human with the reason,
+      // never a silent abandon.
       await db
         .update(tasks)
-        .set({ status: 'abandoned', updatedAt: now, completedAt: now })
+        .set({
+          status: 'needs_human',
+          escalationReason: 'stalled_no_branch',
+          updatedAt: now,
+          completedAt: now,
+        })
         .where(and(eq(tasks.id, task.id), eq(tasks.status, 'turn_ended')));
       await db.insert(ledgerEvents).values({
         id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
         missionId: task.missionId,
         taskId: task.id,
-        eventType: 'task.abandoned',
-        payload: { reason: 'turn_ended with no PR and no branch found' },
+        eventType: 'gate.escalated',
+        payload: { reason: 'stalled_no_branch', nudges: nudgeCount },
         createdAt: now,
       });
-      tasksAbandoned += 1;
-      log.info({ taskId: task.id }, 'reconciler:task_abandoned');
+      tasksStalledEscalated += 1;
+      log.info({ taskId: task.id, nudges: nudgeCount }, 'reconciler:task_stalled_escalated');
+      continue;
     }
+
+    // Reproduce task that wandered here, no session, or a nudge that failed
+    // because the session was already gone → abandon (the original behaviour).
+    await db
+      .update(tasks)
+      .set({ status: 'abandoned', updatedAt: now, completedAt: now })
+      .where(and(eq(tasks.id, task.id), eq(tasks.status, 'turn_ended')));
+    await db.insert(ledgerEvents).values({
+      id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
+      missionId: task.missionId,
+      taskId: task.id,
+      eventType: 'task.abandoned',
+      payload: { reason: 'turn_ended with no PR and no branch found' },
+      createdAt: now,
+    });
+    tasksAbandoned += 1;
+    log.info({ taskId: task.id }, 'reconciler:task_abandoned');
   }
 
   // (1.5) Gate stall sweep: escalate Tasks wedged in a gate state past
@@ -553,6 +626,8 @@ export async function runReconciler(log: Logger): Promise<ReconcileResult> {
     missionsChecked: candidates.length,
     missionsCompleted,
     tasksAbandoned,
+    tasksContinued,
+    tasksStalledEscalated,
     tasksCascadeFailed,
     prsOpened,
     gatesEscalated,
