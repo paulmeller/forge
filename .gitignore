@@ -48,3 +48,7 @@ next-env.d.ts
 # ledger, and brainstorm mockup servers. Specs and plans are tracked under
 # docs/superpowers/ — this is the transient runtime side only.
 .superpowers/
+
+# Local env backups — hold real provider/GitHub tokens. Never commit.
+.env.local.bak*
+**/.env.local.bak*

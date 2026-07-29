@@ -207,6 +207,9 @@ describe('runGuardrails — cancel verification', () => {
       status: 'running',
       sessionId: 'sess_grd_idle',
       turnCount: 5,
+      // Has a PR — a halt of a task with a PR stays `failed`; the branchless
+      // escalation path is covered separately below.
+      prUrl: 'https://github.com/acme/api/pull/1',
     });
 
     // managed-agents cancelSession sends user.interrupt, which drains to idle —
@@ -234,6 +237,7 @@ describe('runGuardrails — cancel verification', () => {
       status: 'running',
       sessionId: 'sess_grd_running',
       turnCount: 5,
+      prUrl: 'https://github.com/acme/api/pull/2',
     });
 
     // cancelSession "succeeds" (no throw) but the session never actually stopped —
@@ -261,6 +265,7 @@ describe('runGuardrails — cancel verification', () => {
       status: 'running',
       sessionId: 'sess_grd_reject',
       turnCount: 5,
+      prUrl: 'https://github.com/acme/api/pull/4',
     });
 
     getSession.mockRejectedValueOnce(new Error('backend unreachable'));
@@ -286,6 +291,7 @@ describe('runGuardrails — cancel verification', () => {
       status: 'running',
       sessionId: 'sess_grd_ledger_throw',
       turnCount: 5,
+      prUrl: 'https://github.com/acme/api/pull/3',
     });
 
     // Force the unverified path (still running) AND make the ledger insert
@@ -310,5 +316,55 @@ describe('runGuardrails — cancel verification', () => {
     const task = await getTask('grd_t_ledger_throw');
     expect(task?.status).toBe('failed');
     expect(task?.haltReason).toBe('max_turns');
+  });
+});
+
+describe('runGuardrails — a branchless halt escalates to a human, not silent failed', () => {
+  // #51's continuation escalates a stalled branchless task to needs_human. A
+  // guardrail halt (no_progress / max_turns) fires first and, before this,
+  // dropped the same task to `failed` — invisible to the review queue. It now
+  // reaches the same needs_human outcome, EXCEPT where a dependent would wedge.
+
+  it('escalates a branchless leaf task to needs_human with stalled_no_branch', async () => {
+    await insertMission('grd_esc_leaf', { taskMaxTurns: 2 });
+    await insertTask('grd_leaf', 'grd_esc_leaf', {
+      status: 'running',
+      sessionId: 'sess_leaf',
+      turnCount: 5, // over the cap
+      prUrl: null, // no branch/PR produced
+    });
+
+    await runGuardrails(noopLog);
+
+    const task = await getTask('grd_leaf');
+    expect(task?.status).toBe('needs_human');
+    expect(task?.escalationReason).toBe('stalled_no_branch');
+    // The cause is still recorded — the human sees WHY it stalled.
+    expect(task?.haltReason).toBe('max_turns');
+  });
+
+  it('keeps a branchless halt as failed when another task depends on it — cascade must still fire', async () => {
+    // needs_human is not a dependency-failed status, so escalating a
+    // depended-upon task would leave its queued dependent waiting forever and
+    // wedge the mission. Such a task stays failed so the cascade sweep fires.
+    await insertMission('grd_esc_dep', { taskMaxTurns: 2 });
+    await insertTask('grd_repro', 'grd_esc_dep', {
+      status: 'running',
+      sessionId: 'sess_repro',
+      turnCount: 5,
+      prUrl: null,
+      kind: 'reproduce',
+    });
+    await insertTask('grd_fix', 'grd_esc_dep', {
+      status: 'queued',
+      kind: 'fix',
+      dependsOnIds: ['grd_repro'],
+    });
+
+    await runGuardrails(noopLog);
+
+    const repro = await getTask('grd_repro');
+    expect(repro?.status).toBe('failed');
+    expect(repro?.escalationReason).toBeNull();
   });
 });
