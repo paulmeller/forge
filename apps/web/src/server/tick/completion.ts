@@ -38,9 +38,14 @@ export async function checkForgeBranch(
     const aheadBy = data.ahead_by ?? 0;
     if (aheadBy === 0) return { present: false };
     return { present: true, aheadBy, filesChanged: data.files?.length ?? 0 };
-  } catch {
-    // Branch absent (404) or compare unavailable — either way there is no
-    // work to open a pull request from.
-    return { present: false };
+  } catch (err) {
+    // A 404 is an answer: the branch does not exist, so there is no work.
+    // Anything else (5xx, rate limit, network) means we could not tell —
+    // and "could not tell" must not be reported as "no work". Callers act on
+    // absence: a salvage push, or declining to reclaim real pushed work. Let
+    // it propagate; the tick wraps every stage, so this logs and retries on
+    // the next pass instead of acting on a bad answer.
+    if ((err as { status?: number }).status === 404) return { present: false };
+    throw err;
   }
 }

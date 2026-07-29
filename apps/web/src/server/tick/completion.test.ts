@@ -48,4 +48,18 @@ describe('checkForgeBranch', () => {
     const gh = ghWith(null, true);
     expect(await checkForgeBranch(gh as never, OPTS)).toEqual({ present: false });
   });
+
+  it('propagates a non-404 failure rather than calling it absent', async () => {
+    // "Could not tell" is not "no work". Callers act on absence — a salvage
+    // push, or declining to reclaim pushed work — so a GitHub outage reported
+    // as absent would make Forge act on a wrong answer.
+    const gh = {
+      repos: {
+        compareCommits: vi.fn(async () => {
+          throw Object.assign(new Error('Server Error'), { status: 500 });
+        }),
+      },
+    };
+    await expect(checkForgeBranch(gh as never, OPTS)).rejects.toThrow('Server Error');
+  });
 });
