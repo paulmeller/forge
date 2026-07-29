@@ -9,7 +9,7 @@ import { fetchAgentsMd } from './agents-md';
 import { env } from '@/lib/env';
 import { db } from '@/lib/db';
 import { getRelevantMemories, formatMemoriesForPrompt } from './memory';
-import { renderPrompt } from './prompt';
+import { renderOwnedVars, renderPrompt } from './prompt';
 import { getSkill, getSkillBySlug } from './skill-loader';
 import { forgeBranchName } from './branch-name';
 
@@ -280,7 +280,9 @@ export async function dispatchOne(mission: Mission, task: Task): Promise<void> {
   // on git housekeeping or self-recovers from a failed first commit.
   const parts: string[] = [];
   if (agentsMd.content) {
-    parts.push(renderPrompt(agentsMd.content, vars));
+    // AGENTS.md comes from the target repository, so only Forge's own
+    // placeholders are substituted — see renderOwnedVars.
+    parts.push(renderOwnedVars(agentsMd.content, vars, ['forge_branch']));
   }
   if (skill) {
     parts.push(renderPrompt(skill.promptTemplate, vars));
