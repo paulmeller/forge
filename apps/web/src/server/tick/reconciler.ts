@@ -328,8 +328,8 @@ export async function runReconciler(log: Logger): Promise<ReconcileResult> {
       .limit(1);
     if (!mission) continue;
 
-    // tryOpenPr applies the same provenance gate as everywhere else, so it can
-    // only ever adopt a branch this Task produced.
+    // tryOpenPr opens a PR only from forge/<taskId>, the branch Forge assigned
+    // this Task, so it can never adopt work another Task produced.
     const opened = await tryOpenPr(task, mission, log);
     if (!opened) continue; // genuinely no branch — the escalation stands
 
@@ -345,7 +345,7 @@ export async function runReconciler(log: Logger): Promise<ReconcileResult> {
       missionId: task.missionId,
       taskId: task.id,
       eventType: 'gate.reclaimed',
-      payload: { reason: 'branch found after stalled_no_branch escalation' },
+      payload: { reason: `branch found after ${task.escalationReason} escalation` },
       createdAt: new Date(),
     });
     prsOpened += 1;
