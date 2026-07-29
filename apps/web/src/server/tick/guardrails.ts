@@ -6,6 +6,7 @@ import {
   ledgerEvents,
   missions,
   tasks,
+  type EscalationReason,
   type HaltReason,
   type LoopPolicy,
   type TaskStatus,
@@ -176,12 +177,34 @@ export async function runGuardrails(log: Logger): Promise<GuardrailsResult> {
       }
     }
 
+    // A halt of a task that produced no branch/PR is the same stalled-branchless
+    // outcome #51's continuation escalates to a human — so surface it in the
+    // review queue as needs_human rather than dropping it to `failed` where it
+    // has no Approve/Dismiss and no escalation copy. Two exceptions keep their
+    // `failed` status: a task that DID open a PR (the halt is a runaway on real
+    // output, not a stall), and a task something depends on — needs_human is not
+    // a dependency-failed status, so escalating a depended-upon task would leave
+    // its queued dependent waiting forever and wedge the mission. Those stay
+    // failed so the reconciler's cascade sweep fires.
+    let hasDependents = false;
+    if (!task.prUrl) {
+      const family = await db
+        .select({ deps: tasks.dependsOnIds })
+        .from(tasks)
+        .where(eq(tasks.missionId, task.missionId));
+      hasDependents = family.some((t) => ((t.deps as string[] | null) ?? []).includes(task.id));
+    }
+    const escalate = !task.prUrl && !hasDependents;
+
     const now = new Date();
     // Guarded on the observed status so a concurrent transition can't be clobbered.
     const [updated] = await db
       .update(tasks)
       .set({
-        status: 'failed',
+        status: escalate ? 'needs_human' : 'failed',
+        escalationReason: escalate ? ('stalled_no_branch' as EscalationReason) : null,
+        // The halt cause is recorded either way, so a human (or the ledger)
+        // still sees WHY it stalled.
         haltReason: reason,
         lastError: haltMessage(reason, limits),
         updatedAt: now,
