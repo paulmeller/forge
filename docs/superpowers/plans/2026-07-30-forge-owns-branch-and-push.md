@@ -201,6 +201,20 @@ describe('checkForgeBranch', () => {
     const gh = ghWith(null, true);
     expect(await checkForgeBranch(gh as never, OPTS)).toEqual({ present: false });
   });
+
+  it('propagates a non-404 failure rather than calling it absent', async () => {
+    // "Could not tell" is not "no work". Callers act on absence — a salvage
+    // push, or declining to reclaim pushed work — so a GitHub outage reported
+    // as absent would make Forge act on a wrong answer.
+    const gh = {
+      repos: {
+        compareCommits: vi.fn(async () => {
+          throw Object.assign(new Error('Server Error'), { status: 500 });
+        }),
+      },
+    };
+    await expect(checkForgeBranch(gh as never, OPTS)).rejects.toThrow('Server Error');
+  });
 });
 ```
 
@@ -254,10 +268,15 @@ export async function checkForgeBranch(
     const aheadBy = data.ahead_by ?? 0;
     if (aheadBy === 0) return { present: false };
     return { present: true, aheadBy, filesChanged: data.files?.length ?? 0 };
-  } catch {
-    // Branch absent (404) or compare unavailable — either way there is no
-    // work to open a pull request from.
-    return { present: false };
+  } catch (err) {
+    // A 404 is an answer: the branch does not exist, so there is no work.
+    // Anything else (5xx, rate limit, network) means we could not tell —
+    // and "could not tell" must not be reported as "no work". Callers act on
+    // absence: Task 5 sends a salvage push, Task 6 declines to reclaim real
+    // pushed work. Let it propagate; the tick wraps every stage, so this
+    // logs and retries on the next pass instead of acting on a bad answer.
+    if ((err as { status?: number }).status === 404) return { present: false };
+    throw err;
   }
 }
 ```
@@ -273,6 +292,7 @@ One at a time. Print the mutated source, confirm it changed, run, record the nam
 
 1. Change `head: forgeBranchName(opts.taskId)` to `head: 'main'` → **"compares the Forge-named branch, not anything the agent chose"** must fail.
 2. Change `if (aheadBy === 0) return { present: false };` to `if (false) …` → **"reports absent when the branch exists but has no commits on it"** must fail.
+3. Change the catch to swallow everything (`} catch { return { present: false }; }`) → **"propagates a non-404 failure rather than calling it absent"** must fail.
 
 - [ ] **Step 6: Commit**
 
