@@ -162,6 +162,11 @@ describe('rate limiting for the device endpoints', () => {
     // keep resolving IPs and waving requests through while better-auth's own
     // limiting was silently off — the hole guardRateLimitEvasion exists to
     // close, reopened. Pin it off rather than leave it implicit.
-    expect(auth.options.advanced?.ipAddress?.disableIpTracking).toBeUndefined();
+    //
+    // Cast like `plugins` above: the literal we pass to `advanced.ipAddress`
+    // only sets `ipAddressHeaders`, so that's the full shape TS infers for it,
+    // and a direct `.disableIpTracking` read is a nonexistent-property error.
+    const ipAddress = auth.options.advanced?.ipAddress as unknown as { disableIpTracking?: boolean } | undefined;
+    expect(ipAddress?.disableIpTracking).toBeUndefined();
   });
 });
