@@ -23,6 +23,9 @@ const ESCALATION_COPY: Record<string, string> = {
   verify_incomplete: 'Self-verify could not confirm the work was complete.',
   gate_stall: 'A validator kept erroring, so this was escalated automatically.',
   auto_merge_failed: 'An auto-merge attempt failed and was rolled back.',
+  merge_stall: 'A ready-to-merge task sat without merging and was escalated.',
+  stalled_no_branch:
+    'The agent kept ending its turn without pushing a branch. There is nothing to merge — start a fresh run or dismiss it.',
 };
 
 const taskStatusVariant: Record<string, 'default' | 'secondary' | 'outline' | 'destructive'> = {
@@ -149,7 +152,7 @@ export default async function TaskDetailPage({
               <AlertTitle className="text-sm">Needs your decision</AlertTitle>
               <AlertDescription className="text-xs">
                 {ESCALATION_COPY[task.escalationReason ?? ''] ?? 'This task was escalated for review.'}
-                {' Approving makes it eligible for auto-merge.'}
+                {task.prUrl ? ' Approving makes it eligible for auto-merge.' : ''}
               </AlertDescription>
               <ReviewActionForm taskId={task.id} />
             </Alert>

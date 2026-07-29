@@ -324,35 +324,61 @@ export async function runReconciler(log: Logger): Promise<ReconcileResult> {
     const canContinue = task.kind !== 'reproduce' && Boolean(task.sessionId);
 
     if (canContinue && decideContinuation(nudgeCount, env.TASK_CONTINUATION_MAX) === 'continue') {
+      // Claim the task with a compare-and-swap BEFORE the nudge, exactly like
+      // every other CAS in this file — the nudge is a non-idempotent call to
+      // the agent's session, so two overlapping reconciler passes must not
+      // both fire it. Only the pass that flips turn_ended→running proceeds.
+      const [claimed] = await db
+        .update(tasks)
+        .set({ status: 'running', updatedAt: now })
+        .where(and(eq(tasks.id, task.id), eq(tasks.status, 'turn_ended')))
+        .returning({ id: tasks.id });
+      if (!claimed) continue; // lost the race — the other pass owns it
+
       try {
         await getAdapter(mission.backend).sendTurn({
           sessionId: task.sessionId!,
           text: CONTINUATION_PROMPT,
         });
+      } catch (err) {
+        // The session is gone (a poller race we lost). We already own the row
+        // (status is now 'running'), so settle it as abandoned rather than
+        // leaving it wedged.
+        log.info({ taskId: task.id, err }, 'reconciler:continue_failed_session_gone');
+        const settleAt = new Date();
         await db
           .update(tasks)
-          .set({ status: 'running', updatedAt: now })
-          .where(and(eq(tasks.id, task.id), eq(tasks.status, 'turn_ended')));
+          .set({ status: 'abandoned', updatedAt: settleAt, completedAt: settleAt })
+          .where(eq(tasks.id, task.id));
         await db.insert(ledgerEvents).values({
           id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
           missionId: task.missionId,
           taskId: task.id,
-          eventType: 'task.continued',
-          payload: { nudge: nudgeCount + 1, reason: 'turn_ended with no branch' },
-          createdAt: now,
+          eventType: 'task.abandoned',
+          payload: { reason: 'continuation failed — session gone' },
+          createdAt: settleAt,
         });
-        tasksContinued += 1;
-        log.info({ taskId: task.id, nudge: nudgeCount + 1 }, 'reconciler:task_continued');
+        tasksAbandoned += 1;
         continue;
-      } catch (err) {
-        // sendTurn failed — the session is gone (a poller race we lost). Fall
-        // through to abandon rather than leaving the task wedged.
-        log.info({ taskId: task.id, err }, 'reconciler:continue_failed_session_gone');
       }
-    } else if (canContinue) {
+
+      await db.insert(ledgerEvents).values({
+        id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
+        missionId: task.missionId,
+        taskId: task.id,
+        eventType: 'task.continued',
+        payload: { nudge: nudgeCount + 1, reason: 'turn_ended with no branch' },
+        createdAt: now,
+      });
+      tasksContinued += 1;
+      log.info({ taskId: task.id, nudge: nudgeCount + 1 }, 'reconciler:task_continued');
+      continue;
+    }
+
+    if (canContinue) {
       // Budget spent and still no branch: hand it to a human with the reason,
-      // never a silent abandon.
-      await db
+      // never a silent abandon. Claim first so a racing pass can't also act.
+      const [claimed] = await db
         .update(tasks)
         .set({
           status: 'needs_human',
@@ -360,7 +386,10 @@ export async function runReconciler(log: Logger): Promise<ReconcileResult> {
           updatedAt: now,
           completedAt: now,
         })
-        .where(and(eq(tasks.id, task.id), eq(tasks.status, 'turn_ended')));
+        .where(and(eq(tasks.id, task.id), eq(tasks.status, 'turn_ended')))
+        .returning({ id: tasks.id });
+      if (!claimed) continue;
+
       await db.insert(ledgerEvents).values({
         id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
         missionId: task.missionId,
@@ -374,12 +403,14 @@ export async function runReconciler(log: Logger): Promise<ReconcileResult> {
       continue;
     }
 
-    // Reproduce task that wandered here, no session, or a nudge that failed
-    // because the session was already gone → abandon (the original behaviour).
-    await db
+    // Reproduce task that wandered here, or a task with no session to continue
+    // → abandon (the original behaviour). Claim first, same as above.
+    const [claimed] = await db
       .update(tasks)
       .set({ status: 'abandoned', updatedAt: now, completedAt: now })
-      .where(and(eq(tasks.id, task.id), eq(tasks.status, 'turn_ended')));
+      .where(and(eq(tasks.id, task.id), eq(tasks.status, 'turn_ended')))
+      .returning({ id: tasks.id });
+    if (!claimed) continue;
     await db.insert(ledgerEvents).values({
       id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
       missionId: task.missionId,
