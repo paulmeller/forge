@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * The bearer plugin's after-hook matcher is literally `return true`, so on
@@ -133,5 +133,106 @@ describe('auth catch-all route', () => {
     expect(cookies).toHaveLength(2);
     expect(cookies).toContain('better-auth.session_token=raw_session_token_value; HttpOnly');
     expect(cookies).toContain('dont_remember=1; Path=/');
+  });
+});
+
+/**
+ * The other half of what this route wraps.
+ *
+ * better-auth's limiter keys on `getIp`. When `getIp` cannot parse a client IP
+ * it returns null, `resolveRateLimitConfig` returns null, and
+ * `onRequestRateLimit` does nothing — rate limiting is skipped for that
+ * request across the whole router, `/device/code` and `/sign-in/*` included.
+ * Cloud Run APPENDS to `X-Forwarded-For`, so a caller sending
+ * `X-Forwarded-For: x` is received as `x, <real ip>` and the first element is
+ * invalid. That skip happens inside `onRequest`, before `customRules` are
+ * consulted, so it cannot be closed from the better-auth config; the route is
+ * the first place our own code sees the request.
+ *
+ * These tests assert the request never reaches the handler — a 429 that still
+ * ran the endpoint would, for `/device/code`, still have created the row.
+ */
+describe('auth catch-all route — unresolvable client IP is refused, not served unlimited', () => {
+  // vitest sets NODE_ENV=test AND TEST=true, and better-auth's `isTest()`
+  // honours either, so both have to go for the production reading.
+  const inProduction = () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('TEST', '');
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.clearAllMocks();
+  });
+
+  const spoofed = (path: string) =>
+    new Request(`https://forge.test/api/auth${path}`, {
+      method: 'POST',
+      headers: { 'x-forwarded-for': 'x, 203.0.113.7' },
+    });
+
+  it('answers 429 for /device/code and never calls the handler', async () => {
+    inProduction();
+    upstream.POST.mockResolvedValue(new Response('{"device_code":"leaked"}', { status: 200 }));
+
+    const res = await POST(spoofed('/device/code'));
+
+    expect(res.status).toBe(429);
+    expect(upstream.POST).not.toHaveBeenCalled();
+  });
+
+  it('answers 429 for /sign-in/email too', async () => {
+    inProduction();
+    upstream.POST.mockResolvedValue(new Response('{}', { status: 200 }));
+
+    const res = await POST(spoofed('/sign-in/email'));
+
+    expect(res.status).toBe(429);
+    expect(upstream.POST).not.toHaveBeenCalled();
+  });
+
+  it('guards GET as well as POST', async () => {
+    inProduction();
+    upstream.GET.mockResolvedValue(new Response('{}', { status: 200 }));
+
+    const res = await GET(
+      new Request('https://forge.test/api/auth/get-session', {
+        headers: { 'x-forwarded-for': 'x, 203.0.113.7' },
+      }),
+    );
+
+    expect(res.status).toBe(429);
+    expect(upstream.GET).not.toHaveBeenCalled();
+  });
+
+  it('serves a request whose client IP resolves', async () => {
+    inProduction();
+    upstream.POST.mockResolvedValue(new Response('{"ok":true}', { status: 200 }));
+
+    const res = await POST(
+      new Request('https://forge.test/api/auth/device/code', {
+        method: 'POST',
+        headers: { 'x-forwarded-for': '203.0.113.7' },
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(upstream.POST).toHaveBeenCalledOnce();
+  });
+
+  it('does not refuse ordinary local requests, where getIp substitutes loopback', async () => {
+    // NODE_ENV is 'test' here — deliberately not stubbed. If the guard fired
+    // in dev/test it would 429 every sign-in on a developer machine, which is
+    // the failure mode that would get it deleted rather than fixed.
+    upstream.POST.mockResolvedValue(new Response('{"ok":true}', { status: 200 }));
+
+    const res = await POST(new Request('https://forge.test/api/auth/sign-in/email', { method: 'POST' }));
+
+    expect(res.status).toBe(200);
+    expect(upstream.POST).toHaveBeenCalledOnce();
   });
 });

@@ -199,3 +199,61 @@ Also confirm the webhook itself is **Active** and points at your deployment
 (`https://<your-host>/api/forge/github/webhook`) in the same settings page. An
 App registered from `localhost` gets an inactive placeholder hook URL, which
 silently delivers nothing.
+
+## 11. Production: make `X-Forwarded-For` trustworthy
+
+**This is an infrastructure step. Forge cannot do it for you, and until it is
+done the auth rate limits are per-attacker-chosen-string, not per-client.**
+
+Every rate limit on `/api/auth/*` — the unauthenticated, row-creating
+`/api/auth/device/code`, the password-guessing budget on `/api/auth/sign-in/*`,
+all of them — is keyed on the client IP, and the client IP is read from the
+**first** element of the `X-Forwarded-For` request header.
+
+Cloud Run, which `.github/workflows/deploy.yml` deploys straight to with
+`--allow-unauthenticated` and nothing in front, **appends** to that header
+rather than overwriting it. So the header a caller sends survives, in first
+position, with the real client address appended after it:
+
+```
+# what the caller sends
+X-Forwarded-For: 198.51.100.1
+# what the app receives
+X-Forwarded-For: 198.51.100.1, <real client address>
+```
+
+Two consequences:
+
+1. **The limiter's key is caller-chosen.** Rotating that first element gives a
+   fresh bucket per request, so a per-IP limit is not a per-client limit.
+2. **A first element that is not a valid IP used to switch limiting off
+   entirely** — better-auth's `getIp` returns null, and its limiter treats "no
+   IP" as "cannot limit, so don't". `X-Forwarded-For: x` was enough. Forge now
+   refuses such a request with a `429` at the route boundary
+   (`apps/web/src/lib/auth-rate-limit.ts`) rather than serving it unlimited.
+   That closes the "no limit at all" outcome. It does **not** fix (1).
+
+**The real fix** is a load balancer or WAF between the internet and Cloud Run
+that *overwrites* `X-Forwarded-For` with the address it observed, so the first
+element is the peer address and not a caller-supplied string. On GCP:
+
+- Put an **external HTTP(S) Application Load Balancer** in front of the Cloud
+  Run service with a serverless NEG backend, and restrict the service's ingress
+  to `internal-and-cloud-load-balancing` so it cannot be reached directly at
+  its `*.run.app` URL (a direct hit bypasses the balancer and everything below
+  it). `gcloud run services update <svc> --ingress=internal-and-cloud-load-balancing`.
+- Attach a **Cloud Armor** security policy to that backend. Cloud Armor's
+  own rate-limiting rules key on the connection's source address, which no
+  header can influence, so put the hard per-IP limits there rather than
+  relying on the application's.
+- Only after the balancer is in place, revisit
+  `advanced.ipAddress.ipAddressHeaders` in `apps/web/src/lib/auth.ts`. Do not
+  add a header (`x-real-ip`, `cf-connecting-ip`, …) before there is a proxy
+  that is guaranteed to set it: naming a header nothing writes makes the key
+  fully attacker-supplied.
+
+**What does not break without it.** The `deviceCode` table cannot grow without
+bound: `apps/web/src/server/tick/device-codes.ts` sweeps every expired row on
+each tick, independent of whether the limiter held. The limiter is a cost
+control, never the sole mechanism — deliberately, because a header the platform
+does not guarantee cannot be load-bearing.

@@ -7,6 +7,7 @@ import { integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core
 
 import { deviceCode } from '@forge/db/schema';
 
+import { AUTH_IP_ADDRESS_HEADERS } from './auth-rate-limit';
 import { db } from './db';
 import { isAllowedDeviceClient, rejectDeviceScope } from './device-auth';
 import { env } from './env';
@@ -183,15 +184,29 @@ export const auth = betterAuth({
     // whatever the caller sent, so that key is spoofable and per-IP limiting
     // can be evaded by rotating it. Nothing in this repo documents a proxy
     // that guarantees a trustworthy header, and naming one that doesn't
-    // exist would be worse: `getIp` would fall through and, if no listed
-    // header parsed, return null — which skips rate limiting entirely.
+    // exist would be worse.
     //
-    // So this is the safe default, not a fix. The durable defence against an
-    // unbounded `deviceCode` table is the sweep in
+    // Worse specifically because of what `getIp` does when nothing parses: it
+    // returns null, `resolveRateLimitConfig` returns null, and rate limiting
+    // is skipped for that request ENTIRELY — every rule below included.
+    // Cloud Run appends to `X-Forwarded-For`, so `X-Forwarded-For: x` arrives
+    // as `x, <real ip>` and the first element is invalid. That was one header
+    // away, not hypothetical. It is closed at the route boundary by
+    // `guardRateLimitEvasion` (lib/auth-rate-limit.ts), which refuses a
+    // request whose client IP cannot be resolved instead of letting it
+    // through unlimited — the skip happens inside better-auth's `onRequest`,
+    // before `customRules` are read, so it could not be closed from here.
+    //
+    // The array below is imported rather than written out so the guard and
+    // the limiter can never key on different headers.
+    //
+    // So this remains the safe default, not a fix for spoofability. The
+    // durable defence against an unbounded `deviceCode` table is the sweep in
     // server/tick/device-codes.ts, which does not depend on the limiter
     // holding. Revisit this the moment a load balancer lands in front of the
-    // service and can be configured to overwrite the header.
-    ipAddress: { ipAddressHeaders: ['x-forwarded-for'] },
+    // service and can be configured to overwrite the header — see
+    // docs/operator-setup.md.
+    ipAddress: { ipAddressHeaders: [...AUTH_IP_ADDRESS_HEADERS] },
   },
 });
 
