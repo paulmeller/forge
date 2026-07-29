@@ -258,3 +258,63 @@ describe('runReconciler — PR-opening gate (tryOpenPr)', () => {
     expect(events.some((e) => e.eventType === 'task.abandoned')).toBe(false);
   });
 });
+
+describe('runReconciler — reclaiming work stranded by a guardrail halt', () => {
+  // A Task halted straight from `running` never passes through `turn_ended`,
+  // so the PR sweep never saw it, and the halt escalation infers "no branch"
+  // from prUrl being null. Observed live: an agent pushed a correct branch,
+  // could not open the PR (egress omits api.github.com), and the Task was
+  // escalated stalled_no_branch with the commits orphaned on the remote.
+  it('opens the PR and clears the false escalation when a branch actually exists', async () => {
+    const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const taskId = `tsk_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    await insertMission(missionId);
+    await insertStalledTask(taskId, missionId, {
+      status: 'needs_human',
+      escalationReason: 'stalled_no_branch',
+      completedAt: new Date(),
+      dispatchedAt: new Date(Date.now() - 60_000),
+    });
+
+    // A branch the task produced: pushed after dispatch, ahead of base.
+    mockOctokit.repos.listBranches.mockResolvedValue({ data: [{ name: 'agent-branch' }] });
+    mockOctokit.repos.compareCommits.mockResolvedValue({
+      data: {
+        ahead_by: 1,
+        commits: [{ commit: { committer: { date: new Date().toISOString() } } }],
+        files: [{ filename: 'a.ts' }],
+      },
+    });
+    mockOctokit.pulls.list.mockResolvedValue({ data: [] });
+    mockOctokit.pulls.create.mockResolvedValue({
+      data: { html_url: 'https://github.com/acme/api/pull/7', number: 7 },
+    });
+
+    await runReconciler(noopLog);
+
+    const task = await getTask(taskId);
+    expect(task?.prUrl).toBe('https://github.com/acme/api/pull/7');
+    expect(task?.status).toBe('awaiting_ci');
+    // The reason it was escalated for is disproven — don't leave a false label.
+    expect(task?.escalationReason).toBeNull();
+  });
+
+  it('leaves the escalation alone when there is genuinely no branch', async () => {
+    const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const taskId = `tsk_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    await insertMission(missionId);
+    await insertStalledTask(taskId, missionId, {
+      status: 'needs_human',
+      escalationReason: 'stalled_no_branch',
+      completedAt: new Date(),
+    });
+    mockOctokit.repos.compareCommits.mockResolvedValue({ data: { ahead_by: 0 } });
+
+    await runReconciler(noopLog);
+
+    const task = await getTask(taskId);
+    expect(task?.status).toBe('needs_human');
+    expect(task?.escalationReason).toBe('stalled_no_branch');
+    expect(mockOctokit.pulls.create).not.toHaveBeenCalled();
+  });
+});
