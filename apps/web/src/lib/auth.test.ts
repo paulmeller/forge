@@ -152,4 +152,16 @@ describe('rate limiting for the device endpoints', () => {
   it('pins the header the client IP is read from rather than leaving it implicit', () => {
     expect(auth.options.advanced?.ipAddress?.ipAddressHeaders).toEqual(['x-forwarded-for']);
   });
+
+  it('leaves IP tracking on, which resolveRateLimitIp (auth-rate-limit.ts) assumes', () => {
+    // better-auth's private `getIp` opens with
+    // `if (options.advanced?.ipAddress?.disableIpTracking) return null;`, which
+    // makes onRequestRateLimit treat every request as unresolvable and skip
+    // its limiter router-wide. resolveRateLimitIp has no equivalent
+    // short-circuit, so if this were ever set, guardRateLimitEvasion would
+    // keep resolving IPs and waving requests through while better-auth's own
+    // limiting was silently off — the hole guardRateLimitEvasion exists to
+    // close, reopened. Pin it off rather than leave it implicit.
+    expect(auth.options.advanced?.ipAddress?.disableIpTracking).toBeUndefined();
+  });
 });

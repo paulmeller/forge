@@ -96,6 +96,21 @@ type ResolveOptions = {
  * guard would 429 the whole auth surface in development. It is not a bypass —
  * better-auth applies the same substitution, so in those environments the
  * limiter is not being skipped either.
+ *
+ * This is a mirror of better-auth's PRIVATE `getIp`
+ * (better-auth/dist/utils/get-request-ip.mjs), not a call into it — there is
+ * no public export to call. A mirror only stays correct for as long as it
+ * stays identical to what it mirrors, so re-diff this function against
+ * `getIp` on every better-auth version bump. One gap `getIp` has that this
+ * function does not mirror: it opens with
+ * `if (options.advanced?.ipAddress?.disableIpTracking) return null`, which
+ * would make better-auth skip its limiter for every request while this
+ * function kept resolving IPs and `guardRateLimitEvasion` kept waving them
+ * through. `disableIpTracking` staying unset is pinned by a test in
+ * auth.test.ts (alongside the `AUTH_IP_ADDRESS_HEADERS` assertion) rather
+ * than mirrored here, because there is nothing for this function to *do*
+ * with that option — the failure mode is better-auth's config drifting, not
+ * this function's logic.
  */
 export function resolveRateLimitIp(headers: Headers, options: ResolveOptions = {}): string | null {
   const ipHeaders = options.ipAddressHeaders ?? AUTH_IP_ADDRESS_HEADERS;
