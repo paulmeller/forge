@@ -69,8 +69,50 @@ export class ManagedAgentsAdapter implements BackendAdapter {
       ...(vaultIds.length > 0 ? { vault_ids: vaultIds } : {}),
     } as never);
 
-    await this.sendTurn({ sessionId: session.id, text: input.prompt });
+    // A session that dies during provisioning does not fail HERE — it fails on the first
+    // sendTurn, as a downstream `400 session is terminated`. That message is true, generic,
+    // and destroys the actual cause, which the engine has already written into the session's
+    // own event log (see sessionFailureReason). Surface that instead.
+    try {
+      await this.sendTurn({ sessionId: session.id, text: input.prompt });
+    } catch (err) {
+      const reason = await this.sessionFailureReason(session.id);
+      if (reason) {
+        throw new Error(
+          `managed-agents session ${session.id} failed during provisioning: ${reason}`,
+          { cause: err },
+        );
+      }
+      throw err;
+    }
     return { sessionId: session.id };
+  }
+
+  /**
+   * The reason the engine refused to run this session, read from its own event stream.
+   *
+   * The engine emits a precise, actionable `session.error` when provisioning fails — e.g.
+   * "network header transform requested but the sandbox/harness cannot TLS-terminate + trust
+   * the session CA — refusing to run (fail-closed)", which names both the cause and the fix.
+   * Without this lookup the caller only ever sees the generic `session is terminated` from the
+   * next call, and the real reason is sitting unread in the event log. Returns null when there
+   * is no session.error to report, so the original error propagates untouched.
+   *
+   * Never throws: a diagnostics lookup must not mask the failure it is trying to explain.
+   */
+  private async sessionFailureReason(sessionId: string): Promise<string | null> {
+    try {
+      const page = await this.client.beta.sessions.events.list(sessionId);
+      for (const e of (page.data ?? []) as MaEvent[]) {
+        if (e.type !== 'session.error') continue;
+        const error = e.error as { type?: string; message?: string } | undefined;
+        if (!error?.message) continue;
+        return error.type ? `${error.type}: ${error.message}` : error.message;
+      }
+    } catch {
+      // Swallow: the caller's original error is more important than this enrichment.
+    }
+    return null;
   }
 
   // backendSessionRef is unused: Managed Agents session ids are stable for the
