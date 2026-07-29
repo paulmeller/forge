@@ -477,6 +477,23 @@ describe('dispatchOne', () => {
     expect(prompt).not.toContain('git config');
   });
 
+  it('exposes the Forge-assigned branch to the goal template', async () => {
+    // The agent cannot push to a name it was never told. This is the other
+    // half of Forge owning the branch: Forge names it AND says so.
+    mocks.state.env.GITHUB_APP_TOKEN = 'ghp_test';
+    mocks.adapter.createSession.mockResolvedValue({ sessionId: 'ses_1' });
+    mocks.fetchAgentsMd.mockResolvedValue({
+      content: 'Push to: {{forge_branch}}',
+      file: null,
+      truncated: false,
+    });
+
+    await dispatchOne(mission(), task('t1'));
+
+    const { prompt } = mocks.adapter.createSession.mock.calls[0]![0];
+    expect(prompt).toContain('forge/t1');
+  });
+
   it('persists backendSessionRef equal to the session id returned by createSession, in the same update as sessionId', async () => {
     mocks.state.env.GITHUB_APP_TOKEN = 'ghp_test';
     mocks.adapter.createSession.mockResolvedValue({ sessionId: 'ses_abc123' });

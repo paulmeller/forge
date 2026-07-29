@@ -49,6 +49,22 @@ CI runs the same checks on the pull request, which is what the gate is for.
 Work that is committed but never pushed is lost when the sandbox ends — so
 pushing always beats verifying locally.
 
+## Pushing your work
+
+Commit your work, then push it to the branch Forge assigned for this task:
+
+```bash
+git push origin HEAD:{{forge_branch}}
+```
+
+The exact branch name is given in your task instructions. Push to that name and
+no other — Forge opens the pull request from it, and a branch under a different
+name is not something Forge will find.
+
+**Do not open a pull request yourself.** The sandbox can reach `github.com` but
+not `api.github.com`, so `gh pr create` cannot work. Push the branch and stop;
+Forge opens the PR and runs it through CI.
+
 ## Commit format
 
 `<type>: <description>` where type is feat/fix/docs/chore/test.
