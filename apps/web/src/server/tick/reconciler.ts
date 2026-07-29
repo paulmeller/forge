@@ -295,6 +295,58 @@ export async function runReconciler(log: Logger): Promise<ReconcileResult> {
     .from(tasks)
     .where(and(eq(tasks.status, 'turn_ended'), isNull(tasks.prUrl)));
 
+  // (1a) Reclaim pushed work that a guardrail halt stranded. A Task halted
+  // straight from `running` never passes through `turn_ended`, so the sweep
+  // above never sees it — and the halt escalation infers "produced no branch"
+  // from `prUrl` being null, which is false for an agent that pushed a branch
+  // but could not open the PR (the sandbox's egress allowlist omits
+  // api.github.com). Observed live: an agent pushed a correct branch and the
+  // Task was escalated `stalled_no_branch` with the commits orphaned on the
+  // remote. If a branch this Task actually produced exists, the escalation was
+  // wrong on its face, so open the PR and put the Task back on the CI gate.
+  const strandedEscalations = await db
+    .select()
+    .from(tasks)
+    .where(
+      and(
+        eq(tasks.status, 'needs_human'),
+        eq(tasks.escalationReason, 'stalled_no_branch'),
+        isNull(tasks.prUrl),
+      ),
+    );
+
+  for (const task of strandedEscalations) {
+    const [mission] = await db
+      .select()
+      .from(missions)
+      .where(eq(missions.id, task.missionId))
+      .limit(1);
+    if (!mission) continue;
+
+    // tryOpenPr applies the same provenance gate as everywhere else, so it can
+    // only ever adopt a branch this Task produced.
+    const opened = await tryOpenPr(task, mission, log);
+    if (!opened) continue; // genuinely no branch — the escalation stands
+
+    // tryOpenPr moved it to awaiting_ci; the reason it was escalated for is now
+    // disproven, so clear it rather than leave a false label on the Task.
+    await db
+      .update(tasks)
+      .set({ escalationReason: null, completedAt: null, updatedAt: new Date() })
+      .where(eq(tasks.id, task.id));
+
+    await db.insert(ledgerEvents).values({
+      id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
+      missionId: task.missionId,
+      taskId: task.id,
+      eventType: 'gate.reclaimed',
+      payload: { reason: 'branch found after stalled_no_branch escalation' },
+      createdAt: new Date(),
+    });
+    prsOpened += 1;
+    log.info({ taskId: task.id }, 'reconciler:stranded_work_reclaimed');
+  }
+
   for (const task of stalled) {
     const [mission] = await db
       .select()
