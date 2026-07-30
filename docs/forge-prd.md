@@ -2,7 +2,7 @@
 
 **Status:** Draft
 **Owner:** (tbd)
-**Last updated:** 2026-04-24
+**Last updated:** 2026-07-30
 **Target branch:** `claude/forge-orchestration-layer-syO96`
 
 ---
@@ -25,11 +25,41 @@ What's missing is an **open, auditable orchestration layer** that sits above the
 
 ## 3. Positioning
 
-> **Open-source Missions for Claude Managed Agents. Swap in your own gateway when you need to.**
+> **An open-source governance system for coding-agent fleets. Gates, an auditable ledger, and autonomy that is earned rather than declared.**
+
+Forge is not another place to run an agent. Engines are becoming commodity and interchangeable — that is why Forge drives them through a six-method adapter. What does not commoditise is the layer that decides *what an agent's output must survive before it counts as done*, and the record of what actually happened. That layer is the product; the engines are an implementation detail.
 
 Against **Devin / Factory / Copilot coding agent:** open, inspectable, portable; you own the ledger and the policies.
 Against **OpenHands / SWE-agent:** fleet-native, not single-task; multi-engine via the gateway adapter.
 Against **Anthropic themselves:** Forge runs *on* Managed Agents, not against it. Complement, not competitor.
+
+### 3.1 Operating principle: progressive autonomy
+
+The goal is not maximum autonomy, and it is not a human reading every generated
+line. Both fail at scale — the first accumulates unreviewed risk, the second
+makes human attention the bottleneck the moment agents outpace it.
+
+Forge's principle is that **autonomy is earned through evidence, and scrutiny is
+proportional to uncertainty.** A familiar, low-risk change with strong evidence
+(green CI, tests that actually cover the diff, a well-specified goal, small blast
+radius) should move with little or no human involvement. A novel, architectural,
+security-touching or wide-blast-radius change should escalate to a human, with
+the reason stated.
+
+Two consequences follow, and they shape the roadmap:
+
+- **Gate policy should be a function of the change, not a fixed per-repo flag.**
+  Static policy either over-gates safe work or under-gates dangerous work. See
+  the risk-proportional gating work in the issue tracker.
+- **Every repeated human judgement is a candidate for codification.** When a
+  reviewer keeps rejecting the same pattern, it should become a rule; when a
+  failure reaches production, it should become a test or a policy; when an
+  architectural decision is made, agents should receive it as persistent context
+  rather than rediscovering it each task. The Ledger, `AGENTS.md` propagation,
+  the Memory Store and the retrospective loop (§7.13) exist to carry that
+  accumulated intent — and it is the asset that compounds, more than any
+  individual generated diff. Human review is not the opposite of automation; it
+  is how the governance system learns what to automate next.
 
 What Forge is **not:**
 - Not a new agent engine.
@@ -252,6 +282,11 @@ Memory is the **empirical knowledge base** — facts Forge has learned about a s
 - 50 self-hosted deployments reporting via opt-in telemetry.
 - 5 public case studies.
 
+**Human leverage** — the metric that matters most, and the one Forge is uniquely able to measure:
+- **Human touches per merged Task**, and its trend. A "touch" is any escalation, approval, or steer recorded in the Ledger. The Ledger already carries every one, so this is a query, not new instrumentation.
+- The target is not zero. It is a *falling* ratio while merge quality holds — output growing faster than the human judgement it consumes. Throughput without this ratio is not leverage, it is deferred review debt.
+- Watch it alongside post-merge revert and rollback rate. A ratio that falls while reverts climb means autonomy was declared rather than earned.
+
 **Product health:**
 - Time-to-first-Mission < 10 minutes (measured from install).
 - Median Mission success rate (Tasks merged / Tasks dispatched) > 60% for dependency-bump Missions.
@@ -291,6 +326,7 @@ Memory is the **empirical knowledge base** — facts Forge has learned about a s
 - **Cost at fleet scale on hosted MA.** Missions can be expensive. *Mitigation:* budget primitives are central; docs honestly compare MA cost vs. gateway-on-cheap-sandboxes.
 - **Anthropic ships their own orchestration.** *Mitigation:* Forge's moat is open source + multi-engine via gateway + an auditable ledger — differentiation that survives adjacency.
 - **API drift between MA and gateway.** *Mitigation:* contract test suite owned by the gateway repo, run in Forge CI on every PR.
+- **Every gate is behaviour-level. None of them verify the health of the codebase.** CI proves the tests pass; self-verify proves the change meets its stated acceptance criteria; AI review is a single-pass read of one diff. All three answer *"does this work?"* — none answer *"did this make the system harder to change?"* A change can pass every gate while increasing coupling, misplacing a responsibility, or adding an abstraction that will not survive the next five requirements. The bill for that arrives in months; the gates report in seconds. This is not a gap we can close by adding another reviewer agent: if a model could reliably recognise the most maintainable implementation, it would have generated it. *Mitigation:* be explicit in docs and launch material that Forge raises the floor and does not currently police the ceiling — overselling "gated" is the fastest way to lose the trust the ledger is meant to earn. Keep humans in the loop on novel and architectural work (§3.1), invest in the durable-context loop (§7.13) so intent survives, and treat any future maintainability signal as advisory evidence feeding the autonomy decision, never as a merge gate, until it is demonstrably reliable.
 - **Community momentum is a product.** *Mitigation:* budget explicitly for docs, videos, launch, and issue triage — not just code.
 - **Drift from auto-learned knowledge.** The retrospective process (§7.13) produces proposed skill diffs and memory entries from Ledger evidence. If Forge ever lets those proposals apply without human review — or if operators rubber-stamp them — every Mission after that point runs against an agent whose instructions have silently changed, and a retrospective that was wrong (stale evidence, misread pattern, rare-event overgeneralisation) becomes load-bearing policy. This is extraordinarily hard to trace after the fact, because the Ledger faithfully records the *application* of the change but not the *quality of the decision that applied it*. *Mitigation:* the review gate is non-negotiable — there is no "auto-apply" mode, even behind a flag. Every accepted proposal lands as an explicit Ledger event with a reviewer identity, an evidence pointer back to the Ledger events that justified it, and a reversible diff. Retrospective output must be reviewable by a human who doesn't also supervise the Missions it would change.
 
