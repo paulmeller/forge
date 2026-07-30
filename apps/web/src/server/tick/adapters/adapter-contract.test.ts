@@ -113,7 +113,9 @@ describe('GatewayAdapter specifics', () => {
   // not just /v1/sessions/* — dispatch-time contract checking needs this to
   // read the agent's own `system` instructions.
   it('getAgentInstructions reads the system field from /v1/agents/{id}', async () => {
-    const fetchSpy = vi.fn(async () => ({
+    // Typed params so mock.calls destructures — an untyped vi.fn() gives
+    // calls[0] an empty-tuple type.
+    const fetchSpy = vi.fn(async (_url: string | URL, _init?: RequestInit) => ({
       ok: true,
       status: 200,
       json: async () => ({ system: 'push to your own branch' }),

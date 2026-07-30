@@ -66,7 +66,7 @@ const mocks = vi.hoisted(() => {
     confirmToolUse: vi.fn(),
     // Defaults to "no instructions configured" so existing dispatchOne tests
     // (none of which are about #67) see zero contract violations.
-    getAgentInstructions: vi.fn(async () => null),
+    getAgentInstructions: vi.fn(async (): Promise<string | null> => null),
   };
 
   const getAdapter = vi.fn(() => adapter);
