@@ -505,3 +505,53 @@ describe('runReconciler — reclaims work pushed before a halt (#62 via exact na
     expect(task?.escalationReason).toBeNull();
   });
 });
+
+describe('runReconciler — a reproduce Task that pushed work is not abandoned (#70)', () => {
+  it('opens the PR from the Forge-named branch instead of abandoning for no verdict', async () => {
+    // #67 live: triage gave a *feature* issue a reproduce->fix shape. There was
+    // no verdict to emit, so the agent built the feature, committed, and pushed
+    // to the branch Forge assigned. Step 0b then abandoned it for emitting no
+    // verdict — by design, it settles reproduce Tasks before the PR sweep so
+    // they are "never mistaken for" having pushed. 488 lines were orphaned on
+    // the remote. Work on the remote outranks a missing verdict.
+    const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const taskId = `tsk_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    await insertMission(missionId);
+    await insertStalledTask(taskId, missionId, { kind: 'reproduce', sessionId: 'sess_repro' });
+
+    mockOctokit.repos.compareCommits.mockResolvedValue({
+      data: { ahead_by: 3, files: [{ filename: 'a.ts' }] },
+    });
+    mockOctokit.pulls.list.mockResolvedValue({ data: [] });
+    mockOctokit.pulls.create.mockResolvedValue({
+      data: { html_url: 'https://github.com/acme/api/pull/70', number: 70 },
+    });
+
+    await runReconciler(noopLog);
+
+    expect(mockOctokit.pulls.create).toHaveBeenCalledWith(
+      expect.objectContaining({ head: `forge/${taskId}` }),
+    );
+    const task = await getTask(taskId);
+    expect(task?.status).toBe('awaiting_ci');
+    expect(task?.status).not.toBe('abandoned');
+  });
+
+  it('still abandons a reproduce Task that pushed nothing', async () => {
+    // The guard must not turn every verdict-less reproduce Task into a stuck
+    // one — with no branch there is genuinely nothing to salvage.
+    const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const taskId = `tsk_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    await insertMission(missionId);
+    await insertStalledTask(taskId, missionId, { kind: 'reproduce', sessionId: 'sess_none' });
+
+    mockOctokit.repos.compareCommits.mockRejectedValue(
+      Object.assign(new Error('Not Found'), { status: 404 }),
+    );
+
+    await runReconciler(noopLog);
+
+    expect(mockOctokit.pulls.create).not.toHaveBeenCalled();
+    expect((await getTask(taskId))?.status).toBe('abandoned');
+  });
+});

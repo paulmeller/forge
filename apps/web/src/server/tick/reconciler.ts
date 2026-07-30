@@ -128,6 +128,9 @@ export function missionTerminalStatusesFor(policy: AutoMergePolicy | null): Task
  */
 export async function runReconciler(log: Logger): Promise<ReconcileResult> {
   let tasksAbandoned = 0;
+  // Declared here rather than at step 1: step 0b can now open a PR too, when a
+  // reproduce Task pushed work but emitted no verdict (#70).
+  let prsOpened = 0;
   let tasksContinued = 0;
   let tasksStalledEscalated = 0;
   let missionsCompleted = 0;
@@ -218,6 +221,37 @@ export async function runReconciler(log: Logger): Promise<ReconcileResult> {
       reproduceResolved += 1;
       log.info({ taskId: task.id, reproduced: verdict.reproduced }, 'reconciler:reproduce_resolved');
     } else {
+      // No verdict — but a missing verdict is not the same as no work. Triage
+      // gives every issue a reproduce->fix shape, including features and chores
+      // where "did it reproduce?" has no honest answer (#70). Observed live on
+      // #67: the agent had nothing to report a verdict about, so it built the
+      // thing, committed, and pushed to the branch Forge assigned — and this
+      // branch abandoned it, orphaning 488 lines on the remote.
+      //
+      // The settle-before-PR-sweep ordering above is deliberate ("so reproduce
+      // Tasks are never mistaken for 'agent pushed a branch but opened no
+      // PR'"), which is exactly why the check has to happen HERE: by design
+      // this Task never reaches step 1. Ask the remote before discarding
+      // anything — work that exists outranks a verdict that doesn't.
+      const [mission] = await db
+        .select()
+        .from(missions)
+        .where(eq(missions.id, task.missionId))
+        .limit(1);
+      if (mission && (await tryOpenPr(task, mission, log))) {
+        prsOpened += 1;
+        await db.insert(ledgerEvents).values({
+          id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
+          missionId: task.missionId,
+          taskId: task.id,
+          eventType: 'gate.reclaimed',
+          payload: { reason: 'reproduce Task pushed work but emitted no verdict' },
+          createdAt: now,
+        });
+        log.info({ taskId: task.id }, 'reconciler:reproduce_work_reclaimed');
+        continue;
+      }
+
       const [updated] = await db
         .update(tasks)
         .set({
@@ -289,8 +323,8 @@ export async function runReconciler(log: Logger): Promise<ReconcileResult> {
   // (1) turn_ended with no PR → try to open a PR via Octokit.
   // The agent pushed a branch but didn't open a PR (common with Codex/OpenCode
   // which don't have MCP tools). Forge opens the PR on their behalf.
-  // If no branch was pushed, abandon the task.
-  let prsOpened = 0;
+  // If no branch was pushed, abandon the task. (prsOpened is declared at the
+  // top of this function — step 0b can also open a PR now, see #70.)
   const stalled = await db
     .select()
     .from(tasks)
