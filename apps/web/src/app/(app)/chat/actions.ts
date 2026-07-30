@@ -16,6 +16,7 @@ import {
 import { db } from '@/lib/db';
 import { env } from '@/lib/env';
 import { withAuth } from '@/lib/with-auth';
+import { REPO_LOCATION_HINT } from '@/lib/repo-hint';
 
 export type ChatSessionResult = {
   missionId: string;
@@ -110,7 +111,7 @@ export async function createSessionFromChat(
       id: missionId,
       userId: user.id,
       name: missionName,
-      goal: `IMPORTANT: The repo is cloned at /mnt/session/resources/repo_0 — cd there first.\n\n${message}`,
+      goal: `${REPO_LOCATION_HINT}\n\n${message}`,
       status: 'running',
       backend: env.FORGE_BACKEND,
       agentId,

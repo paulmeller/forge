@@ -20,6 +20,7 @@ import {
 import { db } from '@/lib/db';
 import { env } from '@/lib/env';
 import { withAuth } from '@/lib/with-auth';
+import { REPO_LOCATION_HINT } from '@/lib/repo-hint';
 
 export const maxDuration = 120;
 
@@ -97,7 +98,7 @@ export async function POST(req: Request) {
               id: missionId,
               userId,
               name: goal.split('\n')[0]?.slice(0, 80) ?? 'mission',
-              goal: `IMPORTANT: The repo is cloned at /mnt/session/resources/repo_0 — cd there first.\n\n${goal}`,
+              goal: `${REPO_LOCATION_HINT}\n\n${goal}`,
               status: 'running',
               backend: env.FORGE_BACKEND,
               agentId,

@@ -9,6 +9,7 @@ import { env } from './env';
 import { getOctokitClient } from './octokit';
 import { runPlanner } from './planner';
 import { DEFAULT_REPO_POLICY, getRepoPolicy } from './repo-policy';
+import { REPO_LOCATION_HINT } from './repo-hint';
 
 export type GithubDispatchInput = {
   repoFullName: string; // 'owner/repo'
@@ -140,7 +141,7 @@ export async function dispatchFromGithub(
         id: missionId,
         userId,
         name: `GH: ${input.repoFullName} — ${input.goal.split('\n')[0]?.slice(0, 60) ?? 'mission'}`,
-        goal: `IMPORTANT: The repo is cloned at /mnt/session/resources/repo_0 — cd there first.\n\n${input.goal}`,
+        goal: `${REPO_LOCATION_HINT}\n\n${input.goal}`,
         status: gated ? 'draft' : 'running',
         backend: env.FORGE_BACKEND,
         agentId,

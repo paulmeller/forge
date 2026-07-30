@@ -71,4 +71,7 @@ Forge opens the PR and runs it through CI.
 
 ## Important: repo location
 
-If you're on AgentStep/Sprites, the repo is at `/mnt/session/resources/repo_0`. cd there first.
+The repository is already checked out. It is normally your working directory; if
+it is not, run `git rev-parse --show-toplevel` to locate it. Do not assume a
+fixed absolute path — the layout differs between hosted and self-hosted
+sandboxes, so any path stated here would be wrong half the time.
