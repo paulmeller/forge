@@ -7,6 +7,10 @@ export type ForgeBranchState =
       present: true;
       aheadBy: number;
       filesChanged: number;
+      /** Added lines across the changed files — real blast radius, not a file count (#75). */
+      additions: number;
+      /** Deleted lines across the changed files (#75). */
+      deletions: number;
       /**
        * Head commit of the branch, when the compare response carried one.
        * Lets a caller tell "the agent pushed more work since we last looked"
@@ -24,7 +28,13 @@ type CompareCapable = {
       repo: string;
       base: string;
       head: string;
-    }): Promise<{ data: { ahead_by?: number; files?: unknown[]; commits?: Array<{ sha?: string }> } }>;
+    }): Promise<{
+      data: {
+        ahead_by?: number;
+        files?: Array<{ additions?: number; deletions?: number }>;
+        commits?: Array<{ sha?: string }>;
+      };
+    }>;
   };
 };
 
@@ -51,10 +61,13 @@ export async function checkForgeBranch(
     if (aheadBy === 0) return { present: false };
     // compareCommits returns commits oldest-first, so the branch head is last.
     const commits = data.commits ?? [];
+    const files = data.files ?? [];
     return {
       present: true,
       aheadBy,
-      filesChanged: data.files?.length ?? 0,
+      filesChanged: files.length,
+      additions: files.reduce((n, f) => n + (f.additions ?? 0), 0),
+      deletions: files.reduce((n, f) => n + (f.deletions ?? 0), 0),
       headSha: commits[commits.length - 1]?.sha ?? null,
     };
   } catch (err) {
