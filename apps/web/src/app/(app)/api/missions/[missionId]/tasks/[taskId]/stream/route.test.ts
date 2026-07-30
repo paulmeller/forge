@@ -9,6 +9,15 @@ for (const suffix of ['', '-wal', '-shm']) {
   if (existsSync(DB_FILE + suffix)) rmSync(DB_FILE + suffix);
 }
 process.env.DATABASE_URL = `file:${DB_FILE}`;
+// Every backend's adapter needs its own credentials to construct at all
+// (see server/tick/adapters/index.ts's getAdapter) — set before any test
+// below reaches it, now that the route resolves the adapter from
+// mission.backend instead of talking to Anthropic directly.
+process.env.ANTHROPIC_API_KEY = 'ma-test-key';
+process.env.FORGE_MA_ENVIRONMENT_ID = 'ma-test-env';
+process.env.GATEWAY_URL = 'https://gw.test';
+process.env.GATEWAY_API_KEY = 'gw-test-key';
+process.env.GEMINI_API_KEY = 'gemini-test-key';
 
 const getOptionalUser = vi.fn(async () => ({
   id: 'u1',
@@ -62,6 +71,28 @@ beforeAll(async () => {
     id: 'm3', userId: 'u1', name: 'm3', goal: 'g', status: 'running',
     backend: 'managed-agents', agentId: 'a1', plannerStrategy: 'triage',
     webhookSecret: 's', createdAt: now, updatedAt: now,
+  });
+  // Gateway-backed mission (issue #42): production sets FORGE_BACKEND=gateway,
+  // so task.sessionId here is a gateway session id, not an Anthropic one.
+  await dbMod.db.insert(schema.missions).values({
+    id: 'm4', userId: 'u1', name: 'm4', goal: 'g', status: 'running',
+    backend: 'gateway', agentId: 'a1', plannerStrategy: 'triage',
+    webhookSecret: 's', createdAt: now, updatedAt: now,
+  });
+  await dbMod.db.insert(schema.tasks).values({
+    id: 'tsk_gateway', missionId: 'm4', repo: 'a/b', baseBranch: 'main',
+    kind: 'fix', status: 'running', sessionId: 'sess_gw', createdAt: now, updatedAt: now,
+  });
+  // gemini-managed-agents has no SSE endpoint at all (Interactions API) —
+  // this must degrade to "stream unavailable", not proxy to the wrong host.
+  await dbMod.db.insert(schema.missions).values({
+    id: 'm5', userId: 'u1', name: 'm5', goal: 'g', status: 'running',
+    backend: 'gemini-managed-agents', agentId: 'a1', plannerStrategy: 'triage',
+    webhookSecret: 's', createdAt: now, updatedAt: now,
+  });
+  await dbMod.db.insert(schema.tasks).values({
+    id: 'tsk_gemini', missionId: 'm5', repo: 'a/b', baseBranch: 'main',
+    kind: 'fix', status: 'running', sessionId: 'sess_gem', createdAt: now, updatedAt: now,
   });
   ({ GET } = await import('./route'));
 });
@@ -141,6 +172,34 @@ describe('GET /api/missions/[missionId]/tasks/[taskId]/stream (in-process)', () 
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(new Error('down'));
     const res = await GET(new Request('http://x'), params('tsk_live'));
     expect(res.status).toBe(502);
+    fetchSpy.mockRestore();
+  });
+
+  // Issue #42: production sets FORGE_BACKEND=gateway, so this task's session
+  // lives on the AgentStep Gateway, not Anthropic Managed Agents. The route
+  // must resolve the upstream from the mission's own backend rather than
+  // always asking api.anthropic.com for a session id it never issued.
+  it('relays a gateway-backed task to the gateway host, not Anthropic', async () => {
+    const upstream = new Response(new ReadableStream(), {
+      status: 200,
+      headers: { 'content-type': 'text/event-stream' },
+    });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(upstream);
+    const res = await GET(new Request('http://x'), params('tsk_gateway', 'm4'));
+    expect(res.status).toBe(200);
+    const [url] = fetchSpy.mock.calls[0]!;
+    expect(String(url)).toBe('https://gw.test/v1/sessions/sess_gw/events/stream');
+    fetchSpy.mockRestore();
+  });
+
+  // gemini-managed-agents has no streaming endpoint (Interactions API) —
+  // the route must degrade to "stream unavailable" instead of proxying to
+  // an Anthropic/gateway host that has no idea what this session id is.
+  it('503s for a gemini-managed-agents task, which has no SSE endpoint', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const res = await GET(new Request('http://x'), params('tsk_gemini', 'm5'));
+    expect(res.status).toBe(503);
+    expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
   });
 });

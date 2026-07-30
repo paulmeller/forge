@@ -157,6 +157,23 @@ export class ManagedAgentsAdapter implements BackendAdapter {
     };
   }
 
+  /**
+   * The SDK has no `sessions.events.stream()` method, so this is a plain
+   * fetch — but built from the same client the rest of this adapter uses
+   * (its `baseURL`/`apiKey`), so a self-hosted engine reached via
+   * ANTHROPIC_BASE_URL (see adapters/index.ts) is honored here too instead
+   * of silently defaulting back to api.anthropic.com.
+   */
+  async streamEvents(sessionId: string): Promise<Response> {
+    return fetch(`${this.client.baseURL}/v1/sessions/${sessionId}/events/stream`, {
+      headers: {
+        'x-api-key': this.client.apiKey ?? '',
+        'anthropic-version': '2023-06-01',
+        'anthropic-beta': 'managed-agents-2026-04-01',
+      },
+    });
+  }
+
   async getSession(sessionId: string, _backendSessionRef?: string | null): Promise<GetSessionResult> {
     const session = (await this.client.beta.sessions.retrieve(sessionId)) as MaSession;
     return {

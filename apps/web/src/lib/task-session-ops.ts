@@ -54,8 +54,13 @@ const STEER_MESSAGE_MAX_LENGTH = 10_000;
  * `getTask` for the wrong reason — proving mission ownership, not task
  * ownership, and silently masking a dropped `userId` filter on `getTask`
  * itself. This is a plain, unscoped lookup on purpose.
+ *
+ * Exported for the browser-facing stream route (live run console), which
+ * needs this same resolve-after-ownership-is-proven step for the same
+ * reason abortTaskForUser/steerTaskForUser do below (issue #42 — the route
+ * used to assume every task's session lives on Managed Agents).
  */
-async function missionBackend(missionId: string): Promise<Backend | null> {
+export async function missionBackend(missionId: string): Promise<Backend | null> {
   const [row] = await db
     .select({ backend: missions.backend })
     .from(missions)

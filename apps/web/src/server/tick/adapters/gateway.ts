@@ -125,6 +125,16 @@ export class GatewayAdapter implements BackendAdapter {
     };
   }
 
+  // this.request() always does res.json(), which would consume/misparse an
+  // SSE body — this stays a raw fetch, same path as Anthropic's mirrored
+  // surface (see class doc), no anthropic-beta header since the gateway
+  // isn't Anthropic and doesn't gate this endpoint behind one.
+  async streamEvents(sessionId: string): Promise<Response> {
+    return fetch(`${this.baseUrl}/v1/sessions/${sessionId}/events/stream`, {
+      headers: { 'x-api-key': this.apiKey, accept: 'text/event-stream' },
+    });
+  }
+
   async getSession(sessionId: string, _backendSessionRef?: string | null): Promise<GetSessionResult> {
     const session = await this.request<GatewaySession>('GET', `/v1/sessions/${sessionId}`);
     return {
