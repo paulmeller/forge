@@ -124,79 +124,102 @@ export type LoopPolicy = {
   acceptanceCriteria?: string;
 };
 
-export const missions = sqliteTable('missions', {
-  id: text('id').primaryKey(),
-  userId: text('user_id').notNull(),
-  name: text('name').notNull(),
-  goal: text('goal').notNull(),
-  status: text('status', { enum: missionStatus }).notNull().default('draft'),
-  backend: text('backend', { enum: backend }).notNull(),
-  agentId: text('agent_id').notNull(),
-  plannerStrategy: text('planner_strategy', { enum: plannerStrategy })
-    .notNull()
-    .default('rule-based'),
-  targetRepos: text('target_repos', { mode: 'json' }).$type<string[]>(),
-  /**
-   * GitHub issue-search query for the `triage` planner, e.g.
-   * `repo:vercel/ai is:issue is:open label:bug`. One reproduce→fix Task pair is
-   * emitted per matching issue. Null for non-triage strategies.
-   */
-  issueQuery: text('issue_query'),
-  /**
-   * Set for any repo-scoped Mission (both the repo's container and its
-   * issue leaves — see `issueRef`/`parentMissionId` below for which is
-   * which). Null for ordinary composer-authored campaign missions.
-   */
-  workspaceRepo: text('workspace_repo'),
-  /**
-   * Set only on an issue leaf Mission (format "owner/repo#123", matching
-   * `tasks.issueRef`) — the specific issue this Mission's tasks belong to.
-   * Null on the repo's container Mission and on campaigns.
-   */
-  issueRef: text('issue_ref'),
-  /**
-   * Self-referential: set on an issue leaf Mission, pointing at its repo's
-   * container. Null on containers and on campaigns (both are always
-   * roots). A container has `workspaceRepo` set, `issueRef` null, and
-   * `parentMissionId` null, owns zero tasks, and must never appear as a
-   * row anywhere — see mission-shape.ts (Phase 2) and listMissions()
-   * (Task 4 of this plan).
-   */
-  parentMissionId: text('parent_mission_id'),
-  /**
-   * Issue refs ("owner/repo#123") a human has marked "Next" on this
-   * repo's container — queued-for-work without dispatching. Cleared for
-   * an issueRef the moment `workOnIssue` is called for it. Null/empty for
-   * everything except containers actually in use.
-   */
-  nextIssueRefs: text('next_issue_refs', { mode: 'json' }).$type<string[]>(),
-  concurrencyCap: integer('concurrency_cap').notNull().default(5),
-  budgetUsd: integer('budget_usd'),
-  budgetTokens: integer('budget_tokens'),
-  budgetThresholdPct: integer('budget_threshold_pct').notNull().default(80),
-  spentUsd: integer('spent_usd').notNull().default(0),
-  spentTokens: integer('spent_tokens').notNull().default(0),
-  autoMergePolicy: text('auto_merge_policy', { mode: 'json' }).$type<AutoMergePolicy>(),
-  webhookSecret: text('webhook_secret').notNull(),
-  githubInstallationId: text('github_installation_id'),
-  githubVaultId: text('github_vault_id'),
-  skillId: text('skill_id'),
-  aiReviewEnabled: integer('ai_review_enabled', { mode: 'boolean' }).notNull().default(false),
-  // Loop guardrails — per-task limit overrides (null → fall back to skill policy → env).
-  budgetHardStopPct: integer('budget_hard_stop_pct').notNull().default(100),
-  taskMaxTokens: integer('task_max_tokens'),
-  taskMaxTurns: integer('task_max_turns'),
-  noProgressTokens: integer('no_progress_tokens'),
-  selfVerifyEnabled: integer('self_verify_enabled', { mode: 'boolean' }).notNull().default(false),
-  createdAt: integer('created_at', { mode: 'timestamp_ms' })
-    .notNull()
-    .default(sql`(unixepoch() * 1000)`),
-  updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
-    .notNull()
-    .default(sql`(unixepoch() * 1000)`),
-  startedAt: integer('started_at', { mode: 'timestamp_ms' }),
-  completedAt: integer('completed_at', { mode: 'timestamp_ms' }),
-});
+export const missions = sqliteTable(
+  'missions',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id').notNull(),
+    name: text('name').notNull(),
+    goal: text('goal').notNull(),
+    status: text('status', { enum: missionStatus }).notNull().default('draft'),
+    backend: text('backend', { enum: backend }).notNull(),
+    agentId: text('agent_id').notNull(),
+    plannerStrategy: text('planner_strategy', { enum: plannerStrategy })
+      .notNull()
+      .default('rule-based'),
+    targetRepos: text('target_repos', { mode: 'json' }).$type<string[]>(),
+    /**
+     * GitHub issue-search query for the `triage` planner, e.g.
+     * `repo:vercel/ai is:issue is:open label:bug`. One reproduce→fix Task pair is
+     * emitted per matching issue. Null for non-triage strategies.
+     */
+    issueQuery: text('issue_query'),
+    /**
+     * Set for any repo-scoped Mission (both the repo's container and its
+     * issue leaves — see `issueRef`/`parentMissionId` below for which is
+     * which). Null for ordinary composer-authored campaign missions.
+     */
+    workspaceRepo: text('workspace_repo'),
+    /**
+     * Set only on an issue leaf Mission (format "owner/repo#123", matching
+     * `tasks.issueRef`) — the specific issue this Mission's tasks belong to.
+     * Null on the repo's container Mission and on campaigns.
+     */
+    issueRef: text('issue_ref'),
+    /**
+     * Self-referential: set on an issue leaf Mission, pointing at its repo's
+     * container. Null on containers and on campaigns (both are always
+     * roots). A container has `workspaceRepo` set, `issueRef` null, and
+     * `parentMissionId` null, owns zero tasks, and must never appear as a
+     * row anywhere — see mission-shape.ts (Phase 2) and listMissions()
+     * (Task 4 of this plan).
+     */
+    parentMissionId: text('parent_mission_id'),
+    /**
+     * Issue refs ("owner/repo#123") a human has marked "Next" on this
+     * repo's container — queued-for-work without dispatching. Cleared for
+     * an issueRef the moment `workOnIssue` is called for it. Null/empty for
+     * everything except containers actually in use.
+     */
+    nextIssueRefs: text('next_issue_refs', { mode: 'json' }).$type<string[]>(),
+    concurrencyCap: integer('concurrency_cap').notNull().default(5),
+    budgetUsd: integer('budget_usd'),
+    budgetTokens: integer('budget_tokens'),
+    budgetThresholdPct: integer('budget_threshold_pct').notNull().default(80),
+    spentUsd: integer('spent_usd').notNull().default(0),
+    spentTokens: integer('spent_tokens').notNull().default(0),
+    autoMergePolicy: text('auto_merge_policy', { mode: 'json' }).$type<AutoMergePolicy>(),
+    webhookSecret: text('webhook_secret').notNull(),
+    githubInstallationId: text('github_installation_id'),
+    githubVaultId: text('github_vault_id'),
+    skillId: text('skill_id'),
+    aiReviewEnabled: integer('ai_review_enabled', { mode: 'boolean' }).notNull().default(false),
+    // Loop guardrails — per-task limit overrides (null → fall back to skill policy → env).
+    budgetHardStopPct: integer('budget_hard_stop_pct').notNull().default(100),
+    taskMaxTokens: integer('task_max_tokens'),
+    taskMaxTurns: integer('task_max_turns'),
+    noProgressTokens: integer('no_progress_tokens'),
+    selfVerifyEnabled: integer('self_verify_enabled', { mode: 'boolean' }).notNull().default(false),
+    /**
+     * GitHub's `X-GitHub-Delivery` header for the webhook delivery that
+     * created this Mission — GitHub mints one fresh GUID per delivery
+     * attempt, reusing it on a retry of that same attempt. Null for Missions
+     * not created from a GitHub webhook (composer-authored campaigns, the
+     * CLI, etc).
+     *
+     * #41: this is what makes a redelivered `@forge` comment idempotent —
+     * `dispatchFromGithub` checks it before inserting, and the unique index
+     * below makes that check-then-insert race-safe: two concurrent
+     * invocations for the identical delivery can't both win the insert, so
+     * one comment can never produce two Missions through this path.
+     */
+    githubDeliveryId: text('github_delivery_id'),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .default(sql`(unixepoch() * 1000)`),
+    startedAt: integer('started_at', { mode: 'timestamp_ms' }),
+    completedAt: integer('completed_at', { mode: 'timestamp_ms' }),
+  },
+  (t) => [
+    // SQLite unique indexes treat NULL as distinct, so any number of
+    // non-GitHub Missions (githubDeliveryId null) coexist fine — this only
+    // ever rejects a second row for the same real delivery id.
+    uniqueIndex('missions_github_delivery_unique_idx').on(t.githubDeliveryId),
+  ],
+);
 
 export const tasks = sqliteTable(
   'tasks',

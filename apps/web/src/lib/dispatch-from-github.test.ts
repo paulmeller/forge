@@ -561,3 +561,86 @@ describe('dispatchFromGithub — plan-approval gate', () => {
     expect(tasks).toHaveLength(1);
   });
 });
+
+// #41: a redelivered webhook (GitHub retry) or two concurrent invocations of
+// the same delivery must produce exactly one Mission, not one per call.
+describe('dispatchFromGithub — idempotent dispatch (#41)', () => {
+  // Mission rows created from a GitHub dispatch deliberately don't carry
+  // `issueRef` themselves (see the doc comment on `findExistingGithubDispatch`
+  // in dispatch-from-github.ts) — the Task does, so that's what these
+  // assertions key off to count distinct Missions for one issue.
+  async function missionsFor(issueRef: string) {
+    return db.select().from(schema.tasks).where(eq(schema.tasks.issueRef, issueRef));
+  }
+
+  it('replaying the same X-GitHub-Delivery id returns the existing Mission instead of creating a second one', async () => {
+    const first = await dispatchFromGithub({
+      repoFullName: 'a/e',
+      goal: 'fix it',
+      defaultBranch: 'main',
+      issueRef: 'a/e#1',
+      triggeredBy: 'octocat',
+      githubDeliveryId: 'guid-1',
+    });
+    const second = await dispatchFromGithub({
+      repoFullName: 'a/e',
+      goal: 'fix it',
+      defaultBranch: 'main',
+      issueRef: 'a/e#1',
+      triggeredBy: 'octocat',
+      githubDeliveryId: 'guid-1',
+    });
+
+    expect(second.mission.id).toBe(first.mission.id);
+    expect(await missionsFor('a/e#1')).toHaveLength(1);
+  });
+
+  it('refuses a second Mission for the same (repo, issueRef) while the first is still non-terminal, even with a different (or missing) delivery id', async () => {
+    const first = await dispatchFromGithub({
+      repoFullName: 'a/f',
+      goal: 'fix it',
+      defaultBranch: 'main',
+      issueRef: 'a/f#5',
+      triggeredBy: 'octocat',
+      githubDeliveryId: 'guid-a',
+    });
+    // A genuine double-comment, or a retry that GitHub minted a fresh
+    // delivery id for — the delivery-id guard alone can't catch this.
+    const second = await dispatchFromGithub({
+      repoFullName: 'a/f',
+      goal: 'fix it',
+      defaultBranch: 'main',
+      issueRef: 'a/f#5',
+      triggeredBy: 'octocat',
+      githubDeliveryId: 'guid-b',
+    });
+
+    expect(second.mission.id).toBe(first.mission.id);
+    expect(await missionsFor('a/f#5')).toHaveLength(1);
+  });
+
+  it('allows a new Mission for the same (repo, issueRef) once the prior one reached a terminal state', async () => {
+    const first = await dispatchFromGithub({
+      repoFullName: 'a/g',
+      goal: 'fix it',
+      defaultBranch: 'main',
+      issueRef: 'a/g#2',
+      triggeredBy: 'octocat',
+    });
+    await db
+      .update(schema.missions)
+      .set({ status: 'cancelled' })
+      .where(eq(schema.missions.id, first.mission.id));
+
+    const second = await dispatchFromGithub({
+      repoFullName: 'a/g',
+      goal: 'fix it',
+      defaultBranch: 'main',
+      issueRef: 'a/g#2',
+      triggeredBy: 'octocat',
+    });
+
+    expect(second.mission.id).not.toBe(first.mission.id);
+    expect(await missionsFor('a/g#2')).toHaveLength(2);
+  });
+});

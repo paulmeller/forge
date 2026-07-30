@@ -1,8 +1,16 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 
-import { and, eq } from 'drizzle-orm';
+import { and, asc, eq, notInArray } from 'drizzle-orm';
 
-import { githubInstallationRepos, githubInstallations, ledgerEvents, missions, tasks, type Mission } from '@forge/db';
+import {
+  githubInstallationRepos,
+  githubInstallations,
+  ledgerEvents,
+  missions,
+  tasks,
+  type Mission,
+  type MissionStatus,
+} from '@forge/db';
 
 import { db } from './db';
 import { env } from './env';
@@ -59,6 +67,19 @@ export type GithubDispatchInput = {
    * this flag is used for.
    */
   bypassPlanApprovalGate?: boolean;
+  /**
+   * GitHub's `X-GitHub-Delivery` header — a fresh GUID GitHub mints per
+   * webhook delivery attempt, reused on a redelivery of that same attempt.
+   * Optional because not every caller has one (e.g. a future non-webhook
+   * caller), but the webhook route always has and always passes it.
+   *
+   * #41: without this, a GitHub retry (or two concurrent Cloud Run
+   * invocations processing the same delivery) each called this function
+   * independently and each got their own Mission. See
+   * `findExistingGithubDispatch` below for how this and `issueRef` are used
+   * together to close that gap.
+   */
+  githubDeliveryId?: string;
 };
 
 export type GithubDispatchResult = {
@@ -69,6 +90,85 @@ export type GithubDispatchResult = {
 // GitHub-dispatched missions use a system user ID since there's no
 // authenticated session context in webhook handlers.
 const GITHUB_SYSTEM_USER_ID = 'user_default';
+
+/**
+ * A Mission in one of these can never receive new webhook-driven work for
+ * its issue again — the only two settled members of `missionStatus`.
+ * Everything else (draft/planning/running/paused) is still "in flight" and
+ * is exactly what #41's (repo, issueRef) guard must refuse to duplicate.
+ */
+const MISSION_TERMINAL_STATUSES: MissionStatus[] = ['completed', 'cancelled'];
+
+/**
+ * The Task a completed/in-flight `dispatchFromGithub` call for this Mission
+ * already created — by construction there is exactly one (the "one-Task
+ * Mission" invariant the gated/ungated branches below both preserve), so the
+ * earliest by createdAt is unambiguous. Used only to shape a dedup hit into
+ * the same `GithubDispatchResult` a fresh dispatch would have returned.
+ */
+async function firstTaskIdFor(missionId: string): Promise<string> {
+  const [task] = await db
+    .select({ id: tasks.id })
+    .from(tasks)
+    .where(eq(tasks.missionId, missionId))
+    .orderBy(asc(tasks.createdAt))
+    .limit(1);
+  return task?.id ?? '';
+}
+
+/**
+ * #41: checks both idempotency guards before a new Mission is created —
+ * a redelivery of the same `X-GitHub-Delivery`, and a second dispatch for a
+ * (repo, issueRef) that already has a non-terminal Mission. Returns the
+ * existing dispatch's result if either matches, or null to let the caller
+ * proceed with a fresh dispatch.
+ *
+ * This is a plain read, not itself race-proof — the delivery-id case gets a
+ * hard backstop from `missions_github_delivery_unique_idx` at insert time
+ * (see the `onConflictDoNothing` in the transaction below); the issueRef
+ * case does not, since "one non-terminal Mission per issue" isn't expressible
+ * as a static unique index. In practice this still closes the reported bug:
+ * GitHub retries and double-comments arrive as separate HTTP requests
+ * seconds apart, never as literally-simultaneous inserts.
+ *
+ * The issueRef check joins through `tasks`, not a `missions.issueRef` column
+ * — this function deliberately never sets one (see the mission insert
+ * below), because `mission-shape.ts`'s `isIssueMission` reads that column to
+ * decide how a Mission is labelled/grouped in the console, and a webhook
+ * dispatch is not the issue-leaf Mission shape that column means. `tasks.
+ * issueRef` already carries the same value (set by both the gated and
+ * ungated branches below) without that side effect.
+ */
+async function findExistingGithubDispatch(
+  input: GithubDispatchInput,
+): Promise<GithubDispatchResult | null> {
+  if (input.githubDeliveryId) {
+    const [existing] = await db
+      .select()
+      .from(missions)
+      .where(eq(missions.githubDeliveryId, input.githubDeliveryId))
+      .limit(1);
+    if (existing) return { mission: existing, taskId: await firstTaskIdFor(existing.id) };
+  }
+
+  if (input.issueRef) {
+    const [existing] = await db
+      .select({ mission: missions })
+      .from(tasks)
+      .innerJoin(missions, eq(tasks.missionId, missions.id))
+      .where(
+        and(
+          eq(tasks.issueRef, input.issueRef),
+          notInArray(missions.status, MISSION_TERMINAL_STATUSES),
+        ),
+      )
+      .orderBy(asc(missions.createdAt))
+      .limit(1);
+    if (existing) return { mission: existing.mission, taskId: await firstTaskIdFor(existing.mission.id) };
+  }
+
+  return null;
+}
 
 /**
  * Spawns a one-Task Mission scoped to a single repo, kicked off by a
@@ -84,6 +184,17 @@ const GITHUB_SYSTEM_USER_ID = 'user_default';
 export async function dispatchFromGithub(
   input: GithubDispatchInput,
 ): Promise<GithubDispatchResult> {
+  // #41: a redelivery of the same webhook event, or two comments/deliveries
+  // racing for the same issue, must not each spawn their own Mission. Two
+  // guards, per the issue's "prefer both": the delivery id catches a retry of
+  // the *exact* same event; the (repo, issueRef) pair catches a genuine
+  // double-comment or a redelivery GitHub happened to mint a new id for.
+  // Order matters only for which existing Mission wins when both would
+  // match — the delivery id is the more precise signal, so it's checked
+  // first.
+  const existing = await findExistingGithubDispatch(input);
+  if (existing) return existing;
+
   // C2: both this policy lookup and the repoRow lookup just below must
   // resolve against the SAME installation, or a repo dispatch could read its
   // gate from one tenant's row while picking its owner/agent/vault from
@@ -154,12 +265,33 @@ export async function dispatchFromGithub(
         webhookSecret: randomBytes(32).toString('hex'),
         githubInstallationId: 'gh-webhook',
         githubVaultId,
+        githubDeliveryId: input.githubDeliveryId ?? null,
         createdAt: now,
         updatedAt: now,
         startedAt: gated ? null : now,
       })
+      // #41 backstop: the `findExistingGithubDispatch` read above closes the
+      // gap for sequential retries, but two truly concurrent invocations of
+      // the identical delivery could both pass that read before either
+      // commits. `missions_github_delivery_unique_idx` (schema.ts) is what
+      // makes that race safe — onConflictDoNothing turns the loser's insert
+      // into a no-op instead of a thrown constraint error, and the branch
+      // below reads back the winner's row instead of erroring the request.
+      .onConflictDoNothing({ target: [missions.githubDeliveryId] })
       .returning();
-    if (!mission) throw new Error('mission insert returned no rows');
+
+    if (!mission) {
+      if (!input.githubDeliveryId) {
+        throw new Error('mission insert returned no rows');
+      }
+      const [winner] = await tx
+        .select()
+        .from(missions)
+        .where(eq(missions.githubDeliveryId, input.githubDeliveryId))
+        .limit(1);
+      if (!winner) throw new Error('lost the delivery-id race but no winner row exists');
+      return { mission: winner, taskId: null as string | null, raced: true as const };
+    }
 
     await tx.insert(ledgerEvents).values({
       id: ledgerSeed,
@@ -180,7 +312,7 @@ export async function dispatchFromGithub(
     // two Tasks, breaking the "one-Task Mission" invariant this function's
     // callers (and the dispatcher) rely on.
     if (gated) {
-      return { mission, taskId: null as string | null };
+      return { mission, taskId: null as string | null, raced: false as const };
     }
 
     const taskId = `tsk_${randomUUID().replaceAll('-', '').slice(0, 20)}`;
@@ -219,8 +351,16 @@ export async function dispatchFromGithub(
       },
     ]);
 
-    return { mission, taskId };
+    return { mission, taskId, raced: false as const };
   });
+
+  if (created.raced) {
+    // Lost the delivery-id race (see the onConflictDoNothing comment above)
+    // — the winner already ran this function's full flow, plan-approval
+    // comment included, for this exact delivery. Report their result rather
+    // than redoing any of it.
+    return { mission: created.mission, taskId: await firstTaskIdFor(created.mission.id) };
+  }
 
   if (!gated) {
     // created.taskId is always set on this branch (see above).

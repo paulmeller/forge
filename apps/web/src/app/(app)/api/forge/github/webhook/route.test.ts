@@ -47,12 +47,21 @@ function sign(secret: string, body: string): string {
   return 'sha256=' + createHmac('sha256', secret).update(body).digest('hex');
 }
 
-async function postSigned(event: string, payload: unknown, secret = WEBHOOK_SECRET) {
+async function postSigned(
+  event: string,
+  payload: unknown,
+  secret = WEBHOOK_SECRET,
+  extraHeaders: Record<string, string> = {},
+) {
   const body = JSON.stringify(payload);
   return POST(
     new Request('http://x/api/forge/github/webhook', {
       method: 'POST',
-      headers: { 'x-github-event': event, 'x-hub-signature-256': sign(secret, body) },
+      headers: {
+        'x-github-event': event,
+        'x-hub-signature-256': sign(secret, body),
+        ...extraHeaders,
+      },
       body,
     }),
   );
@@ -178,6 +187,61 @@ describe('POST /api/forge/github/webhook — signature verification', () => {
       'wrong-secret',
     );
     expect(res.status).toBe(401);
+  });
+});
+
+// #41: this is the exact bug reported on issue #41 — a redelivered
+// `issue_comment` webhook (GitHub retry, or two concurrent Cloud Run
+// invocations of the same delivery) must produce one Mission, not two.
+describe('POST /api/forge/github/webhook — issue_comment (#41 idempotency)', () => {
+  function issueCommentPayload() {
+    return {
+      action: 'created',
+      comment: { body: '@forge fix the thing' },
+      issue: { number: 12 },
+      repository: { full_name: 'acme/dupes' },
+      sender: { login: 'octocat' },
+    };
+  }
+
+  it('replaying the same X-GitHub-Delivery id creates exactly one Mission', async () => {
+    const first = await postSigned('issue_comment', issueCommentPayload(), WEBHOOK_SECRET, {
+      'x-github-delivery': 'guid-replayed',
+    });
+    expect(first.status).toBe(201);
+    const firstBody = (await first.json()) as { missionId: string };
+
+    const second = await postSigned('issue_comment', issueCommentPayload(), WEBHOOK_SECRET, {
+      'x-github-delivery': 'guid-replayed',
+    });
+    expect(second.status).toBe(201);
+    const secondBody = (await second.json()) as { missionId: string };
+
+    expect(secondBody.missionId).toBe(firstBody.missionId);
+    // GitHub-dispatched Missions don't carry issueRef themselves (see
+    // dispatch-from-github.ts's findExistingGithubDispatch) — their Task
+    // does, so that's what pins "exactly one Mission" for this issue.
+    const tasksForIssue = await db
+      .select()
+      .from(schema.tasks)
+      .where(eq(schema.tasks.issueRef, 'acme/dupes#12'));
+    expect(tasksForIssue).toHaveLength(1);
+  });
+
+  it('a second delivery without a shared delivery id still refuses a duplicate Mission for the same (repo, issue)', async () => {
+    const first = await postSigned('issue_comment', issueCommentPayload(), WEBHOOK_SECRET, {
+      'x-github-delivery': 'guid-a',
+    });
+    const firstBody = (await first.json()) as { missionId: string };
+
+    // A genuinely different delivery id — e.g. a second, distinct `@forge`
+    // comment on the same issue, or a retry GitHub minted a fresh GUID for.
+    const second = await postSigned('issue_comment', issueCommentPayload(), WEBHOOK_SECRET, {
+      'x-github-delivery': 'guid-b',
+    });
+    const secondBody = (await second.json()) as { missionId: string };
+
+    expect(secondBody.missionId).toBe(firstBody.missionId);
   });
 });
 

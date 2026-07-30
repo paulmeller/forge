@@ -14,6 +14,11 @@ export const dynamic = 'force-dynamic';
 
 const SIGNATURE_HEADER = 'x-hub-signature-256';
 const EVENT_HEADER = 'x-github-event';
+// GitHub's own idempotency key for this delivery attempt — see the doc
+// comment on `GithubDispatchInput.githubDeliveryId` (dispatch-from-github.ts)
+// for why this is what closes #41 (a retried/duplicated webhook creating two
+// Missions for one comment).
+const DELIVERY_HEADER = 'x-github-delivery';
 
 type IssueCommentPayload = {
   action?: string;
@@ -64,13 +69,14 @@ export async function POST(request: Request) {
   }
 
   const event = request.headers.get(EVENT_HEADER);
+  const deliveryId = request.headers.get(DELIVERY_HEADER) ?? undefined;
 
   if (event === 'issue_comment') {
-    return handleIssueComment(rawBody);
+    return handleIssueComment(rawBody, deliveryId);
   }
 
   if (event === 'check_suite') {
-    return handleCheckSuite(rawBody);
+    return handleCheckSuite(rawBody, deliveryId);
   }
 
   if (event === 'pull_request') {
@@ -86,7 +92,7 @@ export async function POST(request: Request) {
 
 // ── @forge comment dispatch ──────────────────────────────────────────
 
-async function handleIssueComment(rawBody: string) {
+async function handleIssueComment(rawBody: string, deliveryId?: string) {
   let payload: IssueCommentPayload;
   try {
     payload = JSON.parse(rawBody);
@@ -117,6 +123,7 @@ async function handleIssueComment(rawBody: string) {
     issueRef: issueNumber ? `${repo}#${issueNumber}` : undefined,
     triggeredBy: payload.sender?.login ?? 'unknown',
     installationId: payload.installation?.id,
+    githubDeliveryId: deliveryId,
   });
 
   return NextResponse.json(
@@ -127,7 +134,7 @@ async function handleIssueComment(rawBody: string) {
 
 // ── Self-healing CI ──────────────────────────────────────────────────
 
-async function handleCheckSuite(rawBody: string) {
+async function handleCheckSuite(rawBody: string, deliveryId?: string) {
   let payload: CheckSuitePayload;
   try {
     payload = JSON.parse(rawBody);
@@ -173,6 +180,7 @@ The PR already exists — just push the fix commit. Do not open a new PR.`;
     issueRef: pr.number ? `${repo}#${pr.number}` : undefined,
     triggeredBy: `ci-fix (${payload.sender?.login ?? 'github'})`,
     installationId: payload.installation?.id,
+    githubDeliveryId: deliveryId,
     // I4: this dispatch is Forge reacting to its own PR's CI going red, not
     // a human asking for new work — the plan-approval gate's scope (per the
     // spec) is `@forge` comments. Gating this too would silently turn every
