@@ -3,7 +3,19 @@ import { forgeBranchName } from './branch-name';
 /** Whether this task's Forge-named branch carries work on the remote. */
 export type ForgeBranchState =
   | { present: false }
-  | { present: true; aheadBy: number; filesChanged: number };
+  | {
+      present: true;
+      aheadBy: number;
+      filesChanged: number;
+      /**
+       * Head commit of the branch, when the compare response carried one.
+       * Lets a caller tell "the agent pushed more work since we last looked"
+       * from "the agent pushed once and has been spinning since" — the
+       * distinction the no-progress guard needs (#57). Null when the backend
+       * did not return commits; callers must treat null as "cannot tell".
+       */
+      headSha: string | null;
+    };
 
 type CompareCapable = {
   repos: {
@@ -12,7 +24,7 @@ type CompareCapable = {
       repo: string;
       base: string;
       head: string;
-    }): Promise<{ data: { ahead_by?: number; files?: unknown[] } }>;
+    }): Promise<{ data: { ahead_by?: number; files?: unknown[]; commits?: Array<{ sha?: string }> } }>;
   };
 };
 
@@ -37,7 +49,14 @@ export async function checkForgeBranch(
     });
     const aheadBy = data.ahead_by ?? 0;
     if (aheadBy === 0) return { present: false };
-    return { present: true, aheadBy, filesChanged: data.files?.length ?? 0 };
+    // compareCommits returns commits oldest-first, so the branch head is last.
+    const commits = data.commits ?? [];
+    return {
+      present: true,
+      aheadBy,
+      filesChanged: data.files?.length ?? 0,
+      headSha: commits[commits.length - 1]?.sha ?? null,
+    };
   } catch (err) {
     // A 404 is an answer: the branch does not exist, so there is no work.
     // Anything else (5xx, rate limit, network) means we could not tell —

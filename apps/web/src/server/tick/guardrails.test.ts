@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { existsSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -29,6 +30,13 @@ const getSession = vi.fn(
 );
 vi.mock('./adapters', () => ({
   getAdapter: () => ({ cancelSession, getSession }),
+}));
+
+// #57: the no-progress guard consults the remote for commits on the
+// Forge-named branch before halting.
+const compareCommits = vi.fn();
+vi.mock('@octokit/rest', () => ({
+  Octokit: vi.fn(() => ({ repos: { compareCommits } })),
 }));
 
 // Dynamically imported after env is set.
@@ -366,5 +374,82 @@ describe('runGuardrails — a branchless halt escalates to a human, not silent f
     const repro = await getTask('grd_repro');
     expect(repro?.status).toBe('failed');
     expect(repro?.escalationReason).toBeNull();
+  });
+});
+
+describe('runGuardrails — no_progress consults the remote before halting (#57)', () => {
+  it('spares a task that pushed new commits, and re-stamps its progress budget', async () => {
+    // The agent was implementing and running the suite it is told to run —
+    // token-heavy, and invisible to a marker that only fires on first turn and
+    // first PR. Commits on the branch Forge assigned are the missing evidence.
+    const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const taskId = `tsk_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    await insertMission(missionId, { noProgressTokens: 1000 });
+    await insertTask(taskId, missionId, {
+      sessionId: 'sess_work',
+      costTokens: 5000,
+      costTokensAtProgress: 0,
+      turnCount: 1,
+    });
+    compareCommits.mockResolvedValue({
+      data: { ahead_by: 2, files: [], commits: [{ sha: 'aaa' }, { sha: 'newhead' }] },
+    });
+
+    await runGuardrails(noopLog);
+
+    // Scope to this Task's session: the suite shares one DB, so unrelated
+    // leftover Tasks are swept in the same run.
+    const cancelledSessions = cancelSession.mock.calls.map((c) => c[0]);
+    expect(cancelledSessions).not.toContain('sess_work'); // must not kill a working agent
+    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId));
+    expect(task?.status).toBe('running');
+    expect(task?.costTokensAtProgress).toBe(5000); // budget re-stamped from here
+  });
+
+  it('still halts an agent that pushed once and has been spinning since', async () => {
+    // The reprieve is bounded by real output: same head SHA as the last time we
+    // credited progress means nothing new was produced.
+    const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const taskId = `tsk_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    await insertMission(missionId, { noProgressTokens: 1000 });
+    await insertTask(taskId, missionId, {
+      sessionId: 'sess_spin',
+      costTokens: 9000,
+      costTokensAtProgress: 0,
+      turnCount: 1,
+    });
+    await db.insert(schema.ledgerEvents).values({
+      id: `lev_${randomUUID().replaceAll('-', '').slice(0, 12)}`,
+      missionId,
+      taskId,
+      eventType: 'task.progress_advanced',
+      payload: { headSha: 'samehead' },
+      createdAt: new Date(),
+    });
+    compareCommits.mockResolvedValue({
+      data: { ahead_by: 1, files: [], commits: [{ sha: 'samehead' }] },
+    });
+
+    const res = await runGuardrails(noopLog);
+
+    expect(res.halted).toBe(1);
+    expect(res.byReason.no_progress).toBe(1);
+  });
+
+  it('halts when the remote cannot be reached — an unconfirmable guard must not invent progress', async () => {
+    const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const taskId = `tsk_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    await insertMission(missionId, { noProgressTokens: 1000 });
+    await insertTask(taskId, missionId, {
+      sessionId: 'sess_err',
+      costTokens: 9000,
+      costTokensAtProgress: 0,
+      turnCount: 1,
+    });
+    compareCommits.mockRejectedValue(Object.assign(new Error('boom'), { status: 500 }));
+
+    const res = await runGuardrails(noopLog);
+
+    expect(res.halted).toBe(1);
   });
 });
