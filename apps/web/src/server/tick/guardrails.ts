@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { and, eq, inArray, isNotNull } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull } from 'drizzle-orm';
 
 import {
   ledgerEvents,
@@ -12,7 +12,10 @@ import {
   type TaskStatus,
 } from '@forge/db';
 
+import { Octokit } from '@octokit/rest';
+
 import { getAdapter } from './adapters';
+import { checkForgeBranch } from './completion';
 import { db } from '@/lib/db';
 import { env } from '@/lib/env';
 import { verifyCancelled } from './cancel-verify';
@@ -135,6 +138,24 @@ export async function runGuardrails(log: Logger): Promise<GuardrailsResult> {
     const reason = checkBreach(task, limits);
     if (!reason) continue;
 
+    // The no-progress guard measures tokens burned since the last progress
+    // marker, and markers are only stamped on the first completed turn and the
+    // first PR (poller.progressMarkers). Everything between those two points —
+    // implementing, and running a suite the agent is correctly told to run — is
+    // indistinguishable from spinning. Observed live (#57): an agent's last act
+    // was "run existing tests to confirm baseline passes" and it was halted for
+    // it.
+    //
+    // Commits on the branch Forge assigned are the evidence the marker was
+    // missing. Ask the remote before halting — the same rule that governs
+    // abandoning (#70) and reclaiming (#62): work that exists outranks an
+    // inference that it doesn't. Only a CHANGED head SHA counts, so an agent
+    // that pushed once and then genuinely spun still halts; the reprieve is
+    // bounded by real output, not by time.
+    if (reason === 'no_progress' && (await grantedProgressReprieve(task, log))) {
+      continue;
+    }
+
     // Best-effort cancel — a failure here must NOT block the status change.
     if (task.sessionId) {
       let cancelled = false;
@@ -234,4 +255,71 @@ export async function runGuardrails(log: Logger): Promise<GuardrailsResult> {
   }
 
   return { tasksChecked: active.length, halted, byReason };
+}
+
+/**
+ * Did this Task push new commits since we last credited it with progress?
+ *
+ * Returns true when the no-progress halt should be skipped: the branch Forge
+ * assigned carries commits whose head differs from the head recorded at the
+ * last reprieve. The progress marker is re-stamped so the Task gets a fresh
+ * budget from here, and the new head is recorded so the *next* breach only
+ * relents if the agent has pushed again.
+ *
+ * Conservative on every uncertainty. No branch, no head SHA reported, or a
+ * GitHub call that fails — all fall through to the halt. A guard that cannot
+ * confirm progress must not invent it, or a genuinely runaway Task would be
+ * granted an unbounded reprieve by a rate-limited API.
+ */
+async function grantedProgressReprieve(
+  task: { id: string; missionId: string; repo: string; baseBranch: string; costTokens: number },
+  log: Logger,
+): Promise<boolean> {
+  const [owner, repo] = task.repo.split('/');
+  if (!owner || !repo) return false;
+
+  let state: Awaited<ReturnType<typeof checkForgeBranch>>;
+  try {
+    state = await checkForgeBranch(new Octokit({ auth: env.GITHUB_APP_TOKEN }), {
+      owner,
+      repo,
+      baseBranch: task.baseBranch || 'main',
+      taskId: task.id,
+    });
+  } catch (err) {
+    log.warn(
+      { taskId: task.id, err: err instanceof Error ? err.message : String(err) },
+      'guardrails:progress_check_failed',
+    );
+    return false;
+  }
+
+  if (!state.present || !state.headSha) return false;
+
+  const [seen] = await db
+    .select({ payload: ledgerEvents.payload })
+    .from(ledgerEvents)
+    .where(
+      and(eq(ledgerEvents.taskId, task.id), eq(ledgerEvents.eventType, 'task.progress_advanced')),
+    )
+    .orderBy(desc(ledgerEvents.createdAt))
+    .limit(1);
+  const lastHead = (seen?.payload as { headSha?: string } | null)?.headSha ?? null;
+  if (lastHead === state.headSha) return false; // pushed once, spinning since
+
+  const now = new Date();
+  await db
+    .update(tasks)
+    .set({ costTokensAtProgress: task.costTokens, lastProgressAt: now, updatedAt: now })
+    .where(eq(tasks.id, task.id));
+  await db.insert(ledgerEvents).values({
+    id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
+    missionId: task.missionId,
+    taskId: task.id,
+    eventType: 'task.progress_advanced',
+    payload: { headSha: state.headSha, aheadBy: state.aheadBy, costTokens: task.costTokens },
+    createdAt: now,
+  });
+  log.info({ taskId: task.id, headSha: state.headSha }, 'guardrails:progress_reprieve');
+  return true;
 }

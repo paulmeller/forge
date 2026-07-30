@@ -26,7 +26,21 @@ describe('checkForgeBranch', () => {
       present: true,
       aheadBy: 2,
       filesChanged: 2,
+      headSha: null,
     });
+  });
+
+  it('reports the head SHA so callers can tell new commits from a stale branch', async () => {
+    // The no-progress guard (#57) needs to distinguish "the agent just pushed
+    // more work" from "the agent pushed once and has been spinning since".
+    // Only a changing head SHA answers that.
+    const gh = ghWith({
+      ahead_by: 2,
+      files: [],
+      commits: [{ sha: 'aaa111' }, { sha: 'bbb222' }],
+    });
+    const state = await checkForgeBranch(gh as never, OPTS);
+    expect(state).toMatchObject({ present: true, headSha: 'bbb222' });
   });
 
   it('compares the Forge-named branch, not anything the agent chose', async () => {
