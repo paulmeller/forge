@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { GatewayAdapter, GatewayApiError } from './gateway';
 import { GeminiManagedAgentsAdapter } from './gemini-managed-agents';
 import { ManagedAgentsAdapter } from './managed-agents';
-import type { BackendAdapter } from './types';
+import { AdapterNotImplementedError, type BackendAdapter } from './types';
 
 /**
  * Contract tests: verify both adapters implement the full BackendAdapter
@@ -33,6 +33,11 @@ function adapterSuite(name: string, create: () => BackendAdapter) {
     it('implements listEvents', () => {
       const adapter = create();
       expect(typeof adapter.listEvents).toBe('function');
+    });
+
+    it('implements streamEvents', () => {
+      const adapter = create();
+      expect(typeof adapter.streamEvents).toBe('function');
     });
 
     it('implements getSession', () => {
@@ -97,6 +102,59 @@ describe('GatewayAdapter specifics', () => {
     expect(err.message).toContain('404');
     expect(err.message).toContain('/v1/sessions/123');
     expect(err.name).toBe('GatewayApiError');
+  });
+
+  // Issue #42: the stream route used to hardcode Anthropic's host for every
+  // backend. streamEvents is the adapter-owned fix — this pins it to the
+  // gateway's own baseUrl/apiKey, not Anthropic's.
+  it('streamEvents fetches this gateway\'s own host, not Anthropic', async () => {
+    const fetchSpy = vi.fn(
+      // Typed params so mock.calls destructures — an untyped vi.fn() gives
+      // calls[0] an empty-tuple type.
+      async (_url: string | URL, _init?: RequestInit) => new Response(new ReadableStream()),
+    );
+    vi.stubGlobal('fetch', fetchSpy);
+    const adapter = new GatewayAdapter({ baseUrl: 'https://gw.test', apiKey: 'gw-key' });
+
+    await adapter.streamEvents('sess_1');
+
+    const [url, init] = fetchSpy.mock.calls[0]!;
+    expect(String(url)).toBe('https://gw.test/v1/sessions/sess_1/events/stream');
+    expect((init?.headers as Record<string, string>)['x-api-key']).toBe('gw-key');
+    vi.unstubAllGlobals();
+  });
+});
+
+describe('GeminiManagedAgentsAdapter streamEvents', () => {
+  it('throws AdapterNotImplementedError — the Interactions API has no SSE endpoint', async () => {
+    const adapter = new GeminiManagedAgentsAdapter({ apiKey: 'k', model: 'gemini-pro-latest' });
+    await expect(adapter.streamEvents('sess_1')).rejects.toBeInstanceOf(AdapterNotImplementedError);
+  });
+});
+
+describe('ManagedAgentsAdapter streamEvents', () => {
+  it('fetches the SDK client\'s own baseURL/apiKey, honoring ANTHROPIC_BASE_URL overrides', async () => {
+    const fetchSpy = vi.fn(
+      // Typed params so mock.calls destructures — an untyped vi.fn() gives
+      // calls[0] an empty-tuple type.
+      async (_url: string | URL, _init?: RequestInit) => new Response(new ReadableStream()),
+    );
+    vi.stubGlobal('fetch', fetchSpy);
+    const adapter = new ManagedAgentsAdapter({
+      apiKey: 'unused',
+      environmentId: 'test-env',
+      client: { baseURL: 'https://self-hosted.test', apiKey: 'ma-key' } as never,
+    });
+
+    await adapter.streamEvents('sess_1');
+
+    const [url, init] = fetchSpy.mock.calls[0]!;
+    expect(String(url)).toBe('https://self-hosted.test/v1/sessions/sess_1/events/stream');
+    expect((init?.headers as Record<string, string>)['x-api-key']).toBe('ma-key');
+    expect((init?.headers as Record<string, string>)['anthropic-beta']).toBe(
+      'managed-agents-2026-04-01',
+    );
+    vi.unstubAllGlobals();
   });
 });
 

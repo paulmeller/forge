@@ -1,6 +1,8 @@
-import { env } from '@/lib/env';
+import { missionBackend } from '@/lib/task-session-ops';
 import { getTask } from '@/lib/tasks';
 import { getOptionalUser } from '@/lib/with-auth';
+import { getAdapter } from '@/server/tick/adapters';
+import { AdapterNotImplementedError } from '@/server/tick/adapters/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -8,9 +10,18 @@ export const dynamic = 'force-dynamic';
 /**
  * Live run view (docs/superpowers/specs/2026-07-16-live-run-view-design.md),
  * consolidated (2026-07-19 spec §B): the old web→tick→Anthropic proxy chain is
- * now a single in-process hop — DB lookup, then a raw fetch to the Managed
- * Agents engine's session event stream. Authentication is retained: this route
+ * now a single in-process hop — DB lookup, then a raw fetch to the mission's
+ * own backend's session event stream. Authentication is retained: this route
  * is browser-facing and fronts a raw x-api-key call.
+ *
+ * The upstream host/auth is resolved via BackendAdapter.streamEvents (issue
+ * #42), not hardcoded to Managed Agents: production runs FORGE_BACKEND=gateway,
+ * so task.sessionId is frequently a gateway session id, and asking Anthropic
+ * for it 404s even though the gateway mirrors Anthropic's /v1/sessions/*
+ * surface closely enough to make that bug invisible on a code read.
+ * gemini-managed-agents has no equivalent endpoint at all — its adapter
+ * throws AdapterNotImplementedError, which this route maps to the same
+ * "unavailable" response as a missing session, below.
  *
  * It authenticates with getOptionalUser() + an explicit 401 rather than
  * withAuth(). withAuth() redirects, and this endpoint is opened by an
@@ -53,19 +64,19 @@ export async function GET(
   // serve a task the URL misdescribes.
   if (!task || task.missionId !== missionId || !task.sessionId) return streamUnavailable(503);
 
+  // Ownership of task.missionId was already proven by getTask's join above —
+  // see missionBackend's own doc comment for why this stays a plain,
+  // unscoped lookup rather than a second (redundant, masking) ownership check.
+  const backend = await missionBackend(task.missionId);
+  if (!backend) return streamUnavailable(503);
+
   let upstream: Response;
   try {
-    upstream = await fetch(
-      `${env.ANTHROPIC_BASE_URL}/v1/sessions/${task.sessionId}/events/stream`,
-      {
-        headers: {
-          'x-api-key': env.ANTHROPIC_API_KEY ?? '',
-          'anthropic-version': '2023-06-01',
-          'anthropic-beta': 'managed-agents-2026-04-01',
-        },
-      },
-    );
-  } catch {
+    upstream = await getAdapter(backend).streamEvents(task.sessionId);
+  } catch (err) {
+    // No equivalent endpoint on this backend (gemini-managed-agents) — not a
+    // transient upstream failure, so this isn't a 502.
+    if (err instanceof AdapterNotImplementedError) return streamUnavailable(503);
     return streamUnavailable(502);
   }
 

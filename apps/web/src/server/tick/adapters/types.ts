@@ -95,6 +95,17 @@ export interface BackendAdapter {
   createSession(input: CreateSessionInput): Promise<CreateSessionResult>;
   sendTurn(input: SendTurnInput): Promise<SendTurnResult>;
   listEvents(input: ListEventsInput): Promise<ListEventsResult>;
+  /**
+   * Open the backend's raw SSE event stream for a session — the live run
+   * console (the browser-facing `stream` route) relays this Response's
+   * body straight through rather than parsing it, so the return type is
+   * the fetch Response itself, not a parsed event list like listEvents.
+   * Throws AdapterNotImplementedError when the backend has no equivalent
+   * endpoint (gemini-managed-agents: the Interactions API has nothing to
+   * stream from) — callers must treat that as "unavailable", not attempt
+   * a fetch of their own against the wrong host.
+   */
+  streamEvents(sessionId: string): Promise<Response>;
   getSession(sessionId: string, backendSessionRef?: string | null): Promise<GetSessionResult>;
   cancelSession(sessionId: string, backendSessionRef?: string | null): Promise<void>;
   /**

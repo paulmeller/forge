@@ -1,15 +1,16 @@
-import type {
-  BackendAdapter,
-  BackendEvent,
-  CreateSessionInput,
-  CreateSessionResult,
-  GetSessionResult,
-  ListEventsInput,
-  ListEventsResult,
-  SendTurnInput,
-  SendTurnResult,
-  SessionLifecycle,
-  ToolConfirmationDecision,
+import {
+  AdapterNotImplementedError,
+  type BackendAdapter,
+  type BackendEvent,
+  type CreateSessionInput,
+  type CreateSessionResult,
+  type GetSessionResult,
+  type ListEventsInput,
+  type ListEventsResult,
+  type SendTurnInput,
+  type SendTurnResult,
+  type SessionLifecycle,
+  type ToolConfirmationDecision,
 } from './types';
 
 export type GeminiManagedAgentsAdapterOptions = {
@@ -197,6 +198,13 @@ export class GeminiManagedAgentsAdapter implements BackendAdapter {
 
     const latest = events.at(-1);
     return { events, latestEventId: latest?.id ?? input.afterEventId, hasMore: false };
+  }
+
+  // The Interactions API has nothing resembling an SSE stream — callers
+  // (the live run console) must fall back to listEvents polling instead of
+  // proxying to a host that has no idea what this session id even is.
+  async streamEvents(_sessionId: string): Promise<Response> {
+    throw new AdapterNotImplementedError('gemini-managed-agents', 'streamEvents');
   }
 
   async getSession(sessionId: string, backendSessionRef?: string | null): Promise<GetSessionResult> {
