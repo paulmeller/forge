@@ -26,7 +26,28 @@ describe('checkForgeBranch', () => {
       present: true,
       aheadBy: 2,
       filesChanged: 2,
+      additions: 0,
+      deletions: 0,
       headSha: null,
+    });
+  });
+
+  it('totals added and deleted lines across the changed files', async () => {
+    // #75: diffAdditions used to be populated with a files count on one path
+    // and a commit count on the other, so a 1842-line PR recorded as "8".
+    // Blast radius is a real signal (cost reporting, and risk-proportional
+    // gating later) and needs real line counts.
+    const gh = ghWith({
+      ahead_by: 1,
+      files: [
+        { filename: 'a.ts', additions: 1800, deletions: 80 },
+        { filename: 'b.ts', additions: 42, deletions: 4 },
+      ],
+    });
+    expect(await checkForgeBranch(gh as never, OPTS)).toMatchObject({
+      filesChanged: 2,
+      additions: 1842,
+      deletions: 84,
     });
   });
 

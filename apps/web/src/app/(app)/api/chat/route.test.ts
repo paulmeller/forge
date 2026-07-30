@@ -65,9 +65,16 @@ afterEach(() => {
   mocks.withAuth.mockReset();
 });
 
-function chatRequest(text = 'hello'): Request {
+function chatRequest(text = 'hello', headers: Record<string, string> = {}): Request {
   return new Request('http://x/api/chat', {
     method: 'POST',
+    // The route rejects anything that cannot prove same-origin (#44), so a
+    // legitimate request now carries these. Overridable per test.
+    headers: {
+      'content-type': 'application/json',
+      'sec-fetch-site': 'same-origin',
+      ...headers,
+    },
     body: JSON.stringify({
       messages: [{ id: 'm1', role: 'user', parts: [{ type: 'text', text }] }],
     }),
@@ -278,5 +285,32 @@ describe('cancel_mission tool', () => {
 
     const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, 'tsk_cancel_valid'));
     expect(task?.status).toBe('abandoned');
+  });
+});
+
+describe('POST /api/chat — cross-site hardening (#44)', () => {
+  // Route handlers are not covered by Next's Server Action origin check, so a
+  // cross-site POST arrives with the session cookie attached. This route can
+  // create missions and spend LLM budget, so a valid cookie is not enough.
+  it('rejects a cross-site request before authenticating or calling the model', async () => {
+    const res = await POST(chatRequest('hi', { 'sec-fetch-site': 'cross-site' }));
+
+    expect(res.status).toBe(403);
+    expect(mocks.withAuth).not.toHaveBeenCalled(); // no session lookup
+    expect(mocks.streamTextCalls).toHaveLength(0); // no model spend
+  });
+
+  it('rejects a non-JSON content-type — the shape a cross-site form can send without a preflight', async () => {
+    const res = await POST(
+      chatRequest('hi', { 'content-type': 'text/plain', 'sec-fetch-site': 'same-origin' }),
+    );
+
+    expect(res.status).toBe(403);
+    expect(mocks.streamTextCalls).toHaveLength(0);
+  });
+
+  it('does not leak the reason to the caller', async () => {
+    const res = await POST(chatRequest('hi', { 'sec-fetch-site': 'cross-site' }));
+    expect(await res.json()).toEqual({ error: 'forbidden' });
   });
 });

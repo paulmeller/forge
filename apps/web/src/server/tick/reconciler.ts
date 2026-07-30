@@ -876,7 +876,8 @@ async function tryOpenPr(
           status: 'awaiting_ci',
           prUrl: pr.html_url,
           prNumber: pr.number,
-          diffAdditions: state.aheadBy,
+          diffAdditions: state.additions,
+          diffDeletions: state.deletions,
           updatedAt: now,
         })
         .where(eq(tasks.id, task.id));
@@ -920,7 +921,9 @@ async function tryOpenPr(
         status: 'awaiting_ci',
         prUrl: pr.html_url,
         prNumber: pr.number,
-        diffAdditions: state.filesChanged,
+        diffAdditions: state.additions,
+        diffDeletions: state.deletions,
+        filesChanged: state.filesChanged,
         updatedAt: now,
       })
       .where(eq(tasks.id, task.id));
