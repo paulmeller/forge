@@ -21,6 +21,7 @@ import { db } from '@/lib/db';
 import { env } from '@/lib/env';
 import { withAuth } from '@/lib/with-auth';
 import { REPO_LOCATION_HINT } from '@/lib/repo-hint';
+import { rejectCrossSite } from '@/lib/same-origin';
 
 export const maxDuration = 120;
 
@@ -60,6 +61,28 @@ function getChatModel() {
 }
 
 export async function POST(req: Request) {
+  // Before auth and before reading the body: this handler is cookie-
+  // authenticated and can create missions and spend LLM budget, and route
+  // handlers are not covered by Next's Server Action origin check — so a
+  // cross-site POST would otherwise arrive fully authenticated. Rejecting here
+  // means a cross-site request costs a header read, not a session lookup or a
+  // model call. See lib/same-origin.ts for the policy.
+  const rejection = rejectCrossSite({
+    contentType: req.headers.get('content-type'),
+    origin: req.headers.get('origin'),
+    secFetchSite: req.headers.get('sec-fetch-site'),
+    host: req.headers.get('host'),
+    forwardedProto: req.headers.get('x-forwarded-proto'),
+  });
+  if (rejection) {
+    // Deliberately terse to the caller; the reason is logged, not returned.
+    console.warn(JSON.stringify({ msg: 'chat:cross_site_rejected', reason: rejection }));
+    return new Response(JSON.stringify({ error: 'forbidden' }), {
+      status: 403,
+      headers: { 'content-type': 'application/json' },
+    });
+  }
+
   const user = await withAuth();
   const { messages: uiMessages } = await req.json();
 
