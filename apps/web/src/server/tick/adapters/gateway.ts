@@ -150,6 +150,13 @@ export class GatewayAdapter implements BackendAdapter {
     });
   }
 
+  // Mirrors Managed Agents' /v1/agents/{id} — the gateway is a drop-in
+  // replacement for that whole surface, not just /v1/sessions/*.
+  async getAgentInstructions(agentId: string): Promise<string | null> {
+    const agent = await this.request<{ system?: string | null }>('GET', `/v1/agents/${agentId}`);
+    return agent.system ?? null;
+  }
+
   async confirmToolUse(
     sessionId: string,
     toolUseEventId: string,

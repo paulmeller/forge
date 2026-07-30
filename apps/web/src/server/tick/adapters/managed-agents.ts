@@ -183,6 +183,19 @@ export class ManagedAgentsAdapter implements BackendAdapter {
     };
   }
 
+  // Agents live on their own beta surface (`/v1/agents/{id}`), not under
+  // sessions — cast the same way createSession does for beta-surface shapes
+  // the installed SDK types may not yet describe.
+  async getAgentInstructions(agentId: string): Promise<string | null> {
+    const agents = (
+      this.client.beta as unknown as {
+        agents: { retrieve: (id: string) => Promise<{ system?: string | null }> };
+      }
+    ).agents;
+    const agent = await agents.retrieve(agentId);
+    return agent.system ?? null;
+  }
+
   async cancelSession(sessionId: string, _backendSessionRef?: string | null): Promise<void> {
     await this.client.beta.sessions.events.send(sessionId, {
       events: [{ type: 'user.interrupt' }],

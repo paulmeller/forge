@@ -4,14 +4,17 @@ import { and, eq, inArray, ne, sql } from 'drizzle-orm';
 
 import { ledgerEvents, missions, tasks, type Mission, type Task, type TaskStatus } from '@forge/db';
 
-import { getAdapter } from './adapters';
+import { AdapterNotImplementedError, getAdapter, type BackendAdapter } from './adapters';
 import { fetchAgentsMd } from './agents-md';
 import { env } from '@/lib/env';
 import { db } from '@/lib/db';
+import { checkAgentInstructions } from './agent-contract';
 import { getRelevantMemories, formatMemoriesForPrompt } from './memory';
 import { renderOwnedVars, renderPrompt } from './prompt';
 import { getSkill, getSkillBySlug } from './skill-loader';
 import { forgeBranchName } from './branch-name';
+
+type Logger = { warn: (o: object, m?: string) => void };
 
 export const INFLIGHT_STATUSES: TaskStatus[] = [
   'dispatching',
@@ -77,7 +80,7 @@ export async function runDispatcher(log: {
 
     for (const task of claimed) {
       try {
-        await dispatchOne(mission, task);
+        await dispatchOne(mission, task, log);
         totalDispatched += 1;
       } catch (err) {
         totalFailed += 1;
@@ -200,7 +203,7 @@ export async function claimNextBatch(mission: Mission, maxSlots?: number): Promi
   return claimed;
 }
 
-export async function dispatchOne(mission: Mission, task: Task): Promise<void> {
+export async function dispatchOne(mission: Mission, task: Task, log?: Logger): Promise<void> {
   const adapter = getAdapter(mission.backend);
 
   if (!mission.githubInstallationId) {
@@ -211,6 +214,8 @@ export async function dispatchOne(mission: Mission, task: Task): Promise<void> {
   }
   // github_vault_id is optional — agents without MCP tools don't need a vault.
   // When absent, createSession just passes vault_ids=[].
+
+  await checkAgentContract(adapter, mission, task, log);
 
   // When a Skill is attached, prepend the skill's prompt template before the
   // mission goal so the agent has the playbook context, and narrow the toolset.
@@ -339,6 +344,62 @@ export async function dispatchOne(mission: Mission, task: Task): Promise<void> {
     },
     createdAt: now,
   });
+}
+
+/**
+ * #67: check the backend agent's own configured instructions against the
+ * contract dispatch depends on (see agent-contract.ts) before handing it a
+ * Task. A drift between AGENTS.md and the agent's own system prompt has
+ * already discarded a completed fix once (#58/#66) with no signal until a
+ * human happened to notice — this is the signal.
+ *
+ * Non-fatal by default: writes a `dispatch.contract_warning` ledger event so
+ * a drifting agent is visible, but does not stop dispatch unless an operator
+ * opts into AGENT_CONTRACT_BLOCK. A backend that can't report its agent's
+ * instructions (AdapterNotImplementedError, or any other failure fetching
+ * them) is "unknown", not a violation, and must never block dispatch on its
+ * own account.
+ */
+async function checkAgentContract(
+  adapter: BackendAdapter,
+  mission: Mission,
+  task: Task,
+  log?: Logger,
+): Promise<void> {
+  let system: string | null;
+  try {
+    system = await adapter.getAgentInstructions(mission.agentId);
+  } catch (err) {
+    if (err instanceof AdapterNotImplementedError) return;
+    log?.warn(
+      { taskId: task.id, err: err instanceof Error ? err.message : String(err) },
+      'dispatch:agent_instructions_unavailable',
+    );
+    return;
+  }
+
+  const violations = checkAgentInstructions(system);
+  if (violations.length === 0) return;
+
+  log?.warn(
+    { taskId: task.id, agentId: mission.agentId, violations },
+    'dispatch:contract_warning',
+  );
+  await db.insert(ledgerEvents).values({
+    id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
+    missionId: mission.id,
+    taskId: task.id,
+    eventType: 'dispatch.contract_warning',
+    payload: { agentId: mission.agentId, violations },
+    createdAt: new Date(),
+  });
+
+  if (env.AGENT_CONTRACT_BLOCK) {
+    throw new Error(
+      `agent ${mission.agentId} instructions violate the dispatch contract: ` +
+        violations.map((v) => v.rule).join(', '),
+    );
+  }
 }
 
 async function markFailed(taskId: string, reason: string): Promise<void> {

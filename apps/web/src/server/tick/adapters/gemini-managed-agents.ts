@@ -225,6 +225,13 @@ export class GeminiManagedAgentsAdapter implements BackendAdapter {
     await this.request('POST', `/v1beta/interactions/${physicalId}/cancel`);
   }
 
+  // The Interactions API has no concept of a persistent, retrievable agent
+  // record (there's nothing but the per-call `model` + `input`) — same
+  // "unavailable, not unsafe" convention as streamEvents above.
+  async getAgentInstructions(_agentId: string): Promise<string | null> {
+    throw new AdapterNotImplementedError('gemini-managed-agents', 'getAgentInstructions');
+  }
+
   async confirmToolUse(
     _sessionId: string,
     _toolUseEventId: string,

@@ -190,6 +190,18 @@ export const env = {
     return optional('TICK_ALLOW_UNAUTHENTICATED') === 'true';
   },
   /**
+   * #67: when true, a dispatch-time contract violation found in the backend
+   * agent's own instructions (server/tick/agent-contract.ts) refuses to
+   * dispatch the Task instead of only recording a `dispatch.contract_warning`
+   * ledger event. Off by default — the checker is a denylist heuristic, not a
+   * proof, and a false positive here would halt every Task on the affected
+   * agent; a warning nobody reads is a much smaller failure than a
+   * fleet-wide false halt.
+   */
+  get AGENT_CONTRACT_BLOCK(): boolean {
+    return optional('AGENT_CONTRACT_BLOCK') === 'true';
+  },
+  /**
    * Comma-separated allow-list of `client_id`s the device-authorization flow
    * accepts (lib/device-auth.ts). Unset means exactly the first-party CLI —
    * this exists so an operator can add a second trusted client without a code
