@@ -30,10 +30,12 @@ const mocks = vi.hoisted(() => {
     selectAllStatuses: false,
     lastLimitArg: undefined as number | undefined,
     updateSetCalls: [] as Array<Partial<Task>>,
+    insertedLedgerEvents: [] as Array<Record<string, unknown>>,
     env: {
       GITHUB_APP_TOKEN: undefined as string | undefined,
       FORGE_GIT_AUTHOR_NAME: 'Forge Agent',
       FORGE_GIT_AUTHOR_EMAIL: 'forge-agent@users.noreply.github.com',
+      AGENT_CONTRACT_BLOCK: false,
     },
   };
 
@@ -47,9 +49,11 @@ const mocks = vi.hoisted(() => {
     state.selectAllStatuses = false;
     state.lastLimitArg = undefined;
     state.updateSetCalls = [];
+    state.insertedLedgerEvents = [];
     state.env.GITHUB_APP_TOKEN = undefined;
     state.env.FORGE_GIT_AUTHOR_NAME = 'Forge Agent';
     state.env.FORGE_GIT_AUTHOR_EMAIL = 'forge-agent@users.noreply.github.com';
+    state.env.AGENT_CONTRACT_BLOCK = false;
   };
 
   const adapter = {
@@ -60,6 +64,9 @@ const mocks = vi.hoisted(() => {
     getSession: vi.fn(),
     cancelSession: vi.fn(),
     confirmToolUse: vi.fn(),
+    // Defaults to "no instructions configured" so existing dispatchOne tests
+    // (none of which are about #67) see zero contract violations.
+    getAgentInstructions: vi.fn(async (): Promise<string | null> => null),
   };
 
   const getAdapter = vi.fn(() => adapter);
@@ -124,7 +131,15 @@ const mocks = vi.hoisted(() => {
         };
       }),
     })),
-    insert: vi.fn(() => ({ values: vi.fn(async () => undefined) })),
+    insert: vi.fn(() => ({
+      values: vi.fn(async (row: Record<string, unknown>) => {
+        // Record every ledger row inserted so tests can assert on eventType
+        // rather than just call count — dispatchOne always inserts a
+        // `dispatcher.dispatched` event on success, independent of #67's
+        // contract check.
+        state.insertedLedgerEvents.push(row);
+      }),
+    })),
   };
 
   return {
@@ -141,7 +156,12 @@ const mocks = vi.hoisted(() => {
 });
 
 vi.mock('@/lib/db', () => ({ db: mocks.db }));
-vi.mock('./adapters', () => ({ getAdapter: mocks.getAdapter }));
+// Keep the module's real exports (AdapterNotImplementedError, types) — only
+// getAdapter itself needs to be faked.
+vi.mock('./adapters', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./adapters')>();
+  return { ...actual, getAdapter: mocks.getAdapter };
+});
 vi.mock('@/lib/env', () => ({ env: mocks.state.env }));
 vi.mock('./agents-md', () => ({ fetchAgentsMd: mocks.fetchAgentsMd }));
 vi.mock('./memory', () => ({
@@ -153,6 +173,7 @@ vi.mock('./skill-loader', () => ({
   getSkillBySlug: mocks.getSkill,
 }));
 
+import { AdapterNotImplementedError } from './adapters';
 import { claimNextBatch, computeContainerCaps, depsSatisfied, dispatchOne, INFLIGHT_STATUSES } from './dispatcher';
 import { renderPrompt } from './prompt';
 
@@ -256,6 +277,7 @@ beforeEach(() => {
   // values, so a mockResolvedValue set by one test would otherwise leak
   // into every test declared after it. Restore the default here.
   mocks.fetchAgentsMd.mockResolvedValue({ content: '', file: null, truncated: false });
+  mocks.adapter.getAgentInstructions.mockResolvedValue(null);
 });
 
 describe('INFLIGHT_STATUSES', () => {
@@ -538,6 +560,66 @@ describe('dispatchOne', () => {
     await expect(dispatchOne(mission(), task('t1'))).rejects.toThrow('backend unavailable');
 
     expect(mocks.state.updateSetCalls).toHaveLength(0);
+  });
+});
+
+describe('dispatchOne — #67 agent contract check', () => {
+  beforeEach(() => {
+    mocks.state.env.GITHUB_APP_TOKEN = 'ghp_test';
+    mocks.adapter.createSession.mockResolvedValue({ sessionId: 'ses_1' });
+  });
+
+  it('writes a dispatch.contract_warning ledger event when the agent instructions violate the contract', async () => {
+    mocks.adapter.getAgentInstructions.mockResolvedValue('Never push your work.');
+
+    await dispatchOne(mission(), task('t1'));
+
+    const warning = mocks.state.insertedLedgerEvents.find(
+      (row) => row.eventType === 'dispatch.contract_warning',
+    );
+    expect(warning).toBeDefined();
+    expect((warning!.payload as { violations: unknown[] }).violations.length).toBeGreaterThan(0);
+    // dispatch still proceeds — the warning is non-fatal by default.
+    expect(mocks.adapter.createSession).toHaveBeenCalled();
+  });
+
+  it('does not write a contract_warning ledger event when the agent instructions are clean', async () => {
+    mocks.adapter.getAgentInstructions.mockResolvedValue('Commit and push your work.');
+
+    await dispatchOne(mission(), task('t1'));
+
+    expect(
+      mocks.state.insertedLedgerEvents.some((row) => row.eventType === 'dispatch.contract_warning'),
+    ).toBe(false);
+  });
+
+  it('treats AdapterNotImplementedError as unknown, not a violation — dispatch proceeds silently', async () => {
+    mocks.adapter.getAgentInstructions.mockRejectedValue(
+      new AdapterNotImplementedError('gemini-managed-agents', 'getAgentInstructions'),
+    );
+
+    await dispatchOne(mission(), task('t1'));
+
+    expect(
+      mocks.state.insertedLedgerEvents.some((row) => row.eventType === 'dispatch.contract_warning'),
+    ).toBe(false);
+    expect(mocks.adapter.createSession).toHaveBeenCalled();
+  });
+
+  it('does not fail dispatch when fetching agent instructions throws for another reason', async () => {
+    mocks.adapter.getAgentInstructions.mockRejectedValue(new Error('network blip'));
+
+    await expect(dispatchOne(mission(), task('t1'))).resolves.toBeUndefined();
+    expect(mocks.adapter.createSession).toHaveBeenCalled();
+  });
+
+  it('refuses to dispatch when AGENT_CONTRACT_BLOCK is opted in and a violation is found', async () => {
+    mocks.state.env.AGENT_CONTRACT_BLOCK = true;
+    mocks.adapter.getAgentInstructions.mockResolvedValue('Never push your work.');
+
+    await expect(dispatchOne(mission(), task('t1'))).rejects.toThrow(/violate the dispatch contract/);
+
+    expect(mocks.adapter.createSession).not.toHaveBeenCalled();
   });
 });
 

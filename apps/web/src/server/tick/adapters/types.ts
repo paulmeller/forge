@@ -107,6 +107,20 @@ export interface BackendAdapter {
    */
   streamEvents(sessionId: string): Promise<Response>;
   getSession(sessionId: string, backendSessionRef?: string | null): Promise<GetSessionResult>;
+  /**
+   * The backend agent's own configured instructions — its persistent system
+   * prompt, independent of anything Forge composes into the per-task prompt
+   * (AGENTS.md + goal). Dispatch checks this against the contract Forge
+   * relies on (see server/tick/agent-contract.ts) — the agent record lives
+   * outside Forge's control and has drifted out of step with it before
+   * (#58/#66). Returns null when the backend reports no instructions are
+   * configured for this agent — that's "none set", not "unknown".
+   * Throws AdapterNotImplementedError when the backend has no concept of a
+   * retrievable agent record at all (gemini-managed-agents) — callers must
+   * treat that as "unknown", not a clean bill of health, same convention as
+   * streamEvents.
+   */
+  getAgentInstructions(agentId: string): Promise<string | null>;
   cancelSession(sessionId: string, backendSessionRef?: string | null): Promise<void>;
   /**
    * Approve or deny an MCP / agent tool use that's blocking the session at

@@ -73,6 +73,34 @@ describe('ManagedAgentsAdapter createSession vault_ids', () => {
   });
 });
 
+describe('ManagedAgentsAdapter getAgentInstructions', () => {
+  // Issue #67: the agent's own `system` field (not anything under sessions)
+  // is what dispatch-time contract checking reads.
+  it('reads the system field off the agent record', async () => {
+    const retrieve = vi.fn(async (_id: string) => ({ system: 'always open a pull request' }));
+    const adapter = new ManagedAgentsAdapter({
+      apiKey: 'k',
+      environmentId: 'env_1',
+      client: { beta: { agents: { retrieve } } } as never,
+    });
+
+    await expect(adapter.getAgentInstructions('agent_1')).resolves.toBe(
+      'always open a pull request',
+    );
+    expect(retrieve).toHaveBeenCalledWith('agent_1');
+  });
+
+  it('returns null when the agent has no system prompt configured', async () => {
+    const adapter = new ManagedAgentsAdapter({
+      apiKey: 'k',
+      environmentId: 'env_1',
+      client: { beta: { agents: { retrieve: vi.fn(async () => ({})) } } } as never,
+    });
+
+    await expect(adapter.getAgentInstructions('agent_1')).resolves.toBeNull();
+  });
+});
+
 describe('ManagedAgentsAdapter createSession provisioning failures', () => {
   // A session that dies while provisioning does not fail on create — it fails on the first
   // sendTurn, with a downstream `400 session is terminated`. That message is true and useless.

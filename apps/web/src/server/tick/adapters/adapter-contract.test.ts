@@ -54,6 +54,11 @@ function adapterSuite(name: string, create: () => BackendAdapter) {
       const adapter = create();
       expect(typeof adapter.confirmToolUse).toBe('function');
     });
+
+    it('implements getAgentInstructions', () => {
+      const adapter = create();
+      expect(typeof adapter.getAgentInstructions).toBe('function');
+    });
   });
 }
 
@@ -104,6 +109,39 @@ describe('GatewayAdapter specifics', () => {
     expect(err.name).toBe('GatewayApiError');
   });
 
+  // Issue #67: the gateway mirrors Managed Agents' /v1/agents/{id} surface,
+  // not just /v1/sessions/* — dispatch-time contract checking needs this to
+  // read the agent's own `system` instructions.
+  it('getAgentInstructions reads the system field from /v1/agents/{id}', async () => {
+    // Typed params so mock.calls destructures — an untyped vi.fn() gives
+    // calls[0] an empty-tuple type.
+    const fetchSpy = vi.fn(async (_url: string | URL, _init?: RequestInit) => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ system: 'push to your own branch' }),
+      text: async () => '',
+    }));
+    vi.stubGlobal('fetch', fetchSpy);
+    const adapter = new GatewayAdapter({ baseUrl: 'https://gw.test', apiKey: 'gw-key' });
+
+    await expect(adapter.getAgentInstructions('agent_1')).resolves.toBe('push to your own branch');
+
+    const [url] = fetchSpy.mock.calls[0]!;
+    expect(String(url)).toBe('https://gw.test/v1/agents/agent_1');
+    vi.unstubAllGlobals();
+  });
+
+  it('getAgentInstructions returns null when the agent has no system field set', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, status: 200, json: async () => ({}), text: async () => '' })),
+    );
+    const adapter = new GatewayAdapter({ baseUrl: 'https://gw.test', apiKey: 'gw-key' });
+
+    await expect(adapter.getAgentInstructions('agent_1')).resolves.toBeNull();
+    vi.unstubAllGlobals();
+  });
+
   // Issue #42: the stream route used to hardcode Anthropic's host for every
   // backend. streamEvents is the adapter-owned fix — this pins it to the
   // gateway's own baseUrl/apiKey, not Anthropic's.
@@ -129,6 +167,15 @@ describe('GeminiManagedAgentsAdapter streamEvents', () => {
   it('throws AdapterNotImplementedError — the Interactions API has no SSE endpoint', async () => {
     const adapter = new GeminiManagedAgentsAdapter({ apiKey: 'k', model: 'gemini-pro-latest' });
     await expect(adapter.streamEvents('sess_1')).rejects.toBeInstanceOf(AdapterNotImplementedError);
+  });
+});
+
+describe('GeminiManagedAgentsAdapter getAgentInstructions', () => {
+  it('throws AdapterNotImplementedError — the Interactions API has no retrievable agent record', async () => {
+    const adapter = new GeminiManagedAgentsAdapter({ apiKey: 'k', model: 'gemini-pro-latest' });
+    await expect(adapter.getAgentInstructions('agent_1')).rejects.toBeInstanceOf(
+      AdapterNotImplementedError,
+    );
   });
 });
 
