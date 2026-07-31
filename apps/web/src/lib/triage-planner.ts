@@ -8,6 +8,7 @@ import { db } from './db';
 import { env } from './env';
 import { userCanAccessRepo } from './mission-defaults-db';
 import { PlannerError, type PlanResult } from './planner';
+import { needsReproduce } from './triage-shape';
 
 /**
  * A GitHub issue the triage Planner turns into a reproduce→fix Task pair.
@@ -246,21 +247,30 @@ export function buildTriageTaskRows(
       issue_body: issue.body,
       issue_url: issue.url,
     };
-    const reproduceId = `tsk_${randomUUID().replaceAll('-', '').slice(0, 20)}`;
     const fixId = `tsk_${randomUUID().replaceAll('-', '').slice(0, 20)}`;
 
-    rows.push({
-      id: reproduceId,
-      missionId,
-      repo: issue.repo,
-      baseBranch: 'main',
-      kind: 'reproduce',
-      issueRef,
-      status: 'queued',
-      promptVars,
-      createdAt: now,
-      updatedAt: now,
-    });
+    // Only a bug gets a reproduce phase. A reproduce Task settles on a verdict
+    // answering "did it reproduce?" — a question with no honest answer for a
+    // feature or chore, so the Task cannot succeed by construction and burns a
+    // whole agent session proving it (#70; see triage-shape.ts).
+    const reproduceId = needsReproduce({ title: issue.title, labels: issue.labels, body: issue.body })
+      ? `tsk_${randomUUID().replaceAll('-', '').slice(0, 20)}`
+      : null;
+
+    if (reproduceId) {
+      rows.push({
+        id: reproduceId,
+        missionId,
+        repo: issue.repo,
+        baseBranch: 'main',
+        kind: 'reproduce',
+        issueRef,
+        status: 'queued',
+        promptVars,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
     rows.push({
       id: fixId,
       missionId,
@@ -268,7 +278,7 @@ export function buildTriageTaskRows(
       baseBranch: 'main',
       kind: 'fix',
       issueRef,
-      dependsOnIds: [reproduceId],
+      ...(reproduceId ? { dependsOnIds: [reproduceId] } : {}),
       status: 'queued',
       promptVars,
       createdAt: now,
