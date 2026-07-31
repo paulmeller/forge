@@ -47,12 +47,21 @@ function sign(secret: string, body: string): string {
   return 'sha256=' + createHmac('sha256', secret).update(body).digest('hex');
 }
 
-async function postSigned(event: string, payload: unknown, secret = WEBHOOK_SECRET) {
+async function postSigned(
+  event: string,
+  payload: unknown,
+  secret = WEBHOOK_SECRET,
+  extraHeaders: Record<string, string> = {},
+) {
   const body = JSON.stringify(payload);
   return POST(
     new Request('http://x/api/forge/github/webhook', {
       method: 'POST',
-      headers: { 'x-github-event': event, 'x-hub-signature-256': sign(secret, body) },
+      headers: {
+        'x-github-event': event,
+        'x-hub-signature-256': sign(secret, body),
+        ...extraHeaders,
+      },
       body,
     }),
   );
@@ -744,5 +753,64 @@ describe('POST /api/forge/github/webhook — check_suite (self-healing CI)', () 
     const mission = await missionRow(body.missionId);
     expect(mission?.userId).toBe('user_ci_owner');
     expect(mission?.agentId).toBe('agent_ci_owner');
+  });
+});
+
+// #41: handleIssueComment never read GitHub's `X-GitHub-Delivery` GUID, so a
+// redelivery of the identical event (a GitHub retry, or two concurrent
+// Cloud Run invocations) each dispatched independently — one comment
+// produced two Missions and two plan-approval links on the issue.
+describe('POST /api/forge/github/webhook — issue_comment delivery dedupe (#41)', () => {
+  it('replaying the same X-GitHub-Delivery twice creates exactly one Mission', async () => {
+    const commentPayload = {
+      action: 'created',
+      comment: { body: '@forge fix the flaky test' },
+      issue: { number: 41 },
+      repository: { full_name: 'acme/dedupe-repo', default_branch: 'main' },
+      sender: { login: 'octocat' },
+    };
+
+    const first = await postSigned('issue_comment', commentPayload, WEBHOOK_SECRET, {
+      'x-github-delivery': 'guid-41-a',
+    });
+    expect(first.status).toBe(201);
+    const firstBody = (await first.json()) as { missionId: string };
+
+    // Simulates GitHub redelivering the exact same event — same delivery
+    // GUID, same payload — the way a retry or a duplicate Cloud Run
+    // invocation would.
+    const second = await postSigned('issue_comment', commentPayload, WEBHOOK_SECRET, {
+      'x-github-delivery': 'guid-41-a',
+    });
+    expect(second.status).toBe(201);
+    const secondBody = (await second.json()) as { missionId: string };
+
+    expect(secondBody.missionId).toBe(firstBody.missionId);
+
+    const missionsForRepo = (await db.select().from(schema.missions)).filter((m) =>
+      (m.targetRepos ?? []).includes('acme/dedupe-repo'),
+    );
+    expect(missionsForRepo).toHaveLength(1);
+  });
+
+  it('a genuinely different delivery for the same comment still dispatches its own Mission', async () => {
+    const commentPayload = {
+      action: 'created',
+      comment: { body: '@forge fix the other flaky test' },
+      issue: { number: 42 },
+      repository: { full_name: 'acme/two-comments-repo', default_branch: 'main' },
+      sender: { login: 'octocat' },
+    };
+
+    const first = await postSigned('issue_comment', commentPayload, WEBHOOK_SECRET, {
+      'x-github-delivery': 'guid-41-b',
+    });
+    const second = await postSigned('issue_comment', commentPayload, WEBHOOK_SECRET, {
+      'x-github-delivery': 'guid-41-c',
+    });
+
+    const firstBody = (await first.json()) as { missionId: string };
+    const secondBody = (await second.json()) as { missionId: string };
+    expect(secondBody.missionId).not.toBe(firstBody.missionId);
   });
 });

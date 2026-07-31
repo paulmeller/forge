@@ -59,6 +59,16 @@ export type GithubDispatchInput = {
    * this flag is used for.
    */
   bypassPlanApprovalGate?: boolean;
+  /**
+   * GitHub's `X-GitHub-Delivery` header (a GUID unique per webhook delivery
+   * attempt, including retries/redeliveries of the same event — see
+   * `missions.githubDeliveryId` in schema.ts). When set, a delivery already
+   * on record short-circuits to that Mission instead of creating a second
+   * one — see issue #41: a redelivery or two concurrent invocations of the
+   * same delivery each dispatched independently and duplicated the Mission.
+   * Undefined for callers with no delivery id to dedupe on (e.g. tests).
+   */
+  deliveryId?: string;
 };
 
 export type GithubDispatchResult = {
@@ -84,6 +94,15 @@ const GITHUB_SYSTEM_USER_ID = 'user_default';
 export async function dispatchFromGithub(
   input: GithubDispatchInput,
 ): Promise<GithubDispatchResult> {
+  // #41: a redelivered webhook (GitHub retry, or a genuine duplicate
+  // delivery) must resolve to the Mission already created for it, not spawn
+  // a second one. Checked up front so a replay is a cheap read instead of
+  // redoing the policy lookup and insert whose result would be discarded.
+  if (input.deliveryId !== undefined) {
+    const existing = await findMissionByDeliveryId(input.deliveryId);
+    if (existing) return existing;
+  }
+
   // C2: both this policy lookup and the repoRow lookup just below must
   // resolve against the SAME installation, or a repo dispatch could read its
   // gate from one tenant's row while picking its owner/agent/vault from
@@ -154,12 +173,21 @@ export async function dispatchFromGithub(
         webhookSecret: randomBytes(32).toString('hex'),
         githubInstallationId: 'gh-webhook',
         githubVaultId,
+        githubDeliveryId: input.deliveryId ?? null,
         createdAt: now,
         updatedAt: now,
         startedAt: gated ? null : now,
       })
+      // Belt-and-suspenders for the check at the top of this function: two
+      // invocations of the SAME delivery (e.g. concurrent Cloud Run
+      // instances) can both pass that check before either has inserted.
+      // The unique index on githubDeliveryId is what actually makes this
+      // race-safe — onConflictDoNothing means the loser's insert is a
+      // silent no-op instead of a thrown constraint violation, and the
+      // `if (!mission)` branch below hands its caller the winner's Mission.
+      .onConflictDoNothing({ target: missions.githubDeliveryId })
       .returning();
-    if (!mission) throw new Error('mission insert returned no rows');
+    if (!mission) return null;
 
     await tx.insert(ledgerEvents).values({
       id: ledgerSeed,
@@ -222,6 +250,15 @@ export async function dispatchFromGithub(
     return { mission, taskId };
   });
 
+  if (!created) {
+    // Raced with a concurrent invocation of the same delivery — see the
+    // onConflictDoNothing comment above. input.deliveryId must be set for
+    // `created` to be null at all (that's the only conflict target).
+    const existing = input.deliveryId ? await findMissionByDeliveryId(input.deliveryId) : null;
+    if (existing) return existing;
+    throw new Error('mission insert conflicted but no existing mission was found');
+  }
+
   if (!gated) {
     // created.taskId is always set on this branch (see above).
     return { mission: created.mission, taskId: created.taskId! };
@@ -244,6 +281,28 @@ export async function dispatchFromGithub(
   await commentPlanLink(input, created.mission.id);
 
   return { mission: plan.mission, taskId: task?.id ?? '' };
+}
+
+/**
+ * Looks up the Mission already dispatched for a GitHub delivery id, if any
+ * — the dedupe check backing issue #41 (see `deliveryId` on
+ * `GithubDispatchInput`). Returns null on a fresh delivery.
+ */
+async function findMissionByDeliveryId(
+  deliveryId: string,
+): Promise<GithubDispatchResult | null> {
+  const [mission] = await db
+    .select()
+    .from(missions)
+    .where(eq(missions.githubDeliveryId, deliveryId))
+    .limit(1);
+  if (!mission) return null;
+  const [task] = await db
+    .select({ id: tasks.id })
+    .from(tasks)
+    .where(eq(tasks.missionId, mission.id))
+    .limit(1);
+  return { mission, taskId: task?.id ?? '' };
 }
 
 const ISSUE_REF_RE = /^([^/]+)\/([^#]+)#(\d+)$/;

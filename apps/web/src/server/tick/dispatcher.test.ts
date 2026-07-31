@@ -200,6 +200,7 @@ function mission(overrides: Partial<Mission> = {}): Mission {
     webhookSecret: 'secret',
     githubInstallationId: 'inst_1',
     githubVaultId: null,
+    githubDeliveryId: null,
     workspaceRepo: null,
     issueRef: null,
     parentMissionId: null,

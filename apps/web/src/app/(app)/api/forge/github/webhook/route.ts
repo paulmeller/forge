@@ -14,6 +14,11 @@ export const dynamic = 'force-dynamic';
 
 const SIGNATURE_HEADER = 'x-hub-signature-256';
 const EVENT_HEADER = 'x-github-event';
+// GitHub's own idempotency key — a GUID unique per delivery *attempt*
+// (retries and redeliveries of the same event get their own value, but a
+// raw redelivery of an already-processed one repeats it). See #41 and the
+// `deliveryId` doc comment on `GithubDispatchInput`.
+const DELIVERY_HEADER = 'x-github-delivery';
 
 type IssueCommentPayload = {
   action?: string;
@@ -64,9 +69,10 @@ export async function POST(request: Request) {
   }
 
   const event = request.headers.get(EVENT_HEADER);
+  const deliveryId = request.headers.get(DELIVERY_HEADER);
 
   if (event === 'issue_comment') {
-    return handleIssueComment(rawBody);
+    return handleIssueComment(rawBody, deliveryId);
   }
 
   if (event === 'check_suite') {
@@ -86,7 +92,7 @@ export async function POST(request: Request) {
 
 // ── @forge comment dispatch ──────────────────────────────────────────
 
-async function handleIssueComment(rawBody: string) {
+async function handleIssueComment(rawBody: string, deliveryId: string | null) {
   let payload: IssueCommentPayload;
   try {
     payload = JSON.parse(rawBody);
@@ -117,6 +123,7 @@ async function handleIssueComment(rawBody: string) {
     issueRef: issueNumber ? `${repo}#${issueNumber}` : undefined,
     triggeredBy: payload.sender?.login ?? 'unknown',
     installationId: payload.installation?.id,
+    deliveryId: deliveryId ?? undefined,
   });
 
   return NextResponse.json(

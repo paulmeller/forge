@@ -95,8 +95,16 @@ export const missionResponseFields = [
  * pointers to credentials, not credentials — they are also inputs to
  * createMissionSchema, so a caller that set them must be able to read them
  * back or it cannot tell what it created.
+ *
+ * `githubDeliveryId`: an internal dedupe key (see #41 / dispatch-from-github.ts)
+ * set only from a GitHub webhook header, never a caller input — nothing
+ * reads it back through the API, so there is nothing for a caller to lose
+ * by it being withheld.
  */
-export const missionFieldsWithheld = ['webhookSecret'] as const satisfies readonly (keyof Mission)[];
+export const missionFieldsWithheld = [
+  'webhookSecret',
+  'githubDeliveryId',
+] as const satisfies readonly (keyof Mission)[];
 
 export type MissionResponse = Pick<Mission, (typeof missionResponseFields)[number]>;
 
