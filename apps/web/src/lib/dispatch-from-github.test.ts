@@ -561,3 +561,69 @@ describe('dispatchFromGithub — plan-approval gate', () => {
     expect(tasks).toHaveLength(1);
   });
 });
+
+// Issue #41: handleIssueComment never read GitHub's `X-GitHub-Delivery` GUID,
+// so a redelivery (or two concurrent Cloud Run invocations of the same
+// delivery) each called dispatchFromGithub independently and created two
+// Missions for one comment. Replaying the same deliveryId must resolve to
+// the SAME Mission.
+describe('dispatchFromGithub — delivery-id dedupe (#41)', () => {
+  it('replaying the same deliveryId twice creates one Mission, not two', async () => {
+    const first = await dispatchFromGithub({
+      repoFullName: 'a/dedupe',
+      goal: 'fix it',
+      defaultBranch: 'main',
+      triggeredBy: 'octocat',
+      deliveryId: 'delivery-1',
+    });
+    const second = await dispatchFromGithub({
+      repoFullName: 'a/dedupe',
+      goal: 'fix it',
+      defaultBranch: 'main',
+      triggeredBy: 'octocat',
+      deliveryId: 'delivery-1',
+    });
+
+    expect(second.mission.id).toBe(first.mission.id);
+    const allForRepo = (await db.select().from(schema.missions)).filter((m) =>
+      (m.targetRepos ?? []).includes('a/dedupe'),
+    );
+    expect(allForRepo).toHaveLength(1);
+  });
+
+  it('a different deliveryId for the same repo/goal still creates a second Mission (no over-broad dedupe)', async () => {
+    const first = await dispatchFromGithub({
+      repoFullName: 'a/two-comments',
+      goal: 'fix it',
+      defaultBranch: 'main',
+      triggeredBy: 'octocat',
+      deliveryId: 'delivery-a',
+    });
+    const second = await dispatchFromGithub({
+      repoFullName: 'a/two-comments',
+      goal: 'fix it',
+      defaultBranch: 'main',
+      triggeredBy: 'octocat',
+      deliveryId: 'delivery-b',
+    });
+
+    expect(second.mission.id).not.toBe(first.mission.id);
+  });
+
+  it('omitting deliveryId keeps prior behaviour — no accidental dedupe across undefined ids', async () => {
+    const first = await dispatchFromGithub({
+      repoFullName: 'a/no-delivery-id',
+      goal: 'fix it',
+      defaultBranch: 'main',
+      triggeredBy: 'octocat',
+    });
+    const second = await dispatchFromGithub({
+      repoFullName: 'a/no-delivery-id',
+      goal: 'fix it',
+      defaultBranch: 'main',
+      triggeredBy: 'octocat',
+    });
+
+    expect(second.mission.id).not.toBe(first.mission.id);
+  });
+});
