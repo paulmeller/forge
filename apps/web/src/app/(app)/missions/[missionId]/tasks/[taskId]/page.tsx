@@ -26,6 +26,8 @@ const ESCALATION_COPY: Record<string, string> = {
   merge_stall: 'A ready-to-merge task sat without merging and was escalated.',
   stalled_no_branch:
     'The agent kept ending its turn without pushing a branch. There is nothing to merge — start a fresh run or dismiss it.',
+  ready_to_merge_no_pr:
+    'This was approved with no pull request to merge. There is nothing to merge — start a fresh run or dismiss it.',
 };
 
 const taskStatusVariant: Record<string, 'default' | 'secondary' | 'outline' | 'destructive'> = {

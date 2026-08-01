@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { Octokit } from '@octokit/rest';
-import { and, eq, isNotNull } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 
 import {
   ledgerEvents,
@@ -60,7 +60,10 @@ export async function runAutoMerge(log: Logger): Promise<AutoMergeResult> {
     .where(
       and(
         eq(tasks.status, 'ready_to_merge'),
-        isNotNull(tasks.prUrl),
+        // #87: no isNotNull(prUrl) here — a PR-less ready_to_merge task must be
+        // SELECTED so the escalation branch below can send it back to
+        // needs_human immediately, rather than filtered out to rot until the
+        // merge-stall sweep guesses at it.
         // #82: cancelMission only abandons queued/dispatching/running/turn_ended
         // Tasks — one already past the agent and sitting in ready_to_merge
         // survives that abandon set untouched. Gate on the mission's live
@@ -92,6 +95,19 @@ export async function runAutoMerge(log: Logger): Promise<AutoMergeResult> {
   let errors = 0;
 
   for (const row of candidates) {
+    // A ready_to_merge Task with no PR is a structural dead end, not
+    // something any policy can clear: reviewTask (task-review.ts) sets this
+    // status on Approve even when prUrl is still null, and no policy check
+    // below will ever produce a PR to act on. Left alone it would sit here
+    // until the reconciler's merge-stall sweep re-escalates it MERGE_STALL_MS
+    // later — escalate right away instead of making the operator wait out
+    // that sweep for something no policy state could have fixed (#53).
+    if (!row.task.prUrl) {
+      await escalateNoPr(row.task);
+      blocked += 1;
+      continue;
+    }
+
     const policy = await resolvePolicyCached(row.mission.id);
     if (!policy?.enabled) continue;
     if (policy.requireHumanApproval && !row.task.approvedBy) continue;
@@ -292,6 +308,39 @@ type DiffShape = {
   filesChanged: number;
   files: string[] | null;
 };
+
+/**
+ * Roll a PR-less `ready_to_merge` Task straight back to `needs_human` — see
+ * the call site above for why this can't wait for the merge-stall sweep.
+ * Clears `approvedBy` for the same reason `tryMerge`'s rollback does: the
+ * approval covered a state that no longer applies, and a re-escalation must
+ * not carry it forward. CAS'd on the status we read it at, same pattern as
+ * every other write in this file, so a Task that raced its way off
+ * `ready_to_merge` between the select and this write is left alone.
+ */
+async function escalateNoPr(task: Task): Promise<void> {
+  const now = new Date();
+  const [updated] = await db
+    .update(tasks)
+    .set({
+      status: 'needs_human',
+      escalationReason: 'ready_to_merge_no_pr',
+      approvedBy: null,
+      lastError: 'approved with no PR to merge — nothing here for auto-merge to act on',
+      updatedAt: now,
+    })
+    .where(and(eq(tasks.id, task.id), eq(tasks.status, 'ready_to_merge')))
+    .returning();
+  if (!updated) return;
+  await db.insert(ledgerEvents).values({
+    id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
+    missionId: task.missionId,
+    taskId: task.id,
+    eventType: 'auto_merge.no_pr',
+    payload: {},
+    createdAt: now,
+  });
+}
 
 export function evaluatePolicy(diff: DiffShape, policy: AutoMergePolicy): string[] {
   const reasons: string[] = [];
