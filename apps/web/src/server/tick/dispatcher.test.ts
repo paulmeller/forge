@@ -31,6 +31,12 @@ const mocks = vi.hoisted(() => {
     lastLimitArg: undefined as number | undefined,
     updateSetCalls: [] as Array<Partial<Task>>,
     insertedLedgerEvents: [] as Array<Record<string, unknown>>,
+    // github_installation_repos.onboarding_state, keyed by repo (#40). Every
+    // test in this file targets 'acme/repo' (the task() factory's default),
+    // so the mock doesn't need to parse the real where() clause — it just
+    // looks up this single-repo map, per the existing mock's dumb-and-stateful
+    // shape rather than reshaping it into a real query engine.
+    repoOnboarding: new Map<string, string>(),
     env: {
       GITHUB_APP_TOKEN: undefined as string | undefined,
       FORGE_GIT_AUTHOR_NAME: 'Forge Agent',
@@ -50,6 +56,7 @@ const mocks = vi.hoisted(() => {
     state.lastLimitArg = undefined;
     state.updateSetCalls = [];
     state.insertedLedgerEvents = [];
+    state.repoOnboarding = new Map();
     state.env.GITHUB_APP_TOKEN = undefined;
     state.env.FORGE_GIT_AUTHOR_NAME = 'Forge Agent';
     state.env.FORGE_GIT_AUTHOR_EMAIL = 'forge-agent@users.noreply.github.com';
@@ -76,7 +83,7 @@ const mocks = vi.hoisted(() => {
   const getSkill = vi.fn(async () => null);
 
   const db = {
-    select: vi.fn((selection?: { count?: unknown }) => ({
+    select: vi.fn((selection?: { count?: unknown; state?: unknown }) => ({
       from: vi.fn(() => ({
         where: vi.fn(() => {
           if (selection && 'count' in selection) {
@@ -86,6 +93,16 @@ const mocks = vi.hoisted(() => {
               state.tasks.filter((task) => inflightStatuses.includes(task.status)).length;
             state.lastInflight = count;
             return Promise.resolve([{ count }]);
+          }
+
+          if (selection && 'state' in selection) {
+            // github_installation_repos.onboarding_state lookup (#40).
+            return {
+              limit: vi.fn(async () => {
+                const onboardingState = state.repoOnboarding.get('acme/repo');
+                return onboardingState ? [{ state: onboardingState }] : [];
+              }),
+            };
           }
 
           return {
@@ -410,6 +427,43 @@ describe('claimNextBatch', () => {
 
     expect(claimedIds).toEqual(['t1']);
     expect(mocks.state.tasks[0]?.status).toBe('dispatching');
+  });
+
+  it('claims nothing for a repo that has not merged its policy file', async () => {
+    // Consent before action (#40): a newly connected repo is
+    // pending_onboarding until its operator merges the proposed
+    // .forge/policy.yml. The guard lives here because every dispatch funnels
+    // through claimNextBatch — one place, not a status list to keep in sync.
+    mocks.state.repoOnboarding = new Map([['acme/repo', 'pending_onboarding']]);
+    mocks.state.countQueue = [0];
+    mocks.state.tasks = [task('t1')];
+
+    const claimed = await claim({ concurrencyCap: 2 });
+
+    expect(claimed).toEqual([]);
+  });
+
+  it('claims normally once the repo is active', async () => {
+    mocks.state.repoOnboarding = new Map([['acme/repo', 'active']]);
+    mocks.state.countQueue = [0];
+    mocks.state.tasks = [task('t1')];
+
+    const claimed = await claim({ concurrencyCap: 2 });
+
+    expect(claimed.length).toBeGreaterThan(0);
+  });
+
+  it('claims normally when there is no github_installation_repos row at all', async () => {
+    // A repo connected before the gate shipped (or with no row for some
+    // other reason) must not be blocked — only a row that explicitly isn't
+    // active blocks. This is what the migration's grandfathering UPDATE
+    // relies on downstream of this guard.
+    mocks.state.countQueue = [0];
+    mocks.state.tasks = [task('t1')];
+
+    const claimed = await claim({ concurrencyCap: 2 });
+
+    expect(claimed.length).toBeGreaterThan(0);
   });
 });
 
