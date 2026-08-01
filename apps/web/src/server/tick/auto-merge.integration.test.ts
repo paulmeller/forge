@@ -259,4 +259,38 @@ describe('runAutoMerge — candidate selection (real query, live SQLite)', () =>
     const after = await runAutoMerge(noopLog);
     expect(after.merged).toBe(1);
   });
+
+  // #53: task-review.ts's reviewTask() lets an operator Approve a
+  // needs_human Task that has no PR (the stalled_no_branch escalation, or
+  // any older null-prUrl path) — Approve sets ready_to_merge with prUrl
+  // still null. Before this fix, the candidate query's `isNotNull(prUrl)`
+  // filter made that row invisible to runAutoMerge entirely, so it just sat
+  // in ready_to_merge until the reconciler's merge-stall sweep re-escalated
+  // it MERGE_STALL_MS later — a silent, confusing round-trip for whoever
+  // clicked Approve on it.
+  it('a ready_to_merge task with no PR is escalated back to needs_human immediately, not left for the merge-stall sweep', async () => {
+    const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const taskId = `tsk_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    await insertMission(missionId);
+    await insertTask(taskId, missionId, {
+      prUrl: null,
+      prNumber: null,
+      approvedBy: 'user_1',
+    });
+
+    const result = await runAutoMerge(noopLog);
+
+    // It must be seen (candidates) and acted on (blocked), not silently
+    // skipped the way the isNotNull filter used to skip it.
+    expect(result.candidates).toBe(1);
+    expect(result.blocked).toBe(1);
+    expect(mockOctokit.pulls.get).not.toHaveBeenCalled();
+
+    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId));
+    expect(task?.status).toBe('needs_human');
+    expect(task?.escalationReason).toBe('ready_to_merge_no_pr');
+    // A rollback to needs_human must not carry the old approval forward —
+    // same rule tryMerge's rollback path follows for auto_merge_failed.
+    expect(task?.approvedBy).toBeNull();
+  });
 });

@@ -1785,7 +1785,8 @@
               "merge_stall",
               "stalled_no_branch",
               "ci_retry_stalled",
-              "no_commits"
+              "no_commits",
+              "ready_to_merge_no_pr"
             ]
           },
           "reviewDecision": {

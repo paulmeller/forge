@@ -95,6 +95,12 @@ export const escalationReason = [
   // a pull request from. Distinct from stalled_no_branch, which described the
   // old inference; this states the fact.
   'no_commits',
+  // Approved out of needs_human (task-review.ts's reviewTask) while prUrl was
+  // still null — there is nothing for auto-merge, or a human, to merge.
+  // runAutoMerge escalates this immediately rather than leaving the Task
+  // sitting in ready_to_merge until the reconciler's merge-stall sweep
+  // re-escalates it MERGE_STALL_MS later (#53).
+  'ready_to_merge_no_pr',
 ] as const;
 export type EscalationReason = (typeof escalationReason)[number];
 
