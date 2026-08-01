@@ -253,6 +253,31 @@ describe('updateRepoSettings — policies', () => {
   });
 });
 
+describe('updateRepoSettings — repo policy write matches no installation row', () => {
+  beforeEach(async () => {
+    mocks.withAuth.mockReset();
+    mocks.withAuth.mockResolvedValue({ id: 'u1', name: 'Owner', email: 'u1@x.com' });
+    await db.delete(schema.githubInstallations);
+    await db.delete(schema.missions);
+    // A genuine container mission, but no github_installation_repos row for
+    // its repo at all — e.g. the app was uninstalled, or the repo was
+    // removed from the installation, after the container was created.
+    await seedMission({ id: 'm_container', userId: 'u1', targetRepos: ['a/b'], workspaceRepo: 'a/b' });
+  });
+
+  it('does not report bare success when requirePlanApproval could not be persisted', async () => {
+    const res = await updateRepoSettings('m_container', validInput({ requirePlanApproval: false }));
+    // The mission-level fields legitimately persisted (that UPDATE matched
+    // the container row)...
+    expect((await missionRow('m_container')).concurrencyCap).toBe(5);
+    // ...but writeRepoPolicy matched zero github_installation_repos rows, so
+    // the caller must not be told this was an unqualified success — the
+    // original bug returned a bare `{ ok: true }` here, which the Settings
+    // page renders as "Saved." even though requirePlanApproval never moved.
+    expect(res).toEqual({ ok: true, warning: expect.any(String) });
+  });
+});
+
 describe('updateRepoSettings — cross-account attack via targetRepos', () => {
   beforeEach(async () => {
     mocks.withAuth.mockReset();

@@ -73,7 +73,11 @@ export function SettingsTab({
         requirePlanApproval: planApproval,
       });
       setMessage(
-        result.ok ? { kind: 'ok', text: 'Saved.' } : { kind: 'error', text: result.error },
+        result.ok
+          ? result.warning
+            ? { kind: 'error', text: result.warning }
+            : { kind: 'ok', text: 'Saved.' }
+          : { kind: 'error', text: result.error },
       );
     });
   }
