@@ -36,7 +36,7 @@ export async function updateRepoSettings(
     autoMerge: AutoMergePolicyInput;
     requirePlanApproval: boolean;
   },
-): Promise<{ ok: true } | { ok: false; error: string }> {
+): Promise<{ ok: true; warning?: string } | { ok: false; error: string }> {
   const user = await withAuth();
 
   if (!Number.isInteger(input.concurrencyCap) || input.concurrencyCap < 1 || input.concurrencyCap > 100) {
@@ -143,18 +143,24 @@ export async function updateRepoSettings(
       // parameter) — see writeRepoPolicy's doc comment (lib/repo-settings.ts)
       // for both of those, shared verbatim with the /api/v1 policy route so
       // the two transports cannot drift.
-      // The rows-written count is deliberately not branched on here, unlike
-      // the /api/v1 policy route. This action's primary write is the mission
-      // UPDATE above, which DID persist; the repo row is a secondary write
-      // that legitimately matches nothing when the caller holds a container
-      // but no installation row for the repo. Failing the action would roll
-      // that mission write back and lose settings the operator did change.
-      // The Settings page only renders requirePlanApproval for repos reached
-      // through an installation, so this divergence is not reachable from the
-      // UI the way a direct PUT is.
-      await writeRepoPolicy(tx, user.id, repo, input.requirePlanApproval);
+      // The rows-written count is not grounds to fail the whole action, unlike
+      // the /api/v1 policy route: this action's primary write is the mission
+      // UPDATE above, which DID persist, and the repo row can legitimately
+      // match nothing when the caller holds a container but no installation
+      // row for the repo (app uninstalled, repo removed from it, after the
+      // container was created). Rolling the mission write back in that case
+      // would lose settings the operator did change. But silently reporting
+      // `{ ok: true }` here is the bug this branch exists to close: the
+      // caller has no other way to learn requirePlanApproval never moved.
+      const written = await writeRepoPolicy(tx, user.id, repo, input.requirePlanApproval);
 
-      return { ok: true } as const;
+      return {
+        ok: true,
+        warning:
+          written === 0
+            ? 'Other settings saved, but "Require plan approval" could not be — no installation covers this repo.'
+            : undefined,
+      } as const;
     });
   } catch (err) {
     if (err instanceof RepoSettingsNotFoundError) {
