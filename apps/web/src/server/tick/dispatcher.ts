@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { and, eq, inArray, ne, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 
 import {
   githubInstallationRepos,
@@ -41,6 +41,10 @@ export type DispatchResult = {
   claimed: number;
   dispatched: number;
   failed: number;
+  // Missions this tick whose CONTAINER cap (computeContainerCaps below)
+  // computed zero remaining slots while queued work was waiting on them —
+  // see runDispatcher's starvation check for why this needs its own signal.
+  starved: number;
 };
 
 export async function runDispatcher(log: {
@@ -80,9 +84,24 @@ export async function runDispatcher(log: {
   let totalClaimed = 0;
   let totalDispatched = 0;
   let totalFailed = 0;
+  let totalStarved = 0;
 
   for (const mission of runningMissions) {
-    const claimed = await claimNextBatch(mission, containerCaps.get(mission.id));
+    const maxSlots = containerCaps.get(mission.id);
+    // Zero slots is ambiguous on its own: "nothing queued" and "the
+    // container is full of zombie Tasks" both end in claimed.length === 0
+    // with no way to tell them apart (#84 — a container full of
+    // needs_human/ready_to_merge Tasks, all counted in-flight by
+    // INFLIGHT_STATUSES, computed zero slots forever with no signal
+    // anywhere). Only maxSlots — the CONTAINER cap — is checked here, not
+    // the mission's own concurrencyCap: a mission simply busy at its own cap
+    // is the ordinary, self-explanatory case this signal isn't for.
+    if (maxSlots === 0 && (await hasQueuedWork(mission.id))) {
+      totalStarved += 1;
+      await recordStarvation(mission, maxSlots, log);
+    }
+
+    const claimed = await claimNextBatch(mission, maxSlots);
     totalClaimed += claimed.length;
     if (claimed.length === 0) continue;
 
@@ -104,6 +123,7 @@ export async function runDispatcher(log: {
     claimed: totalClaimed,
     dispatched: totalDispatched,
     failed: totalFailed,
+    starved: totalStarved,
   };
 }
 
@@ -165,6 +185,45 @@ export function computeContainerCaps(
     caps.set(mission.id, Math.max(0, container.concurrencyCap - inflight));
   }
   return caps;
+}
+
+async function hasQueuedWork(missionId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(tasks)
+    .where(and(eq(tasks.missionId, missionId), eq(tasks.status, 'queued')));
+  return Number(row?.count ?? 0) > 0;
+}
+
+/**
+ * Ledger the starvation once per episode, not once per tick (#84). The tick
+ * re-checks every 60s, and this condition can persist for hours until an
+ * operator notices — logging it unconditionally would flood the mission's
+ * ledger with an identical row every tick for as long as it lasts (the same
+ * spam budgets.ts's hard-stop check avoids). A mission's most recent ledger
+ * event already IS "what happened last", live and free of any extra state to
+ * maintain: if it's already `dispatch.starved`, nothing has changed since we
+ * said so, so stay quiet; anything else (a claim, a transition, a merge)
+ * means this is worth saying again.
+ */
+async function recordStarvation(mission: Mission, maxSlots: number, log: Logger): Promise<void> {
+  const [latest] = await db
+    .select({ eventType: ledgerEvents.eventType })
+    .from(ledgerEvents)
+    .where(eq(ledgerEvents.missionId, mission.id))
+    .orderBy(desc(ledgerEvents.createdAt))
+    .limit(1);
+  if (latest?.eventType === 'dispatch.starved') return;
+
+  const now = new Date();
+  await db.insert(ledgerEvents).values({
+    id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
+    missionId: mission.id,
+    eventType: 'dispatch.starved',
+    payload: { reason: 'container_cap', maxSlots },
+    createdAt: now,
+  });
+  log.warn({ missionId: mission.id, maxSlots }, 'dispatch:starved');
 }
 
 export async function claimNextBatch(mission: Mission, maxSlots?: number): Promise<Task[]> {

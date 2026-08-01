@@ -151,12 +151,13 @@ export async function runTick(log: Logger): Promise<TickResult> {
       mergesCompleted: 0,
       mergesEscalated: 0,
       mergeStallsEscalated: 0,
+      externalMergesSettled: 0,
     };
   });
 
   const dispatcher = await runDispatcher(log).catch((err) => {
     log.error({ err: String(err) }, 'tick:dispatcher_crashed');
-    return { missions: 0, claimed: 0, dispatched: 0, failed: 1 };
+    return { missions: 0, claimed: 0, dispatched: 0, failed: 1, starved: 0 };
   });
 
   const memory = await runMemoryExpiry(log).catch((err) => {

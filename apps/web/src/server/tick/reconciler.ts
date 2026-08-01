@@ -41,6 +41,7 @@ export type ReconcileResult = {
   mergesCompleted: number;
   mergesEscalated: number;
   mergeStallsEscalated: number;
+  externalMergesSettled: number;
 };
 
 export const DEPENDENCY_FAILED_STATUSES: TaskStatus[] = ['failed', 'abandoned'];
@@ -612,6 +613,81 @@ export async function runReconciler(log: Logger): Promise<ReconcileResult> {
     log.info({ taskId: task.id, from: task.status }, 'reconciler:gate_stalled');
   }
 
+  // (1.6) External-merge settle sweep (#84): a human merging a Task's PR by
+  // hand via `gh` is the NORMAL workflow while a mission's auto-merge policy
+  // is disabled (auto-merge is opt-in) — not an edge case. Nothing else
+  // notices: `ready_to_merge` just waits forever for a `runAutoMerge` pass
+  // that will never come with the policy off, and `needs_human` waits
+  // forever for a person regardless of why it escalated. Both hold an
+  // INFLIGHT_STATUSES slot (dispatcher.ts) indefinitely once their PR is
+  // gone, starving the container of capacity with no signal anywhere —
+  // observed live as six such zombies pinning a five-slot container. Ask
+  // GitHub directly, the one call the merging sweep below already makes for
+  // `merging` Tasks, and settle any Task whose PR merged regardless of what
+  // status it's parked in or why.
+  let externalMergesSettled = 0;
+  const mergeZombieCandidates = await db
+    .select()
+    .from(tasks)
+    .where(
+      and(inArray(tasks.status, ['ready_to_merge', 'needs_human']), isNotNull(tasks.prUrl)),
+    );
+
+  for (const task of mergeZombieCandidates) {
+    const match = task.prUrl ? PR_URL_RE.exec(task.prUrl) : null;
+    if (!match) continue;
+    const [, owner, repo, pullStr] = match;
+    if (!owner || !repo || !pullStr) continue;
+    const pullNumber = Number(pullStr);
+
+    let pr: { merged?: boolean } | undefined;
+    try {
+      const { data } = await getOctokit().pulls.get({ owner, repo, pull_number: pullNumber });
+      pr = data;
+    } catch (err) {
+      log.warn(
+        { taskId: task.id, err: err instanceof Error ? err.message : String(err) },
+        'reconciler:external_merge_check_failed',
+      );
+      continue; // couldn't get a real answer — leave it for next tick
+    }
+    if (!pr.merged) continue;
+
+    const now = new Date();
+    // Guard on the status we selected: if a concurrent transition already
+    // moved this Task on, don't clobber it.
+    const [updated] = await db
+      .update(tasks)
+      .set({
+        status: 'merged',
+        completedAt: now,
+        updatedAt: now,
+        // Whatever approval or escalation got this Task parked here does not
+        // cover a PR that already merged — same reasoning as every other
+        // settle-to-merged path in this file.
+        approvedBy: null,
+        escalationReason: null,
+        lastError: null,
+      })
+      .where(and(eq(tasks.id, task.id), eq(tasks.status, task.status)))
+      .returning();
+    if (!updated) continue;
+
+    await db.insert(ledgerEvents).values({
+      id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
+      missionId: task.missionId,
+      taskId: task.id,
+      eventType: 'task.externally_merged',
+      payload: { prNumber: pullNumber, from: task.status },
+      createdAt: now,
+    });
+    externalMergesSettled += 1;
+    log.info(
+      { taskId: task.id, prNumber: pullNumber, from: task.status },
+      'reconciler:external_merge_settled',
+    );
+  }
+
   // (1.7) Merging sweep: reconcile Tasks GitHub's native auto-merge left
   // armed. `tryMerge` (auto-merge.ts) only ARMS a merge via the
   // `enablePullRequestAutoMerge` GraphQL mutation and leaves the Task in
@@ -818,6 +894,7 @@ export async function runReconciler(log: Logger): Promise<ReconcileResult> {
     mergesCompleted,
     mergesEscalated,
     mergeStallsEscalated,
+    externalMergesSettled,
   };
 }
 
