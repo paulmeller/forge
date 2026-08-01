@@ -7,6 +7,8 @@
  * source an event came from.
  */
 
+import { CI_RETRY_PROMPT_PREFIX } from './forge-message-markers';
+
 export type LogEventLike = {
   eventType: string;
   payload: unknown;
@@ -84,8 +86,18 @@ export function formatLogLine(event: LogEventLike): string {
     case 'session.status_terminated':
       return `[session] ${event.eventType.replace('session.status_', '')}`;
 
-    case 'user.message':
-      return `[user] ${truncate(firstText(event.payload), 200)}`;
+    case 'user.message': {
+      const text = firstText(event.payload);
+      // Forge injects CI-retry feedback as a plain user.message to start a
+      // new turn (ci.ts's retry-with-feedback) — undistinguished from a
+      // human steering message, it read as if the agent's prior sign-off
+      // was still the latest word (#61). Mark it so the log shows a new,
+      // Forge-initiated turn began.
+      if (text.startsWith(CI_RETRY_PROMPT_PREFIX)) {
+        return `[forge] CI failed — sent logs to the agent, new turn started`;
+      }
+      return `[user] ${truncate(text, 200)}`;
+    }
 
     default:
       return `[forge] ${event.eventType}`;

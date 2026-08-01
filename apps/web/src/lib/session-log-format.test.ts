@@ -6,6 +6,7 @@ import {
   isToolEvent,
   normalizeRawSessionEvent,
 } from './session-log-format';
+import { buildRetryPrompt } from '@/server/tick/ci';
 
 describe('formatLogLine', () => {
   it('formats agent.message from its text content block', () => {
@@ -91,6 +92,21 @@ describe('formatLogLine', () => {
       payload: { content: [{ type: 'text', text: 'Triage open issues in acme/api' }] },
     });
     expect(line).toBe('[user] Triage open issues in acme/api');
+  });
+
+  // Issue #61: ci.ts's retry-with-feedback injects a `user.message` into the
+  // existing session to send it CI failure logs, and a new turn starts. The
+  // ledger row for that injection is indistinguishable from any other
+  // `user.message` (a human steering message, say), so the session log gives
+  // no visible sign that a new, Forge-initiated turn began — it just looks
+  // like the agent's prior sign-off is still the latest word.
+  it('renders Forge-injected CI-retry feedback as a distinct marker, not a plain [user] line', () => {
+    const retryText = buildRetryPrompt('abc123', [{ name: 'test', conclusion: 'failure' }]);
+    const line = formatLogLine({
+      eventType: 'user.message',
+      payload: { content: [{ type: 'text', text: retryText }] },
+    });
+    expect(line).toMatch(/^\[forge\]/);
   });
 
   it('falls back to a generic [forge] line for Forge-synthetic event types', () => {

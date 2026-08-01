@@ -9,6 +9,7 @@ import { getAdapter } from './adapters';
 import { decideCiRetry } from './ci-retry';
 import { db } from '@/lib/db';
 import { env } from '@/lib/env';
+import { CI_RETRY_PROMPT_PREFIX } from '@/lib/forge-message-markers';
 import { resolveGateFlags } from './gate-flags';
 import { postCiStatus } from './gates';
 
@@ -231,7 +232,7 @@ export function buildRetryPrompt(sha: string, failedChecks: FailedCheck[]): stri
     })
     .join('\n');
 
-  return `CI failed on the PR you opened. Sha: ${sha}.\n\nFailing checks:\n${summary}\n\nPlease investigate the logs at the linked URLs (use the github MCP get_workflow_run_logs tool if available, otherwise read the linked details), fix the issue on the same branch, and push the fix. Reply when done.`;
+  return `${CI_RETRY_PROMPT_PREFIX} Sha: ${sha}.\n\nFailing checks:\n${summary}\n\nPlease investigate the logs at the linked URLs (use the github MCP get_workflow_run_logs tool if available, otherwise read the linked details), fix the issue on the same branch, and push the fix. Reply when done.`;
 }
 
 /**
