@@ -35,6 +35,10 @@ export type SettingsOnboardingInfo = {
   prUrl: string | null;
   hasPolicyFile: boolean;
   policyFileHref: string | null;
+  /** Set when the file is present but resolveRepoPolicy rejected it — the
+   * parse error the spec requires surfacing here, not just blocking dispatch
+   * silently at tick time. */
+  invalidFileError: string | null;
 };
 
 /**
@@ -49,9 +53,11 @@ async function getOnboardingInfo(repo: string, userId: string): Promise<Settings
   if (!row) return null;
 
   let hasPolicyFile = false;
+  let invalidFileError: string | null = null;
   try {
     const resolution = await resolveRepoPolicy(repo, row.installationId);
     hasPolicyFile = resolution.source === 'file';
+    if (resolution.source === 'invalid') invalidFileError = resolution.error;
   } catch {
     // Could not tell (GitHub error). Render the form as normal rather than
     // failing the whole page over a transient lookup failure — the tick's
@@ -66,6 +72,7 @@ async function getOnboardingInfo(repo: string, userId: string): Promise<Settings
     // a link for a human to read, not a fetch, so it doesn't need the
     // default branch name looked up separately.
     policyFileHref: hasPolicyFile ? `https://github.com/${repo}/blob/HEAD/.forge/policy.yml` : null,
+    invalidFileError,
   };
 }
 

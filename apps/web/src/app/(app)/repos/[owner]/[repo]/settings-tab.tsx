@@ -111,6 +111,12 @@ export function SettingsTab({
             ) : null}
           </FieldDescription>
         ) : null}
+        {onboarding?.invalidFileError ? (
+          <FieldDescription className="mb-4 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-destructive">
+            .forge/policy.yml could not be read: {onboarding.invalidFileError}. Dispatch is blocked
+            until this is fixed — it never falls back to these settings.
+          </FieldDescription>
+        ) : null}
         <FieldGroup>
           <Field>
             <FieldLabel htmlFor="concurrencyCap">Concurrency cap</FieldLabel>
