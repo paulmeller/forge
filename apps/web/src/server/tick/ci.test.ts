@@ -130,6 +130,13 @@ const ciMocks = vi.hoisted(() => {
             orderBy: vi.fn(() => ({ limit: rows })),
           };
         }),
+        // The awaiting_ci candidate query (#82) now joins `missions` to gate
+        // on mission status — the real WHERE is exercised for real in
+        // ci.integration.test.ts, so this just needs to hand back the seeded
+        // Tasks in the `{ task }` shape runCiPoller maps back down.
+        innerJoin: vi.fn(() => ({
+          where: vi.fn(() => Promise.resolve(state.awaitingTasks.map((task) => ({ task })))),
+        })),
       })),
     })),
     update: vi.fn(() => ({

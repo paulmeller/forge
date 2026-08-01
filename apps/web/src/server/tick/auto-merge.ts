@@ -57,7 +57,19 @@ export async function runAutoMerge(log: Logger): Promise<AutoMergeResult> {
     })
     .from(tasks)
     .innerJoin(missions, eq(missions.id, tasks.missionId))
-    .where(and(eq(tasks.status, 'ready_to_merge'), isNotNull(tasks.prUrl)));
+    .where(
+      and(
+        eq(tasks.status, 'ready_to_merge'),
+        isNotNull(tasks.prUrl),
+        // #82: cancelMission only abandons queued/dispatching/running/turn_ended
+        // Tasks — one already past the agent and sitting in ready_to_merge
+        // survives that abandon set untouched. Gate on the mission's live
+        // status here instead of trying to keep a status list in sync with
+        // the mission state machine; this one rule also covers paused and
+        // any other non-running status, not just cancelled.
+        eq(missions.status, 'running'),
+      ),
+    );
 
   // Per-invocation memoization only: several candidates above commonly share
   // one Mission, and resolveAutoMergePolicy is a live DB lookup (up to two

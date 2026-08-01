@@ -37,10 +37,24 @@ function client(): Octokit {
 }
 
 export async function runCiPoller(log: Logger): Promise<CiResult> {
+  // #82: a cancelled (or paused) mission's Task can be sitting in awaiting_ci
+  // — cancelMission's abandon set only covers queued/dispatching/running/
+  // turn_ended, not the gate states. Joining on mission status here (rather
+  // than selecting all awaiting_ci rows and filtering after) stops us from
+  // polling CI and dispatching retry-with-feedback turns for work the
+  // operator already stopped.
   const awaiting = await db
-    .select()
+    .select({ task: tasks })
     .from(tasks)
-    .where(and(eq(tasks.status, 'awaiting_ci'), isNotNull(tasks.prUrl)));
+    .innerJoin(missions, eq(missions.id, tasks.missionId))
+    .where(
+      and(
+        eq(tasks.status, 'awaiting_ci'),
+        isNotNull(tasks.prUrl),
+        eq(missions.status, 'running'),
+      ),
+    )
+    .then((rows) => rows.map((r) => r.task));
 
   let review = 0;
   let failed = 0;
