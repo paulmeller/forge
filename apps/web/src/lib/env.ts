@@ -149,7 +149,15 @@ export const env = {
     return Number(optional('TASK_CONTINUATION_MAX') ?? 3);
   },
   get TASK_NO_PROGRESS_TOKENS(): number {
-    return Number(optional('TASK_NO_PROGRESS_TOKENS') ?? 200_000);
+    // Denominated in FLATTENED tokens (costTokens sums every tier — cache
+    // reads included, and they dominate: measured live, raw input is ~2 tokens
+    // per call while cache reads run 30-80k). 200k flattened was therefore
+    // ~20k real tokens — a handful of tool calls — and halted an agent 29
+    // calls into legitimately reading a feature's surface before its first
+    // push (no push yet = no #57 reprieve possible). 2M flattened restores the
+    // ~200k-real intent the original figure was chosen for. The proper fix is
+    // denominating this budget in output tokens; tracked in the issue.
+    return Number(optional('TASK_NO_PROGRESS_TOKENS') ?? 2_000_000);
   },
   get TASK_MAX_TOKENS(): number {
     return Number(optional('TASK_MAX_TOKENS') ?? 0); // 0 = unbounded

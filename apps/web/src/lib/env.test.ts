@@ -6,7 +6,7 @@ describe('tick env getters', () => {
   it('coerces numeric vars with tick defaults', () => {
     expect(env.TASK_RETRY_MAX).toBe(3);
     expect(env.TASK_MAX_TURNS).toBe(30);
-    expect(env.TASK_NO_PROGRESS_TOKENS).toBe(200_000);
+    expect(env.TASK_NO_PROGRESS_TOKENS).toBe(2_000_000);
     expect(env.TASK_MAX_TOKENS).toBe(0);
     expect(env.BUDGET_HARD_STOP_PCT).toBe(100);
     expect(env.VERIFY_RETRY_MAX).toBe(2);
