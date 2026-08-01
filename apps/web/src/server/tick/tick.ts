@@ -6,6 +6,7 @@ import { runDeviceCodeSweep } from './device-codes';
 import { runDispatcher } from './dispatcher';
 import { runGuardrails } from './guardrails';
 import { runMemoryExpiry } from './memory';
+import { runOnboarding } from './onboarding';
 import { runPoller } from './poller';
 import { runReconciler } from './reconciler';
 import { runVerify } from './verify';
@@ -20,6 +21,7 @@ export type TickResult = {
   durationMs: number;
   dispatcher: Awaited<ReturnType<typeof runDispatcher>>;
   poller: Awaited<ReturnType<typeof runPoller>>;
+  onboarding: Awaited<ReturnType<typeof runOnboarding>>;
   guardrails: Awaited<ReturnType<typeof runGuardrails>>;
   ci: Awaited<ReturnType<typeof runCiPoller>>;
   verify: Awaited<ReturnType<typeof runVerify>>;
@@ -36,18 +38,22 @@ export type TickResult = {
  *   1. Poll events for every active Task — drives state transitions
  *      (queued → running → turn_ended → awaiting_ci) and maintains
  *      turnCount + no-progress markers.
- *   2. Guardrails — halt agent-active Tasks over a turn/token/no-progress cap,
+ *   2. Onboarding gate (#40) — propose `.forge/policy.yml` for a newly
+ *      connected repo, flip it to active once merged, re-gate on deletion.
+ *      Runs before the dispatcher below so a repo activated this tick can
+ *      dispatch this same tick rather than waiting one tick behind.
+ *   3. Guardrails — halt agent-active Tasks over a turn/token/no-progress cap,
  *      using the counts the poller just wrote.
- *   3. Poll GitHub Checks for awaiting_ci Tasks — advance to the next gate,
+ *   4. Poll GitHub Checks for awaiting_ci Tasks — advance to the next gate,
  *      failed, or trigger retry-with-feedback.
- *   4. Verify — self-verification gate: done-check against acceptance criteria.
- *   5. AI review gate.
- *   6. Auto-merge pass.
- *   7. Budgets — soft-pause at threshold, hard-stop (cancel in-flight) at ceiling.
- *   8. Reconcile: open late PRs, gate stall sweep, complete settled Missions.
- *   9. Dispatch queued Tasks on running Missions.
- *  10. Memory expiry.
- *  11. Device-code expiry sweep.
+ *   5. Verify — self-verification gate: done-check against acceptance criteria.
+ *   6. AI review gate.
+ *   7. Auto-merge pass.
+ *   8. Budgets — soft-pause at threshold, hard-stop (cancel in-flight) at ceiling.
+ *   9. Reconcile: open late PRs, gate stall sweep, complete settled Missions.
+ *  10. Dispatch queued Tasks on running Missions.
+ *  11. Memory expiry.
+ *  12. Device-code expiry sweep.
  *
  * Two new steps insert into the existing order without reordering anything else.
  * Each step is wrapped so one failing subsystem doesn't silence the others.
@@ -58,6 +64,11 @@ export async function runTick(log: Logger): Promise<TickResult> {
   const poller = await runPoller(log).catch((err) => {
     log.error({ err: String(err) }, 'tick:poller_crashed');
     return { tasksPolled: 0, eventsIngested: 0, transitions: 0, errors: 1 };
+  });
+
+  const onboarding = await runOnboarding(log).catch((err) => {
+    log.warn({ err: String(err) }, 'tick:onboarding_failed');
+    return { reposChecked: 0, prsOpened: 0, activated: 0, regated: 0 };
   });
 
   const guardrails = await runGuardrails(log).catch((err) => {
@@ -166,6 +177,7 @@ export async function runTick(log: Logger): Promise<TickResult> {
     durationMs,
     dispatcher,
     poller,
+    onboarding,
     guardrails,
     ci,
     verify,
