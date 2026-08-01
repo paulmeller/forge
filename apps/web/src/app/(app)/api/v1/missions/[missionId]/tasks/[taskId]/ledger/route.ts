@@ -1,6 +1,7 @@
 import { ZodError } from 'zod';
 
 import { withApiAuth } from '@/lib/api/auth';
+import { toLedgerEventResponses } from '@/lib/api/dto';
 import { fail, notFound, ok } from '@/lib/api/respond';
 import { schemas } from '@/lib/api/schemas';
 import { listLedgerForTask } from '@/lib/ledger';
@@ -36,6 +37,10 @@ export const GET = withApiAuth<{ params: Promise<{ missionId: string; taskId: st
       throw err;
     }
 
-    return ok(await listLedgerForTask(taskId, limit, cursor));
+    // Through the response allow-list: `payload` is untyped JSON from a dozen
+    // producers and this is a public API, so a column added to ledger_events
+    // must not publish itself (#48). Internal UI reads the full row directly.
+    const page = await listLedgerForTask(taskId, limit, cursor);
+    return ok({ ...page, events: toLedgerEventResponses(page.events) });
   },
 );
