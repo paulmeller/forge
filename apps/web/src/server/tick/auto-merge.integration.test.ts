@@ -171,6 +171,23 @@ describe('runAutoMerge — candidate selection (real query, live SQLite)', () =>
     expect(result.candidates).toBe(0);
   });
 
+  it('never selects a ready_to_merge task whose mission was cancelled (#82)', async () => {
+    // #46's cancelMission only abandons queued/dispatching/running/turn_ended
+    // Tasks — one already past the agent and sitting in ready_to_merge is
+    // untouched by that abandon set. Without a mission-status filter here,
+    // this candidate query would still pick it up and GitHub's native
+    // auto-merge could fire on work the operator already cancelled.
+    const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const taskId = `tsk_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    await insertMission(missionId, { status: 'cancelled' });
+    await insertTask(taskId, missionId, { status: 'ready_to_merge' });
+
+    const result = await runAutoMerge(noopLog);
+
+    expect(result.candidates).toBe(0);
+    expect(mockOctokit.graphql).not.toHaveBeenCalled();
+  });
+
   it('selects a leaf Task when only the CONTAINER has auto-merge enabled', async () => {
     // The whole point of the resolver: a repo-level toggle must reach the
     // issue-leaf missions that actually own the Tasks.
