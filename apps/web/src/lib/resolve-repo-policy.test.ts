@@ -7,6 +7,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // touched, while this function needs GitHub mocked instead.
 const mockOctokit = vi.hoisted(() => ({ repos: { getContent: vi.fn() } }));
 vi.mock('@octokit/rest', () => ({ Octokit: vi.fn(() => mockOctokit) }));
+// getOctokitClient() (lib/octokit.ts) throws unless GITHUB_APP_TOKEN is set,
+// before it ever reaches the mocked Octokit constructor above.
+vi.mock('./env', () => ({ env: { GITHUB_APP_TOKEN: 'ghp_test' } }));
 
 const mockDb = vi.hoisted(() => ({ rows: [] as Array<{ repoPolicy: unknown }> }));
 vi.mock('./db', () => ({
