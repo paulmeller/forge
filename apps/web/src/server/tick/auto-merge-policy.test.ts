@@ -43,6 +43,9 @@ describe('resolveAutoMergePolicy', () => {
     id: string;
     parentMissionId?: string | null;
     autoMergePolicy?: AutoMergePolicy | null;
+    workspaceRepo?: string | null;
+    issueRef?: string | null;
+    targetRepos?: string[] | null;
   }) {
     const now = new Date();
     const { id, parentMissionId = null, autoMergePolicy = null, ...rest } = over;
@@ -95,5 +98,27 @@ describe('resolveAutoMergePolicy', () => {
   it('returns null when no policy is configured anywhere', async () => {
     await seedMission({ id: 'm_nopolicy', parentMissionId: null, autoMergePolicy: null });
     expect(await resolveAutoMergePolicy('m_nopolicy')).toBeNull();
+  });
+
+  it("gives an @forge mission (targetRepos, no workspaceRepo/parentMissionId) its repo's container policy", async () => {
+    // dispatchFromGithub (the @forge entry point) creates a standalone
+    // mission with targetRepos set but no workspaceRepo or parentMissionId —
+    // it has no container id to follow, so the resolver must find the
+    // container the same way updateRepoSettings writes to it: by
+    // workspaceRepo. Issue #34.
+    await seedMission({
+      id: 'm_repo_container',
+      parentMissionId: null,
+      workspaceRepo: 'acme/widgets',
+      autoMergePolicy: { enabled: true, maxAdditions: 20 },
+    });
+    await seedMission({
+      id: 'm_forge_mention',
+      parentMissionId: null,
+      workspaceRepo: null,
+      targetRepos: ['acme/widgets'],
+      autoMergePolicy: null,
+    });
+    expect(await resolveAutoMergePolicy('m_forge_mention')).toEqual({ enabled: true, maxAdditions: 20 });
   });
 });

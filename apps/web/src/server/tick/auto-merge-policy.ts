@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 
 import { missions, type AutoMergePolicy } from '@forge/db';
 
@@ -26,6 +26,8 @@ export async function resolveAutoMergePolicy(
     .select({
       autoMergePolicy: missions.autoMergePolicy,
       parentMissionId: missions.parentMissionId,
+      workspaceRepo: missions.workspaceRepo,
+      targetRepos: missions.targetRepos,
     })
     .from(missions)
     .where(eq(missions.id, missionId))
@@ -39,6 +41,27 @@ export async function resolveAutoMergePolicy(
       .where(eq(missions.id, row.parentMissionId))
       .limit(1);
     if (parent) return (parent.autoMergePolicy as AutoMergePolicy | null) ?? null;
+  }
+
+  // @forge missions (dispatchFromGithub) are single-repo, standalone rows:
+  // they carry targetRepos but no workspaceRepo or parentMissionId, so
+  // there's no container id to follow above. They still belong to a repo,
+  // so find that repo's container the same way updateRepoSettings writes to
+  // it — by workspaceRepo — rather than leaving them stuck reading their own
+  // (permanently unset) column.
+  if (!row.workspaceRepo && row.targetRepos?.length === 1) {
+    const [container] = await db
+      .select({ autoMergePolicy: missions.autoMergePolicy })
+      .from(missions)
+      .where(
+        and(
+          eq(missions.workspaceRepo, row.targetRepos[0]!),
+          isNull(missions.issueRef),
+          isNull(missions.parentMissionId),
+        ),
+      )
+      .limit(1);
+    if (container) return (container.autoMergePolicy as AutoMergePolicy | null) ?? null;
   }
 
   return (row.autoMergePolicy as AutoMergePolicy | null) ?? null;
