@@ -1043,6 +1043,14 @@
               "minimum": 1,
               "maximum": 500
             }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -1058,10 +1066,17 @@
                       "items": {
                         "$ref": "#/components/schemas/LedgerEvent"
                       }
+                    },
+                    "nextCursor": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
                     }
                   },
                   "required": [
-                    "events"
+                    "events",
+                    "nextCursor"
                   ]
                 }
               }
@@ -1120,6 +1135,14 @@
               "minimum": 1,
               "maximum": 500
             }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -1135,10 +1158,17 @@
                       "items": {
                         "$ref": "#/components/schemas/LedgerEvent"
                       }
+                    },
+                    "nextCursor": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
                     }
                   },
                   "required": [
-                    "events"
+                    "events",
+                    "nextCursor"
                   ]
                 }
               }

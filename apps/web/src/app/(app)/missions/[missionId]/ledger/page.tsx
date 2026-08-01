@@ -21,7 +21,7 @@ export default async function MissionLedgerPage({
   const mission = await getMission(missionId, user.id);
   if (!mission) notFound();
 
-  const [allEvents, tasks] = await Promise.all([
+  const [{ events: allEvents }, tasks] = await Promise.all([
     listLedgerForMission(missionId, 2000),
     listTasksForMission(missionId),
   ]);

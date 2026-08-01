@@ -115,9 +115,15 @@ describe('GET /api/v1/missions/[missionId]/ledger', () => {
     const res = await GET(new Request('http://x'), params('m_shape'));
     const body = await res.json();
 
+    // sourceEventId is deliberately absent: it is the BACKEND's own event id,
+    // the least backend-agnostic field on the row, and publishing it leaks the
+    // shape of whichever engine produced the event. The response goes through
+    // the dto.ts allow-list so a column added to ledger_events tomorrow does
+    // not publish itself (#48).
     expect(Object.keys(body.events[0]).sort()).toEqual(
-      ['createdAt', 'eventType', 'id', 'missionId', 'payload', 'sourceEventId', 'taskId'].sort(),
+      ['createdAt', 'eventType', 'id', 'missionId', 'payload', 'taskId'].sort(),
     );
+    expect(body.events[0]).not.toHaveProperty('sourceEventId');
   });
 
   it('honours the limit query parameter cap', async () => {
@@ -141,5 +147,38 @@ describe('GET /api/v1/missions/[missionId]/ledger', () => {
     const res = await GET(new Request('http://x'), params('m_does_not_exist'));
 
     expect(res.status).toBe(404);
+  });
+
+  it('pages past the limit cap via nextCursor, without repeats or gaps', async () => {
+    await seedMission('m_cursor', 'u1');
+    for (let i = 0; i < 3; i++) {
+      await seedLedgerEvent('m_cursor', `evt_cursor_${i}`, 'mission.started', {
+        createdAt: new Date(Date.now() + i * 1000),
+      });
+    }
+    authAs('u1');
+
+    const first = await GET(new Request('http://x?limit=2'), params('m_cursor'));
+    const firstBody = (await first.json()) as {
+      events: { id: string }[];
+      nextCursor: string | null;
+    };
+    expect(firstBody.events.length).toBe(2);
+    expect(typeof firstBody.nextCursor).toBe('string');
+
+    authAs('u1');
+    const second = await GET(
+      new Request(`http://x?limit=2&cursor=${encodeURIComponent(firstBody.nextCursor!)}`),
+      params('m_cursor'),
+    );
+    const secondBody = (await second.json()) as {
+      events: { id: string }[];
+      nextCursor: string | null;
+    };
+    expect(secondBody.events.length).toBe(1);
+    expect(secondBody.nextCursor).toBeNull();
+
+    const seenIds = [...firstBody.events, ...secondBody.events].map((e) => e.id);
+    expect(new Set(seenIds).size).toBe(3);
   });
 });

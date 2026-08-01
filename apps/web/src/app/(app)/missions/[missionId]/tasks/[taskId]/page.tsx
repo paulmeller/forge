@@ -64,7 +64,7 @@ export default async function TaskDetailPage({
   ]);
   if (!mission || !task || task.missionId !== mission.id) notFound();
 
-  const ledger = await listLedgerForTask(task.id, 200);
+  const { events: ledger } = await listLedgerForTask(task.id, 200);
 
   return (
     <PageShell className="max-w-4xl">

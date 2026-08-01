@@ -17,7 +17,7 @@ import { withAuth } from '@/lib/with-auth';
 import { findWorkspaceMission } from '@/lib/workspace-mission';
 import { mergeIssuesWithGroups } from '@/lib/workspace-issues';
 
-import type { AutoMergePolicy } from '@forge/db';
+import type { AutoMergePolicy, LedgerEvent } from '@forge/db';
 
 const RUNNING_TASK_STATUSES = new Set(['queued', 'dispatching', 'running']);
 
@@ -86,10 +86,11 @@ export default async function RepoWorkspacePage({
     ),
   );
 
-  const ledgersByTaskIdMap = new Map<string, Awaited<ReturnType<typeof listLedgerForTask>>>();
+  const ledgersByTaskIdMap = new Map<string, LedgerEvent[]>();
   await Promise.all(
     allTaskIds.map(async (id) => {
-      ledgersByTaskIdMap.set(id, [...(await listLedgerForTask(id, 200))].reverse());
+      const { events } = await listLedgerForTask(id, 200);
+      ledgersByTaskIdMap.set(id, [...events].reverse());
     }),
   );
   const ledgersByTaskId = Object.fromEntries(ledgersByTaskIdMap);

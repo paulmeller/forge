@@ -1,4 +1,4 @@
-import type { Mission, Task } from '@forge/db';
+import type { LedgerEvent, Mission, Task } from '@forge/db';
 
 /**
  * The /api/v1 response shapes for the two DB rows this API returns.
@@ -179,4 +179,46 @@ export function toTaskResponse(task: Task): TaskResponse {
 
 export function toTaskResponses(tasks: Task[]): TaskResponse[] {
   return tasks.map(toTaskResponse);
+}
+
+/**
+ * LedgerEvent columns /api/v1 publishes, in schema order.
+ *
+ * The Ledger is the audit trail, so the API returning it is the point of the
+ * product — but it is also the widest-open table in the schema: `payload` is
+ * untyped JSON written by a dozen producers (agent tool inputs and outputs,
+ * gate decisions, model usage). A `db.select()` here publishes whatever any
+ * future producer decides to put in a row, which is exactly the failure this
+ * file exists to prevent (#48).
+ *
+ * Every column is listed deliberately. `payload` IS published — an audit trail
+ * without event detail is not an audit trail — but it is named, so adding a
+ * column to `ledger_events` tomorrow does not publish it by default; someone
+ * has to come here and decide.
+ */
+export const ledgerEventResponseFields = [
+  'id',
+  'missionId',
+  'taskId',
+  'eventType',
+  'payload',
+  'createdAt',
+] as const satisfies readonly (keyof LedgerEvent)[];
+
+export const ledgerEventFieldsWithheld = [
+  // The backend's own event id this row was translated from. It correlates
+  // nothing an API consumer can query — Forge's own `id` is the stable handle —
+  // and it leaks the shape of whichever engine produced the row, which the
+  // backend-agnostic Ledger contract deliberately hides.
+  'sourceEventId',
+] as const satisfies readonly (keyof LedgerEvent)[];
+
+export type LedgerEventResponse = Pick<LedgerEvent, (typeof ledgerEventResponseFields)[number]>;
+
+export function toLedgerEventResponse(event: LedgerEvent): LedgerEventResponse {
+  return pick(event, ledgerEventResponseFields);
+}
+
+export function toLedgerEventResponses(events: LedgerEvent[]): LedgerEventResponse[] {
+  return events.map(toLedgerEventResponse);
 }
