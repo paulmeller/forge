@@ -500,6 +500,20 @@ export const githubInstallationRepos = sqliteTable(
      * sourced from versioned config when policy-as-code lands.
      */
     repoPolicy: text('repo_policy', { mode: 'json' }).$type<RepoPolicy>(),
+    /**
+     * Whether Forge may dispatch against this repo yet.
+     *
+     * A newly connected repo is `pending_onboarding` until its operator merges
+     * the proposed `.forge/policy.yml` — consent arrives before any agent runs
+     * (#40). Repos connected before this shipped are grandfathered `active` by
+     * the migration: an upgrade must not stop an existing fleet, and those
+     * operators consented by using the product.
+     */
+    onboardingState: text('onboarding_state', { enum: ['pending_onboarding', 'active'] })
+      .notNull()
+      .default('pending_onboarding'),
+    /** The proposal PR, so the repo page can link it and the sweep never opens a second. */
+    onboardingPrUrl: text('onboarding_pr_url'),
     createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
       .default(sql`(unixepoch() * 1000)`),
