@@ -19,6 +19,7 @@ let db: LibSQLDatabase<Record<string, unknown>>;
 let client: { close: () => void };
 let schema: typeof import('@forge/db');
 let retryMission: typeof import('./mission-transitions').retryMission;
+let cancelMission: typeof import('./mission-transitions').cancelMission;
 
 beforeAll(async () => {
   const dbMod = await import('./db');
@@ -28,7 +29,7 @@ beforeAll(async () => {
     migrationsFolder: resolve(__dirname, '../../../../packages/db/migrations'),
   });
   schema = await import('@forge/db');
-  ({ retryMission } = await import('./mission-transitions'));
+  ({ retryMission, cancelMission } = await import('./mission-transitions'));
 });
 
 afterAll(() => {
@@ -165,5 +166,49 @@ describe('retryMission', () => {
     const row = await getTaskRow(taskId);
     expect(row.status).toBe('running');
     expect(row.approvedBy).toBe('u1');
+  });
+});
+
+describe('cancelMission', () => {
+  // Issue #46: cancelMission moved the mission to `cancelled` but never
+  // touched its tasks, so a queued/dispatching/running/turn_ended task kept
+  // its live sessionId and the tick engine kept polling it after the
+  // mission itself was done. Abandoning those tasks here is what the chat
+  // route's cancel_mission tool already did — this closes the drift between
+  // the two callers.
+  it('abandons tasks left in a live (non-terminal, pre-merge) status', async () => {
+    const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    await insertMission(missionId, { status: 'running' });
+
+    const liveTasks = (['queued', 'dispatching', 'running', 'turn_ended'] as const).map(
+      (status) => ({ id: `tsk_${randomUUID().replaceAll('-', '').slice(0, 12)}`, status }),
+    );
+    await Promise.all(
+      liveTasks.map((t) => insertTask(t.id, missionId, { status: t.status, sessionId: 'ses_live' })),
+    );
+
+    await cancelMission(missionId);
+
+    for (const t of liveTasks) {
+      const row = await getTaskRow(t.id);
+      expect(row.status).toBe('abandoned');
+    }
+  });
+
+  it('leaves already-terminal tasks untouched', async () => {
+    const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    await insertMission(missionId, { status: 'running' });
+
+    const terminalTasks = (['merged', 'resolved', 'abandoned', 'failed'] as const).map(
+      (status) => ({ id: `tsk_${randomUUID().replaceAll('-', '').slice(0, 12)}`, status }),
+    );
+    await Promise.all(terminalTasks.map((t) => insertTask(t.id, missionId, { status: t.status })));
+
+    await cancelMission(missionId);
+
+    for (const t of terminalTasks) {
+      const row = await getTaskRow(t.id);
+      expect(row.status).toBe(t.status);
+    }
   });
 });
