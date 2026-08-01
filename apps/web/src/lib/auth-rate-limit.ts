@@ -96,6 +96,21 @@ type ResolveOptions = {
  * guard would 429 the whole auth surface in development. It is not a bypass —
  * better-auth applies the same substitution, so in those environments the
  * limiter is not being skipped either.
+ *
+ * This function mirrors better-auth's PRIVATE `getIp`
+ * (`dist/utils/get-request-ip.mjs`) — there is no public API to call instead.
+ * It is only correct for as long as it matches: if `getIp` ever resolves an
+ * IP this mirror rejects, or rejects one this mirror resolves, the guard and
+ * the limiter disagree on which requests are unlimited, and the gap this file
+ * exists to close reopens silently. Re-read `getIp` against this function on
+ * every better-auth version bump — nothing else will catch a drift.
+ *
+ * One input `getIp` checks before anything else is
+ * `advanced.ipAddress.disableIpTracking`; this mirror has no equivalent
+ * because Forge never sets it. That "never" is pinned by a test rather than
+ * left to convention — auth.test.ts asserts the option stays `undefined`, so
+ * flipping it on fails the build instead of silently disabling rate limiting
+ * router-wide.
  */
 export function resolveRateLimitIp(headers: Headers, options: ResolveOptions = {}): string | null {
   const ipHeaders = options.ipAddressHeaders ?? AUTH_IP_ADDRESS_HEADERS;
