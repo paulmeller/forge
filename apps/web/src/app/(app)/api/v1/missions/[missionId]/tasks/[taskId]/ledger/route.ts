@@ -24,8 +24,9 @@ export const GET = withApiAuth<{ params: Promise<{ missionId: string; taskId: st
     if (!task || task.missionId !== missionId) return notFound('Task');
 
     let limit: number;
+    let cursor: string | undefined;
     try {
-      ({ limit } = schemas['ledger.task'].query.parse(
+      ({ limit, cursor } = schemas['ledger.task'].query.parse(
         Object.fromEntries(new URL(req.url).searchParams),
       ));
     } catch (err) {
@@ -35,6 +36,6 @@ export const GET = withApiAuth<{ params: Promise<{ missionId: string; taskId: st
       throw err;
     }
 
-    return ok({ events: await listLedgerForTask(taskId, limit) });
+    return ok(await listLedgerForTask(taskId, limit, cursor));
   },
 );

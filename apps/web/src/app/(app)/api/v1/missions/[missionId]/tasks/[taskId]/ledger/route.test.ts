@@ -181,4 +181,38 @@ describe('GET /api/v1/missions/[missionId]/tasks/[taskId]/ledger', () => {
 
     expect(res.status).toBe(404);
   });
+
+  it('pages past the limit cap via nextCursor, without repeats or gaps', async () => {
+    await seedMission('m_cursor', 'u1');
+    await seedTask('m_cursor', 't_cursor', 'running');
+    for (let i = 0; i < 3; i++) {
+      await seedLedgerEvent('m_cursor', 't_cursor', `evt_cursor_${i}`, 'task.started', {
+        createdAt: new Date(Date.now() + i * 1000),
+      });
+    }
+    authAs('u1');
+
+    const first = await GET(new Request('http://x?limit=2'), params('m_cursor', 't_cursor'));
+    const firstBody = (await first.json()) as {
+      events: { id: string }[];
+      nextCursor: string | null;
+    };
+    expect(firstBody.events.length).toBe(2);
+    expect(typeof firstBody.nextCursor).toBe('string');
+
+    authAs('u1');
+    const second = await GET(
+      new Request(`http://x?limit=2&cursor=${encodeURIComponent(firstBody.nextCursor!)}`),
+      params('m_cursor', 't_cursor'),
+    );
+    const secondBody = (await second.json()) as {
+      events: { id: string }[];
+      nextCursor: string | null;
+    };
+    expect(secondBody.events.length).toBe(1);
+    expect(secondBody.nextCursor).toBeNull();
+
+    const seenIds = [...firstBody.events, ...secondBody.events].map((e) => e.id);
+    expect(new Set(seenIds).size).toBe(3);
+  });
 });

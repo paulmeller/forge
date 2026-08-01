@@ -23,8 +23,9 @@ export const GET = withApiAuth<{ params: Promise<{ missionId: string }> }>(
     if (!mission) return notFound('Mission');
 
     let limit: number;
+    let cursor: string | undefined;
     try {
-      ({ limit } = schemas['ledger.mission'].query.parse(
+      ({ limit, cursor } = schemas['ledger.mission'].query.parse(
         Object.fromEntries(new URL(req.url).searchParams),
       ));
     } catch (err) {
@@ -34,6 +35,6 @@ export const GET = withApiAuth<{ params: Promise<{ missionId: string }> }>(
       throw err;
     }
 
-    return ok({ events: await listLedgerForMission(missionId, limit) });
+    return ok(await listLedgerForMission(missionId, limit, cursor));
   },
 );

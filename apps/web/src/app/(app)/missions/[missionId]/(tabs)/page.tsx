@@ -32,7 +32,7 @@ export default async function MissionDetailPage({
   if (!mission) notFound();
 
   const tasks = await listTasksForMission(missionId);
-  const [taskRollups, ledger] = await Promise.all([
+  const [taskRollups, { events: ledger }] = await Promise.all([
     rollupTasks(tasks.map((t) => t.id)),
     listLedgerForMission(missionId, 500),
   ]);

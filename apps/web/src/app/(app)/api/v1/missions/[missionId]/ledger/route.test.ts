@@ -142,4 +142,37 @@ describe('GET /api/v1/missions/[missionId]/ledger', () => {
 
     expect(res.status).toBe(404);
   });
+
+  it('pages past the limit cap via nextCursor, without repeats or gaps', async () => {
+    await seedMission('m_cursor', 'u1');
+    for (let i = 0; i < 3; i++) {
+      await seedLedgerEvent('m_cursor', `evt_cursor_${i}`, 'mission.started', {
+        createdAt: new Date(Date.now() + i * 1000),
+      });
+    }
+    authAs('u1');
+
+    const first = await GET(new Request('http://x?limit=2'), params('m_cursor'));
+    const firstBody = (await first.json()) as {
+      events: { id: string }[];
+      nextCursor: string | null;
+    };
+    expect(firstBody.events.length).toBe(2);
+    expect(typeof firstBody.nextCursor).toBe('string');
+
+    authAs('u1');
+    const second = await GET(
+      new Request(`http://x?limit=2&cursor=${encodeURIComponent(firstBody.nextCursor!)}`),
+      params('m_cursor'),
+    );
+    const secondBody = (await second.json()) as {
+      events: { id: string }[];
+      nextCursor: string | null;
+    };
+    expect(secondBody.events.length).toBe(1);
+    expect(secondBody.nextCursor).toBeNull();
+
+    const seenIds = [...firstBody.events, ...secondBody.events].map((e) => e.id);
+    expect(new Set(seenIds).size).toBe(3);
+  });
 });

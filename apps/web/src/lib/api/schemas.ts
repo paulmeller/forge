@@ -76,13 +76,20 @@ export const schemas = {
     method: 'GET',
     path: '/api/v1/missions/{missionId}/ledger',
     params: z.object({ missionId: z.string() }),
-    query: z.object({ limit: z.coerce.number().int().min(1).max(500).default(200) }),
+    // cursor is the opaque nextCursor a previous page returned — see lib/ledger.ts.
+    query: z.object({
+      limit: z.coerce.number().int().min(1).max(500).default(200),
+      cursor: z.string().optional(),
+    }),
   },
   'ledger.task': {
     method: 'GET',
     path: '/api/v1/missions/{missionId}/tasks/{taskId}/ledger',
     params: z.object({ missionId: z.string(), taskId: z.string() }),
-    query: z.object({ limit: z.coerce.number().int().min(1).max(500).default(200) }),
+    query: z.object({
+      limit: z.coerce.number().int().min(1).max(500).default(200),
+      cursor: z.string().optional(),
+    }),
   },
   'repos.list': { method: 'GET', path: '/api/v1/repos' },
   'repos.getPolicy': {
