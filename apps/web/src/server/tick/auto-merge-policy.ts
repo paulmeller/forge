@@ -3,6 +3,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import { missions, type AutoMergePolicy } from '@forge/db';
 
 import { db } from '@/lib/db';
+import { resolveRepoPolicy } from '@/lib/repo-policy';
 
 /**
  * Resolve a Mission's auto-merge policy. Issue-leaf missions are created
@@ -29,11 +30,24 @@ export async function resolveAutoMergePolicy(
       workspaceRepo: missions.workspaceRepo,
       targetRepos: missions.targetRepos,
       userId: missions.userId,
+      githubInstallationId: missions.githubInstallationId,
     })
     .from(missions)
     .where(eq(missions.id, missionId))
     .limit(1);
   if (!row) return null;
+
+  // The policy file, when present, is the whole policy — including
+  // auto-merge (#40). Falling through to the column reads below only when
+  // there is no file keeps one answer to "what is this repo's policy?" —
+  // resolving it two different ways depending on the code path is how #34
+  // happened.
+  const repo = row.workspaceRepo ?? (row.targetRepos?.length === 1 ? row.targetRepos[0]! : null);
+  if (repo) {
+    const resolution = await resolveRepoPolicy(repo, row.githubInstallationId);
+    if (resolution.source === 'file') return resolution.policy.autoMerge;
+    if (resolution.source === 'invalid') return null; // invalid config never merges
+  }
 
   if (row.parentMissionId) {
     const [parent] = await db

@@ -108,6 +108,14 @@ describe('syncRepos', () => {
 
     expect(result).toBeUndefined();
     expect(await connectedRepos(instId)).toEqual(['acme/api', 'acme/widgets']);
+
+    // Connecting a repo does not authorise dispatch (#40) — every newly
+    // written row starts pending_onboarding, not active.
+    const rows = await db
+      .select()
+      .from(schema.githubInstallationRepos)
+      .where(eq(schema.githubInstallationRepos.installationId, instId));
+    expect(rows.every((r) => r.onboardingState === 'pending_onboarding')).toBe(true);
   });
 
   it('removes previously-connected repos that are no longer selected', async () => {

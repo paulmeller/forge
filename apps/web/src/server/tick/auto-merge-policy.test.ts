@@ -2,10 +2,21 @@ import { existsSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { migrate } from 'drizzle-orm/libsql/migrator';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { DEFAULT_POLICY } from '@/lib/policy-file';
 
 import type { AutoMergePolicy } from '@forge/db';
 import type { LibSQLDatabase } from 'drizzle-orm/libsql';
+
+// resolveAutoMergePolicy now consults resolveRepoPolicy for the .forge/
+// policy.yml gate (#40) before it falls through to the column reads below,
+// which this file otherwise exercises against a real migrated libSQL db.
+// Mocking only this one function keeps that db real while keeping the test
+// off the network — resolveRepoPolicy's own file/db/default precedence is
+// covered by resolve-repo-policy.test.ts, not re-tested here.
+const mockResolveRepoPolicy = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/repo-policy', () => ({ resolveRepoPolicy: mockResolveRepoPolicy }));
 
 describe('resolveAutoMergePolicy', () => {
   // Point the real ./db module at a throwaway libSQL file BEFORE it is
@@ -37,6 +48,13 @@ describe('resolveAutoMergePolicy', () => {
     for (const suffix of ['', '-wal', '-shm']) {
       if (existsSync(DB_FILE + suffix)) rmSync(DB_FILE + suffix);
     }
+  });
+
+  beforeEach(() => {
+    // No file, by default — every pre-existing test in this file exercises
+    // the column-based resolution below and expects resolveRepoPolicy to be
+    // a no-op ("no .forge/policy.yml") unless a test says otherwise.
+    mockResolveRepoPolicy.mockReset().mockResolvedValue({ source: 'default', policy: DEFAULT_POLICY });
   });
 
   async function seedMission(over: {
@@ -146,5 +164,32 @@ describe('resolveAutoMergePolicy', () => {
     });
 
     expect(await resolveAutoMergePolicy('m_forge_mention_u1')).toBeNull();
+  });
+
+  it('takes the auto-merge policy from the repo policy file when present', async () => {
+    // One reader, one answer. Before this, policy resolved differently
+    // depending on which code path asked — which is how #34 happened.
+    mockResolveRepoPolicy.mockResolvedValue({
+      source: 'file',
+      policy: { ...DEFAULT_POLICY, autoMerge: { enabled: true, maxAdditions: 5 } },
+    });
+    await seedMission({ id: 'm_file', parentMissionId: null, workspaceRepo: 'acme/widgets' });
+
+    expect(await resolveAutoMergePolicy('m_file')).toEqual({ enabled: true, maxAdditions: 5 });
+  });
+
+  it('yields no auto-merge when the repo policy file is invalid, rather than falling through to columns', async () => {
+    // An invalid file must never merge — falling through to the column
+    // reads below could enable auto-merge the operator never configured via
+    // a file they believe replaced the database entirely.
+    mockResolveRepoPolicy.mockResolvedValue({ source: 'invalid', error: 'autoMerg: unrecognized key' });
+    await seedMission({
+      id: 'm_invalid_file',
+      parentMissionId: null,
+      workspaceRepo: 'acme/widgets',
+      autoMergePolicy: { enabled: true, maxAdditions: 20 },
+    });
+
+    expect(await resolveAutoMergePolicy('m_invalid_file')).toBeNull();
   });
 });
