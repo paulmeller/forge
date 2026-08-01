@@ -2,7 +2,15 @@ import { randomUUID } from 'node:crypto';
 
 import { and, eq, inArray, ne, sql } from 'drizzle-orm';
 
-import { ledgerEvents, missions, tasks, type Mission, type Task, type TaskStatus } from '@forge/db';
+import {
+  githubInstallationRepos,
+  ledgerEvents,
+  missions,
+  tasks,
+  type Mission,
+  type Task,
+  type TaskStatus,
+} from '@forge/db';
 
 import { AdapterNotImplementedError, getAdapter, type BackendAdapter } from './adapters';
 import { fetchAgentsMd } from './agents-md';
@@ -177,9 +185,16 @@ export async function claimNextBatch(mission: Mission, maxSlots?: number): Promi
     .limit(slots * 3); // over-fetch to account for blocked tasks
   if (allQueued.length === 0) return [];
 
-  // Filter out tasks whose dependencies aren't satisfied yet.
+  // Filter out tasks whose dependencies aren't satisfied yet, and tasks whose
+  // repo has not merged its onboarding policy file (#40). A single mission
+  // can target more than one repo (a fleet/campaign mission's tasks aren't
+  // all the same repo), so this is checked per task's own repo rather than
+  // once for the mission — one queued task per line above.
+  const onboardingCache = new Map<string, boolean>();
   const unblocked: string[] = [];
   for (const t of allQueued) {
+    if (!(await repoIsOnboarded(t.repo, mission.githubInstallationId, onboardingCache))) continue;
+
     const depIds = (t.dependsOnIds as string[] | null) ?? [];
     if (depIds.length === 0) {
       unblocked.push(t.id);
@@ -201,6 +216,43 @@ export async function claimNextBatch(mission: Mission, maxSlots?: number): Promi
     .returning();
 
   return claimed;
+}
+
+/**
+ * Consent before action (#40). A repo is not dispatchable until its operator
+ * has merged the proposed `.forge/policy.yml`. This is the only gate: every
+ * dispatch path reaches `claimNextBatch` above, so guarding here cannot be
+ * bypassed by a caller that forgets to check.
+ *
+ * Scoped by `installationId` (the mission's `githubInstallationId`), not repo
+ * alone: `github_installation_repos`' unique index is (installationId, repo),
+ * so two different installations can each legitimately hold a row for the
+ * identical repo string (see repo-policy.ts's `getRepoPolicy` doc comment for
+ * the same rule). No row at all — including no known installation id — means
+ * unaffected, not blocked: a repo connected before the gate shipped is
+ * grandfathered active by the migration and must not be treated as pending.
+ */
+async function repoIsOnboarded(
+  repo: string,
+  installationId: string | null,
+  cache: Map<string, boolean>,
+): Promise<boolean> {
+  const cached = cache.get(repo);
+  if (cached !== undefined) return cached;
+
+  let active = true;
+  if (installationId) {
+    const [repoRow] = await db
+      .select({ state: githubInstallationRepos.onboardingState })
+      .from(githubInstallationRepos)
+      .where(
+        and(eq(githubInstallationRepos.repo, repo), eq(githubInstallationRepos.installationId, installationId)),
+      )
+      .limit(1);
+    active = !repoRow || repoRow.state === 'active';
+  }
+  cache.set(repo, active);
+  return active;
 }
 
 export async function dispatchOne(mission: Mission, task: Task, log?: Logger): Promise<void> {

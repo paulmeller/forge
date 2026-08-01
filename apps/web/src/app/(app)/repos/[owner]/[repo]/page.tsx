@@ -7,7 +7,7 @@ import { RepoBudgetLine } from '@/components/repo-budget-line';
 import { env } from '@/lib/env';
 import { listLedgerForTask } from '@/lib/ledger';
 import { getRepoBudget } from '@/lib/repo-budget';
-import { getRepoPolicyForUser } from '@/lib/repo-policy';
+import { getOnboardingInfoForUser, getRepoPolicyForUser, resolveRepoPolicy } from '@/lib/repo-policy';
 import { countMissionsThisMonth, listTasksTouchingRepo } from '@/lib/repo-activity';
 import { rollupTasks } from '@/lib/rollups';
 import { listTasksForWorkspace } from '@/lib/tasks';
@@ -29,6 +29,52 @@ import { SettingsTab } from './settings-tab';
 import { WorkspaceList } from './workspace-list';
 
 export const dynamic = 'force-dynamic';
+
+export type SettingsOnboardingInfo = {
+  state: 'pending_onboarding' | 'active';
+  prUrl: string | null;
+  hasPolicyFile: boolean;
+  policyFileHref: string | null;
+  /** Set when the file is present but resolveRepoPolicy rejected it — the
+   * parse error the spec requires surfacing here, not just blocking dispatch
+   * silently at tick time. */
+  invalidFileError: string | null;
+};
+
+/**
+ * What the Settings tab needs to show the onboarding gate (#40): the
+ * repo's onboarding state/PR link, and whether `.forge/policy.yml` is
+ * actually present right now (which makes the rest of the form read-only).
+ * `null` means this user has no installation covering the repo at all —
+ * the tab renders as it always has.
+ */
+async function getOnboardingInfo(repo: string, userId: string): Promise<SettingsOnboardingInfo | null> {
+  const row = await getOnboardingInfoForUser(repo, userId);
+  if (!row) return null;
+
+  let hasPolicyFile = false;
+  let invalidFileError: string | null = null;
+  try {
+    const resolution = await resolveRepoPolicy(repo, row.installationId);
+    hasPolicyFile = resolution.source === 'file';
+    if (resolution.source === 'invalid') invalidFileError = resolution.error;
+  } catch {
+    // Could not tell (GitHub error). Render the form as normal rather than
+    // failing the whole page over a transient lookup failure — the tick's
+    // own gate (dispatcher.ts) is the enforcement point, not this render.
+  }
+
+  return {
+    state: row.onboardingState,
+    prUrl: row.onboardingPrUrl,
+    hasPolicyFile,
+    // HEAD resolves to whatever the default branch is at view time — this is
+    // a link for a human to read, not a fetch, so it doesn't need the
+    // default branch name looked up separately.
+    policyFileHref: hasPolicyFile ? `https://github.com/${repo}/blob/HEAD/.forge/policy.yml` : null,
+    invalidFileError,
+  };
+}
 
 export default async function RepoWorkspacePage({
   params,
@@ -164,6 +210,7 @@ export default async function RepoWorkspacePage({
                 selfVerifyEnabled={mission.selfVerifyEnabled}
                 autoMergePolicy={mission.autoMergePolicy as AutoMergePolicy | null}
                 requirePlanApproval={(await getRepoPolicyForUser(repo, user.id)).requirePlanApproval}
+                onboarding={await getOnboardingInfo(repo, user.id)}
               />
             ) : (
               <Empty className="border">

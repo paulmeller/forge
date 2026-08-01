@@ -88,7 +88,17 @@ export async function syncRepos(
 
   for (const repo of toAdd) {
     const id = `ghr_${randomUUID().replaceAll('-', '').slice(0, 20)}`;
-    await db.insert(githubInstallationRepos).values({ id, installationId, repo }).onConflictDoNothing();
+    await db
+      .insert(githubInstallationRepos)
+      .values({
+        id,
+        installationId,
+        repo,
+        // Connecting a repo does not authorise dispatch (#40) — the operator
+        // merges the proposed .forge/policy.yml first.
+        onboardingState: 'pending_onboarding',
+      })
+      .onConflictDoNothing();
   }
   for (const row of toRemove) {
     await db.delete(githubInstallationRepos).where(eq(githubInstallationRepos.id, row.id));

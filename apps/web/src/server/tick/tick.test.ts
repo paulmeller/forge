@@ -17,6 +17,7 @@ function recorder<T extends object>(name: string, result: T) {
 
 const mocks = vi.hoisted(() => ({
   poller: undefined as unknown,
+  onboarding: undefined as unknown,
   guardrails: undefined as unknown,
   ci: undefined as unknown,
   verify: undefined as unknown,
@@ -35,6 +36,14 @@ vi.mock('./poller', () => ({
     eventsIngested: 0,
     transitions: 0,
     errors: 0,
+  })),
+}));
+vi.mock('./onboarding', () => ({
+  runOnboarding: (mocks.onboarding = recorder('onboarding', {
+    reposChecked: 0,
+    prsOpened: 0,
+    activated: 0,
+    regated: 0,
   })),
 }));
 vi.mock('./guardrails', () => ({
@@ -138,6 +147,7 @@ describe('runTick — sub-runner call order', () => {
     await runTick(log);
     expect(callOrder).toEqual([
       'poller',
+      'onboarding',
       'guardrails',
       'ci',
       'verify',

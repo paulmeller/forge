@@ -162,6 +162,13 @@
       "when": 1785506170413,
       "tag": "0022_furry_jimmy_woo",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1785599970035,
+      "tag": "0023_sweet_purple_man",
+      "breakpoints": true
     }
   ]
 }

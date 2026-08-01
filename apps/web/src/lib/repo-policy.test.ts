@@ -22,6 +22,7 @@ let client: { close: () => void };
 let schema: typeof import('@forge/db');
 let getRepoPolicy: typeof import('./repo-policy').getRepoPolicy;
 let getRepoPolicyForUser: typeof import('./repo-policy').getRepoPolicyForUser;
+let getOnboardingInfoForUser: typeof import('./repo-policy').getOnboardingInfoForUser;
 let DEFAULT_REPO_POLICY: typeof import('./repo-policy').DEFAULT_REPO_POLICY;
 
 beforeAll(async () => {
@@ -32,7 +33,8 @@ beforeAll(async () => {
     migrationsFolder: resolve(__dirname, '../../../../packages/db/migrations'),
   });
   schema = await import('@forge/db');
-  ({ getRepoPolicy, getRepoPolicyForUser, DEFAULT_REPO_POLICY } = await import('./repo-policy'));
+  ({ getRepoPolicy, getRepoPolicyForUser, getOnboardingInfoForUser, DEFAULT_REPO_POLICY } =
+    await import('./repo-policy'));
 });
 
 afterAll(() => {
@@ -242,5 +244,64 @@ describe('getRepoPolicyForUser', () => {
   it('gates a repo the user has no installation covering at all', async () => {
     const policy = await getRepoPolicyForUser('nobody/here', 'user_with_nothing');
     expect(policy).toEqual(DEFAULT_REPO_POLICY);
+  });
+});
+
+describe('getOnboardingInfoForUser', () => {
+  async function insertOwnOnboardingRow(
+    userId: string,
+    installationRowId: string,
+    repo: string,
+    onboarding: { onboardingState: 'pending_onboarding' | 'active'; onboardingPrUrl?: string | null },
+  ) {
+    const now = new Date();
+    await db.insert(schema.githubInstallations).values({
+      id: installationRowId,
+      userId,
+      installationId: Math.floor(Math.random() * 1_000_000),
+      accountLogin: repo.split('/')[0] ?? 'acme',
+      accountType: 'Organization',
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.githubInstallationRepos).values({
+      id: `ghr_${installationRowId}`,
+      installationId: installationRowId,
+      repo,
+      onboardingState: onboarding.onboardingState,
+      onboardingPrUrl: onboarding.onboardingPrUrl ?? null,
+      createdAt: now,
+    });
+  }
+
+  it("reads the onboarding state and PR link from the calling user's own installation", async () => {
+    await insertOwnOnboardingRow('user_onboard', 'ghi_user_onboard', 'a/onboard', {
+      onboardingState: 'pending_onboarding',
+      onboardingPrUrl: 'https://github.com/a/onboard/pull/1',
+    });
+
+    const info = await getOnboardingInfoForUser('a/onboard', 'user_onboard');
+
+    expect(info?.onboardingState).toBe('pending_onboarding');
+    expect(info?.onboardingPrUrl).toBe('https://github.com/a/onboard/pull/1');
+  });
+
+  it("never picks up a DIFFERENT user's onboarding row for the identical repo string", async () => {
+    // Same scoping rule as getRepoPolicyForUser (C2) — repo is not a unique
+    // key on its own.
+    const repo = 'shared-name/onboard-scoped';
+    await insertOwnOnboardingRow('user_active', 'ghi_active', repo, { onboardingState: 'active' });
+    await insertOwnOnboardingRow('user_pending', 'ghi_pending', repo, {
+      onboardingState: 'pending_onboarding',
+    });
+
+    expect((await getOnboardingInfoForUser(repo, 'user_active'))?.onboardingState).toBe('active');
+    expect((await getOnboardingInfoForUser(repo, 'user_pending'))?.onboardingState).toBe(
+      'pending_onboarding',
+    );
+  });
+
+  it('returns null for a repo the user has no installation covering at all', async () => {
+    expect(await getOnboardingInfoForUser('nobody/here', 'user_with_nothing')).toBeNull();
   });
 });

@@ -15,6 +15,7 @@ import { parseOptionalNumber } from '@/lib/parse-optional-number';
 
 import type { AutoMergePolicy } from '@forge/db';
 
+import type { SettingsOnboardingInfo } from './page';
 import { updateRepoSettings } from './settings-actions';
 
 export function SettingsTab({
@@ -25,6 +26,7 @@ export function SettingsTab({
   selfVerifyEnabled,
   autoMergePolicy,
   requirePlanApproval,
+  onboarding,
 }: {
   containerId: string;
   concurrencyCap: number;
@@ -33,6 +35,7 @@ export function SettingsTab({
   selfVerifyEnabled: boolean;
   autoMergePolicy: AutoMergePolicy | null;
   requirePlanApproval: boolean;
+  onboarding: SettingsOnboardingInfo | null;
 }) {
   const [cap, setCap] = useState(String(concurrencyCap));
   const [budget, setBudget] = useState(budgetUsd !== null ? String(budgetUsd) : '');
@@ -82,9 +85,38 @@ export function SettingsTab({
     });
   }
 
+  // A merged .forge/policy.yml is now the whole policy for this repo (#40) —
+  // the Settings page shows it read-only rather than a form whose Save would
+  // silently write to a database column the file no longer governs.
+  const readOnly = onboarding?.hasPolicyFile ?? false;
+
   return (
     <Card className="max-w-md">
       <CardContent className="p-6">
+        {onboarding?.state === 'pending_onboarding' ? (
+          <FieldDescription className="mb-4 rounded-md border border-dashed p-3">
+            Forge will not run here until this pull request is merged.
+            {onboarding.prUrl ? (
+              <>
+                {' '}
+                <a
+                  href={onboarding.prUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline underline-offset-2"
+                >
+                  View the proposed policy
+                </a>
+              </>
+            ) : null}
+          </FieldDescription>
+        ) : null}
+        {onboarding?.invalidFileError ? (
+          <FieldDescription className="mb-4 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-destructive">
+            .forge/policy.yml could not be read: {onboarding.invalidFileError}. Dispatch is blocked
+            until this is fixed — it never falls back to these settings.
+          </FieldDescription>
+        ) : null}
         <FieldGroup>
           <Field>
             <FieldLabel htmlFor="concurrencyCap">Concurrency cap</FieldLabel>
@@ -95,6 +127,7 @@ export function SettingsTab({
               max={100}
               value={cap}
               onChange={(e) => setCap(e.target.value)}
+              disabled={readOnly}
             />
             <FieldDescription>
               Max issues this repo works at once, across all its issue missions.
@@ -109,6 +142,7 @@ export function SettingsTab({
               placeholder="No cap"
               value={budget}
               onChange={(e) => setBudget(e.target.value)}
+              disabled={readOnly}
             />
           </Field>
           <Field orientation="horizontal">
@@ -116,6 +150,7 @@ export function SettingsTab({
               id="aiReviewEnabled"
               checked={aiReview}
               onCheckedChange={(checked) => setAiReview(checked === true)}
+              disabled={readOnly}
             />
             <FieldLabel htmlFor="aiReviewEnabled" className="font-normal">
               AI review gate
@@ -126,6 +161,7 @@ export function SettingsTab({
               id="selfVerifyEnabled"
               checked={selfVerify}
               onCheckedChange={(checked) => setSelfVerify(checked === true)}
+              disabled={readOnly}
             />
             <FieldLabel htmlFor="selfVerifyEnabled" className="font-normal">
               Self-verify gate
@@ -136,6 +172,7 @@ export function SettingsTab({
               id="amEnabled"
               checked={amEnabled}
               onCheckedChange={(checked) => setAmEnabled(checked === true)}
+              disabled={readOnly}
             />
             <FieldLabel htmlFor="amEnabled" className="font-normal">
               Auto-merge
@@ -150,6 +187,7 @@ export function SettingsTab({
               placeholder="No cap"
               value={maxAdd}
               onChange={(e) => setMaxAdd(e.target.value)}
+              disabled={readOnly}
             />
           </Field>
           <Field>
@@ -161,6 +199,7 @@ export function SettingsTab({
               placeholder="No cap"
               value={maxDel}
               onChange={(e) => setMaxDel(e.target.value)}
+              disabled={readOnly}
             />
           </Field>
           <Field>
@@ -172,6 +211,7 @@ export function SettingsTab({
               placeholder="No cap"
               value={maxFiles}
               onChange={(e) => setMaxFiles(e.target.value)}
+              disabled={readOnly}
             />
           </Field>
           <Field>
@@ -182,6 +222,7 @@ export function SettingsTab({
               placeholder="One check name per line"
               value={checks}
               onChange={(e) => setChecks(e.target.value)}
+              disabled={readOnly}
             />
             <FieldDescription>
               Blocks the merge unless the branch actually requires each of these. Leave blank to
@@ -196,6 +237,7 @@ export function SettingsTab({
               placeholder="One glob per line, e.g. docs/**"
               value={paths}
               onChange={(e) => setPaths(e.target.value)}
+              disabled={readOnly}
             />
             <FieldDescription>Blank means any path may change.</FieldDescription>
           </Field>
@@ -204,6 +246,7 @@ export function SettingsTab({
               id="requireApproval"
               checked={requireApproval}
               onCheckedChange={(checked) => setRequireApproval(checked === true)}
+              disabled={readOnly}
             />
             <FieldLabel htmlFor="requireApproval" className="font-normal">
               Require human approval
@@ -218,6 +261,7 @@ export function SettingsTab({
               id="planApproval"
               checked={planApproval}
               onCheckedChange={(checked) => setPlanApproval(checked === true)}
+              disabled={readOnly}
             />
             <FieldLabel htmlFor="planApproval" className="font-normal">
               Require plan approval for @forge
@@ -227,17 +271,34 @@ export function SettingsTab({
             When on, an @forge comment produces a plan you approve before any agent starts.
           </FieldDescription>
           <Field orientation="horizontal">
-            <Button onClick={handleSave} disabled={pending} size="sm">
-              {pending ? <Spinner data-icon="inline-start" /> : null}
-              Save
-            </Button>
-            {message ? (
-              <FieldDescription
-                className={message.kind === 'error' ? 'text-destructive' : undefined}
-              >
-                {message.text}
+            {readOnly ? (
+              <FieldDescription>
+                Policy is set by{' '}
+                <a
+                  href={onboarding!.policyFileHref!}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline underline-offset-2"
+                >
+                  .forge/policy.yml
+                </a>{' '}
+                in this repo. Change policy by editing that file.
               </FieldDescription>
-            ) : null}
+            ) : (
+              <>
+                <Button onClick={handleSave} disabled={pending} size="sm">
+                  {pending ? <Spinner data-icon="inline-start" /> : null}
+                  Save
+                </Button>
+                {message ? (
+                  <FieldDescription
+                    className={message.kind === 'error' ? 'text-destructive' : undefined}
+                  >
+                    {message.text}
+                  </FieldDescription>
+                ) : null}
+              </>
+            )}
           </Field>
         </FieldGroup>
       </CardContent>

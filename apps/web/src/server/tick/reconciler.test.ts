@@ -23,6 +23,14 @@ vi.mock('@octokit/rest', () => ({
   Octokit: vi.fn(() => ({ pulls: { get: reconOctokitMocks.pullsGet } })),
 }));
 
+// resolveAutoMergePolicy (called via runReconciler's standing-mission check)
+// now consults resolveRepoPolicy for the .forge/policy.yml gate (#40) before
+// falling through to the column reads this file exercises. None of these
+// tests are about that file, so it's mocked to "no file" — same idiom as
+// auto-merge-policy.test.ts — keeping this suite off the network.
+const mockResolveRepoPolicy = vi.hoisted(() => vi.fn(async () => ({ source: 'default', policy: {} })));
+vi.mock('@/lib/repo-policy', () => ({ resolveRepoPolicy: mockResolveRepoPolicy }));
+
 describe('MISSION_TERMINAL_TASK_STATUSES', () => {
   it('includes merged as terminal', () => {
     expect(MISSION_TERMINAL_TASK_STATUSES).toContain('merged');
