@@ -9,6 +9,7 @@ import { getAdapter } from './adapters';
 import { decideCiRetry } from './ci-retry';
 import { db } from '@/lib/db';
 import { env } from '@/lib/env';
+import { CI_RETRY_PROMPT_PREFIX } from '@/lib/forge-message-markers';
 import { resolveGateFlags } from './gate-flags';
 import { postCiStatus } from './gates';
 
@@ -37,10 +38,24 @@ function client(): Octokit {
 }
 
 export async function runCiPoller(log: Logger): Promise<CiResult> {
+  // #82: a cancelled (or paused) mission's Task can be sitting in awaiting_ci
+  // — cancelMission's abandon set only covers queued/dispatching/running/
+  // turn_ended, not the gate states. Joining on mission status here (rather
+  // than selecting all awaiting_ci rows and filtering after) stops us from
+  // polling CI and dispatching retry-with-feedback turns for work the
+  // operator already stopped.
   const awaiting = await db
-    .select()
+    .select({ task: tasks })
     .from(tasks)
-    .where(and(eq(tasks.status, 'awaiting_ci'), isNotNull(tasks.prUrl)));
+    .innerJoin(missions, eq(missions.id, tasks.missionId))
+    .where(
+      and(
+        eq(tasks.status, 'awaiting_ci'),
+        isNotNull(tasks.prUrl),
+        eq(missions.status, 'running'),
+      ),
+    )
+    .then((rows) => rows.map((r) => r.task));
 
   let review = 0;
   let failed = 0;
@@ -217,7 +232,7 @@ export function buildRetryPrompt(sha: string, failedChecks: FailedCheck[]): stri
     })
     .join('\n');
 
-  return `CI failed on the PR you opened. Sha: ${sha}.\n\nFailing checks:\n${summary}\n\nPlease investigate the logs at the linked URLs (use the github MCP get_workflow_run_logs tool if available, otherwise read the linked details), fix the issue on the same branch, and push the fix. Reply when done.`;
+  return `${CI_RETRY_PROMPT_PREFIX} Sha: ${sha}.\n\nFailing checks:\n${summary}\n\nPlease investigate the logs at the linked URLs (use the github MCP get_workflow_run_logs tool if available, otherwise read the linked details), fix the issue on the same branch, and push the fix. Reply when done.`;
 }
 
 /**
