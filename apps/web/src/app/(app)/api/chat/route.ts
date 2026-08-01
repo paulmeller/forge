@@ -19,6 +19,7 @@ import {
 
 import { db } from '@/lib/db';
 import { env } from '@/lib/env';
+import { MissionTransitionError, cancelMission } from '@/lib/mission-transitions';
 import { withAuth } from '@/lib/with-auth';
 import { REPO_LOCATION_HINT } from '@/lib/repo-hint';
 import { rejectCrossSite } from '@/lib/same-origin';
@@ -266,22 +267,15 @@ export async function POST(req: Request) {
           const mission = rows[0];
 
           if (!mission) return { error: 'Mission not found' };
-          if (mission.status !== 'running' && mission.status !== 'paused') {
-            return { error: `Cannot cancel mission in "${mission.status}" status` };
+
+          try {
+            await cancelMission(missionId);
+          } catch (err) {
+            if (err instanceof MissionTransitionError && err.code === 'WRONG_STATUS') {
+              return { error: `Cannot cancel mission in "${mission.status}" status` };
+            }
+            throw err;
           }
-
-          const now = new Date();
-          await db
-            .update(missions)
-            .set({ status: 'cancelled', updatedAt: now, completedAt: now })
-            .where(sql`${missions.id} = ${missionId} AND ${missions.userId} = ${userId}`);
-
-          await db
-            .update(tasks)
-            .set({ status: 'abandoned', updatedAt: now, completedAt: now })
-            .where(
-              sql`${tasks.missionId} = ${missionId} AND ${tasks.status} IN ('queued', 'dispatching', 'running', 'turn_ended')`,
-            );
 
           return { cancelled: true, missionId };
         },

@@ -75,8 +75,48 @@ export async function cancelMission(missionId: string): Promise<Mission> {
     );
   }
 
-  return transitionMission(missionId, current.status, 'cancelled', 'mission.cancelled', {
-    completedAt: new Date(),
+  const now = new Date();
+
+  return db.transaction(async (tx) => {
+    const [updated] = await tx
+      .update(missions)
+      .set({ status: 'cancelled', completedAt: now, updatedAt: now })
+      .where(and(eq(missions.id, missionId), eq(missions.status, current.status)))
+      .returning();
+
+    if (!updated) {
+      const [row] = await tx.select().from(missions).where(eq(missions.id, missionId)).limit(1);
+      if (!row) throw new MissionTransitionError('mission not found', 'NOT_FOUND');
+      throw new MissionTransitionError(
+        `expected mission in ${current.status}, got ${row.status}`,
+        'WRONG_STATUS',
+      );
+    }
+
+    await tx.insert(ledgerEvents).values({
+      id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
+      missionId: updated.id,
+      eventType: 'mission.cancelled',
+      payload: { from: current.status, to: 'cancelled' },
+      createdAt: now,
+    });
+
+    // A cancelled mission's tasks must stop being live work, not just the
+    // mission record — otherwise the tick keeps polling their sessionIds
+    // (queued/dispatching/running/turn_ended) after the mission itself is
+    // done. Mirrors the chat route's cancel_mission tool, which is what
+    // this was drifting from.
+    await tx
+      .update(tasks)
+      .set({ status: 'abandoned', completedAt: now, updatedAt: now })
+      .where(
+        and(
+          eq(tasks.missionId, missionId),
+          inArray(tasks.status, ['queued', 'dispatching', 'running', 'turn_ended']),
+        ),
+      );
+
+    return updated;
   });
 }
 
