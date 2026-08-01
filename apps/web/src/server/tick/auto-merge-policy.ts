@@ -28,6 +28,7 @@ export async function resolveAutoMergePolicy(
       parentMissionId: missions.parentMissionId,
       workspaceRepo: missions.workspaceRepo,
       targetRepos: missions.targetRepos,
+      userId: missions.userId,
     })
     .from(missions)
     .where(eq(missions.id, missionId))
@@ -55,6 +56,13 @@ export async function resolveAutoMergePolicy(
       .from(missions)
       .where(
         and(
+          // Scoped to the SAME OWNER. Unlike the parentMissionId path above —
+          // a direct reference the mission already holds — this finds a
+          // container by repo NAME, which two different users can both have
+          // for the same repo. Without this filter an @forge mission could
+          // inherit a stranger's auto-merge policy and merge on a setting its
+          // own owner never enabled.
+          eq(missions.userId, row.userId),
           eq(missions.workspaceRepo, row.targetRepos[0]!),
           isNull(missions.issueRef),
           isNull(missions.parentMissionId),

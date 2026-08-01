@@ -46,12 +46,13 @@ describe('resolveAutoMergePolicy', () => {
     workspaceRepo?: string | null;
     issueRef?: string | null;
     targetRepos?: string[] | null;
+    userId?: string;
   }) {
     const now = new Date();
-    const { id, parentMissionId = null, autoMergePolicy = null, ...rest } = over;
+    const { id, parentMissionId = null, autoMergePolicy = null, userId = 'user_1', ...rest } = over;
     await db.insert(schema.missions).values({
       id,
-      userId: 'user_1',
+      userId,
       name: 'Test mission',
       goal: 'test',
       status: 'running',
@@ -120,5 +121,30 @@ describe('resolveAutoMergePolicy', () => {
       autoMergePolicy: null,
     });
     expect(await resolveAutoMergePolicy('m_forge_mention')).toEqual({ enabled: true, maxAdditions: 20 });
+  });
+
+  it("does not inherit another user's container policy for the same repo", async () => {
+    // The by-repo-name lookup above can match a container belonging to a
+    // DIFFERENT user — two accounts can both connect the same GitHub repo.
+    // Unlike the parentMissionId path, which follows a reference the mission
+    // already holds, this one is name-based and so must be owner-scoped:
+    // auto-merge is the highest-stakes policy in the product and must never be
+    // enabled by a stranger's configuration.
+    await seedMission({
+      id: 'm_other_users_container',
+      userId: 'user_other',
+      parentMissionId: null,
+      workspaceRepo: 'acme/gadgets',
+      autoMergePolicy: { enabled: true, maxAdditions: 20 },
+    });
+    await seedMission({
+      id: 'm_forge_mention_u1',
+      parentMissionId: null,
+      workspaceRepo: null,
+      targetRepos: ['acme/gadgets'],
+      autoMergePolicy: null,
+    });
+
+    expect(await resolveAutoMergePolicy('m_forge_mention_u1')).toBeNull();
   });
 });
