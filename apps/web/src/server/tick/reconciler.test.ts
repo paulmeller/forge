@@ -261,6 +261,46 @@ describe('runReconciler — standing mission exemption', () => {
     expect((await getMission(missionId))!.status).toBe('completed');
   });
 
+  // Cost report surface (#72): the tick's mission-completion event is the
+  // "tick summary" home for a Mission's cost — so "what did that fix cost?"
+  // is answerable from the Ledger without a manual SUM query.
+  it('records a cost summary on the mission.completed ledger event', async () => {
+    const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    await insertMission(missionId, {
+      workspaceRepo: 'acme/api',
+      issueRef: 'acme/api#11',
+      parentMissionId: null,
+      autoMergePolicy: null,
+    });
+
+    const taskId = `tsk_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const now = new Date();
+    await db.insert(schema.tasks).values({
+      id: taskId,
+      missionId,
+      repo: 'acme/api',
+      baseBranch: 'main',
+      kind: 'fix',
+      status: 'merged',
+      costTokens: 1_000_000,
+      createdAt: now,
+      updatedAt: now,
+      completedAt: now,
+    });
+
+    await runReconciler(noopLog);
+
+    const [event] = await db
+      .select()
+      .from(schema.ledgerEvents)
+      .where(eq(schema.ledgerEvents.missionId, missionId))
+      .orderBy(schema.ledgerEvents.createdAt);
+    expect(event!.eventType).toBe('mission.completed');
+    expect(event!.payload).toMatchObject({
+      cost: { totalTokens: 1_000_000, tokensPerMergedTask: 1_000_000 },
+    });
+  });
+
   // Mirror of the test above with the opposite precondition: an ENABLED
   // auto-merge policy means runAutoMerge (and, once armed, the merging
   // sweep) are expected to resolve this Task soon — the mission must stay

@@ -12,6 +12,7 @@ import {
   type TaskStatus,
 } from '@forge/db';
 
+import { loadMissionCost } from '@/lib/cost-report';
 import { db } from '@/lib/db';
 import { env } from '@/lib/env';
 import { getAdapter } from './adapters';
@@ -1050,6 +1051,10 @@ async function completeMission(mission: Mission): Promise<void> {
     .from(tasks)
     .where(eq(tasks.missionId, mission.id));
 
+  // Factory economics (#72): the tick's own record of what this run cost —
+  // "what did that fix cost?" answerable from the Ledger, no SQL required.
+  const cost = await loadMissionCost(mission.id);
+
   await db.insert(ledgerEvents).values({
     id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
     missionId: mission.id,
@@ -1059,6 +1064,11 @@ async function completeMission(mission: Mission): Promise<void> {
       needsHuman: Number(counts?.needsHuman ?? 0),
       abandoned: Number(counts?.abandoned ?? 0),
       failed: Number(counts?.failed ?? 0),
+      cost: {
+        totalTokens: cost.totalTokens,
+        totalToolCalls: cost.totalToolCalls,
+        tokensPerMergedTask: cost.tokensPerMergedTask,
+      },
     },
     createdAt: now,
   });
