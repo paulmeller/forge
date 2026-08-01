@@ -6,6 +6,8 @@ import { Empty, EmptyContent, EmptyHeader, EmptyTitle } from '@/components/ui/em
 import { BudgetGauge } from '@/components/budget-gauge';
 import { TaskCard } from '@/components/task-card';
 import { TemplateText } from '@/components/template-text';
+import { loadMissionCost } from '@/lib/cost-report';
+import { formatTokens } from '@/lib/format';
 import { listLedgerForMission } from '@/lib/ledger';
 import { getMission } from '@/lib/missions';
 import { getSkill, getSkillBySlug } from '@/lib/skills';
@@ -32,9 +34,10 @@ export default async function MissionDetailPage({
   if (!mission) notFound();
 
   const tasks = await listTasksForMission(missionId);
-  const [taskRollups, { events: ledger }] = await Promise.all([
+  const [taskRollups, { events: ledger }, cost] = await Promise.all([
     rollupTasks(tasks.map((t) => t.id)),
     listLedgerForMission(missionId, 500),
+    loadMissionCost(missionId),
   ]);
 
   const skill = mission.skillId ? await getSkill(mission.skillId) : null;
@@ -121,6 +124,26 @@ export default async function MissionDetailPage({
                   spentTokens={mission.spentTokens}
                   budgetTokens={mission.budgetTokens}
                   thresholdPct={mission.budgetThresholdPct}
+                />
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Cost</CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-1 text-xs">
+                <Row label="Tokens" value={formatTokens(cost.totalTokens)} />
+                <Row label="Tool calls" value={cost.totalToolCalls} />
+                <Row
+                  label="Diff lines"
+                  value={cost.tasks.reduce((n, t) => n + t.diffLines, 0)}
+                />
+                <Row
+                  label="Tokens / merged Task"
+                  value={
+                    cost.tokensPerMergedTask === null ? '—' : formatTokens(cost.tokensPerMergedTask)
+                  }
                 />
               </CardContent>
             </Card>
