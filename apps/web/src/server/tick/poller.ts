@@ -7,6 +7,7 @@ import { ledgerEvents, missions, tasks, type Task, type TaskStatus } from '@forg
 import { getAdapter } from './adapters';
 import type { BackendAdapter, BackendEvent } from './adapters/types';
 import { db } from '@/lib/db';
+import { isPreAgentFailure, requeueOrAbandon } from './provision-retry';
 import { transition, type StateTransition } from './state';
 
 /**
@@ -52,7 +53,7 @@ export async function runPoller(log: Logger): Promise<PollResult> {
 
   for (const task of active) {
     try {
-      const result = await pollOne(task);
+      const result = await pollOne(task, log);
       eventsIngested += result.eventsIngested;
       transitions += result.transitions;
     } catch (err) {
@@ -67,7 +68,10 @@ export async function runPoller(log: Logger): Promise<PollResult> {
   return { tasksPolled: active.length, eventsIngested, transitions, errors };
 }
 
-async function pollOne(task: Task): Promise<{ eventsIngested: number; transitions: number }> {
+async function pollOne(
+  task: Task,
+  log: Logger,
+): Promise<{ eventsIngested: number; transitions: number }> {
   if (!task.sessionId) return { eventsIngested: 0, transitions: 0 };
 
   const [mission] = await db
@@ -106,6 +110,23 @@ async function pollOne(task: Task): Promise<{ eventsIngested: number; transition
   const ingested = newEvents.length;
 
   const { pendingDelta, turnsCompleted, transitionCount } = reduceEvents(task.status, newEvents);
+
+  // A session that died before the agent's first turn — zero tokens spent,
+  // a bootstrap/setup/clone error shape (readErrorMessage's session.error
+  // text, or managed-agents.ts's enriched provisioning message) — is a
+  // provisioning failure, not an agent failure. The abandoned/failed
+  // transition below is permanent and cascade-fails the dependent Task with
+  // it, which is wrong for a session that never ran (#92): requeue it with
+  // bounded, doubling backoff instead.
+  const isTerminalFailure = pendingDelta.status === 'abandoned' || pendingDelta.status === 'failed';
+  if (isTerminalFailure) {
+    const tokensSoFar = task.costTokens + (pendingDelta.costTokensDelta ?? 0);
+    if (isPreAgentFailure(pendingDelta.lastError, tokensSoFar)) {
+      await requeueOrAbandon(task, pendingDelta.lastError ?? 'provisioning failure', log);
+      await maybeAutoConfirm(task, adapter, events);
+      return { eventsIngested: ingested, transitions: transitionCount };
+    }
+  }
 
   if (hasAnyDelta(pendingDelta) || turnsCompleted > 0) {
     await applyDelta(task, pendingDelta, turnsCompleted);

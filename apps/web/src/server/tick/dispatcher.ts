@@ -21,6 +21,7 @@ import { getRelevantMemories, formatMemoriesForPrompt } from './memory';
 import { renderOwnedVars, renderPrompt } from './prompt';
 import { getSkill, getSkillBySlug } from './skill-loader';
 import { forgeBranchName } from './branch-name';
+import { requeueOrAbandon, shouldWaitForProvisionBackoff } from './provision-retry';
 
 type Logger = { warn: (o: object, m?: string) => void };
 
@@ -106,6 +107,18 @@ export async function runDispatcher(log: {
     if (claimed.length === 0) continue;
 
     for (const task of claimed) {
+      // A Task that already failed provisioning once sits out its doubling
+      // backoff window rather than burning another createSession call on a
+      // host that may still be unhealthy (#92) — revert the claim, don't
+      // dispatch, and let a later tick pick it back up once the delay elapses.
+      if (await shouldWaitForProvisionBackoff(task.id, new Date())) {
+        await db
+          .update(tasks)
+          .set({ status: 'queued', updatedAt: new Date() })
+          .where(eq(tasks.id, task.id));
+        continue;
+      }
+
       try {
         await dispatchOne(mission, task, log);
         totalDispatched += 1;
@@ -113,7 +126,7 @@ export async function runDispatcher(log: {
         totalFailed += 1;
         const message = err instanceof Error ? err.message : String(err);
         log.error({ taskId: task.id, err: message }, 'dispatch:failed');
-        await markFailed(task.id, message);
+        await requeueOrAbandon(task, message, log);
       }
     }
   }
@@ -511,22 +524,4 @@ async function checkAgentContract(
         violations.map((v) => v.rule).join(', '),
     );
   }
-}
-
-async function markFailed(taskId: string, reason: string): Promise<void> {
-  const now = new Date();
-  await db
-    .update(tasks)
-    .set({ status: 'failed', lastError: reason, updatedAt: now, completedAt: now })
-    .where(eq(tasks.id, taskId));
-  await db.insert(ledgerEvents).values({
-    id: `lev_${randomUUID().replaceAll('-', '').slice(0, 20)}`,
-    missionId:
-      (await db.select({ id: tasks.missionId }).from(tasks).where(eq(tasks.id, taskId)))[0]?.id ??
-      '',
-    taskId,
-    eventType: 'dispatcher.failed',
-    payload: { reason },
-    createdAt: now,
-  });
 }
