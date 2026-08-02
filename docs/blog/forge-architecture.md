@@ -78,16 +78,18 @@ Forge has no message queue and no worker pool. It has a single idempotent
 function that runs every sixty seconds and moves whatever is ready to move.
 
 ```
-poller      ingest backend events, advance task state
-guardrails  halt runaway tasks (turns, tokens, no-progress)
-ci          check PR status; feed failures back to the agent
-verify      self-verification against acceptance criteria
-ai-review   independent review of the diff
-auto-merge  merge what has passed every enabled gate
-budgets     pause or hard-stop missions over budget
-reconciler  open PRs, settle finished work, escalate stalls
-dispatcher  claim queued tasks and start agent sessions
-memory      expire stale memories
+poller       ingest backend events, advance task state
+onboarding   propose the policy file; gate repos that have not consented
+guardrails   halt runaway tasks (turns, tokens, no-progress)
+ci           check PR status; feed failures back to the agent
+verify       self-verification against acceptance criteria
+ai-review    independent review of the diff
+auto-merge   merge what has passed every enabled gate
+budgets      pause or hard-stop missions over budget
+reconciler   open PRs, settle finished work, escalate stalls
+dispatcher   claim queued tasks and start agent sessions
+memory       expire stale memories
+device-codes sweep expired device-authorization codes
 ```
 
 Order is deliberate. The poller runs first so every later stage sees this tick's
@@ -141,15 +143,55 @@ approval covered — an approval is for a specific diff at a specific SHA, not a
 standing permission.
 
 Between the gates sits the reconciler, which handles everything that does not fit
-a clean path: opening pull requests for agents that pushed a branch but could not
-open one themselves, settling reproduce tasks by verdict, escalating work wedged
-in a gate, and reclaiming pushed commits that would otherwise be orphaned.
+a clean path: opening the pull request once an agent has pushed, settling
+reproduce tasks by verdict, escalating work wedged in a gate, settling tasks
+whose pull requests a human merged outside Forge, and recovering work from
+sessions that ended badly.
 
-One rule governs all of it: **Forge only ever claims a branch the task actually
-produced.** A discovered branch is adopted only if its head commit is newer than
-the task's dispatch. Without that constraint, "find the branch the agent pushed"
-degrades into "find any branch," which is how a task ends up attached to work it
-never did.
+One rule governs all of it: **Forge names the branch, so finding an agent's work
+is a lookup, not a search.** Each task is assigned `forge/<taskId>` at dispatch;
+the agent commits and pushes there, and Forge opens the pull request. Nothing in
+the production code lists branches and guesses which one belongs to a task.
+
+That constraint replaced an earlier design that discovered branches by name
+pattern and adopted one if its head commit was newer than the task's dispatch.
+The heuristic was reasonable and wrong: it once attached a task to a six-week-old
+branch belonging to someone else. Provenance you infer is provenance you can get
+wrong; provenance you *assign* is not a question at all.
+
+The same principle runs in the other direction, and it is the rule that has saved
+the most real work: **before Forge abandons, halts, or escalates a task, it asks
+GitHub whether that task's branch exists.** Work that exists outranks any
+inference that it doesn't. And a failed lookup is not a negative answer — a 404
+means the branch is absent, but a timeout or a 500 means Forge could not tell,
+and could-not-tell is never treated as no. It retries on the next tick instead.
+An earlier version got this wrong and destroyed 488 lines of correct, pushed work
+because a task had ended without emitting the verdict the pipeline expected.
+
+---
+
+## Consent
+
+A system that can push code to repositories needs an answer to a question that
+precedes every gate: who said it could work here at all?
+
+Forge's answer is a file. On first sight of a repository, it opens one small pull
+request adding `.forge/policy.yml` — the gate settings, the auto-merge switch
+(off), the budgets. Until that pull request is merged, the dispatcher will not
+claim a single task for that repository. **Merging it is the consent.** There is
+no second switch to flip, no settings page that can disagree with it: while the
+file exists it is the whole policy, and the console shows those values read-only.
+
+Deleting the file gates the repository again. That falls out of the same
+principle rather than being a special case — the thing that authorised autonomous
+work is gone, so autonomous work stops.
+
+Two failure modes shaped the details. A malformed policy file **blocks** dispatch
+and surfaces the parse error; it never falls back to defaults, because silently
+substituting a policy nobody wrote is how a repository ends up governed by
+settings its owner never agreed to. And the file the onboarding pull request
+proposes is round-tripped through the parser in a test: the policy Forge writes
+must be a policy Forge accepts.
 
 ---
 
@@ -159,19 +201,32 @@ Forge does not run agents. It drives them through a narrow adapter interface:
 
 ```ts
 interface BackendAdapter {
+  readonly kind: BackendKind;
   createSession(input: CreateSessionInput): Promise<CreateSessionResult>;
   sendTurn(input: SendTurnInput): Promise<SendTurnResult>;
   listEvents(input: ListEventsInput): Promise<ListEventsResult>;
+  streamEvents(sessionId: string): Promise<Response>;
   getSession(sessionId: string): Promise<GetSessionResult>;
+  getAgentInstructions(agentId: string): Promise<string | null>;
   cancelSession(sessionId: string): Promise<void>;
   confirmToolUse(...): Promise<void>;
 }
 ```
 
-Six methods. Three implementations today: Claude Managed Agents, a
+Eight methods. Three implementations today: Claude Managed Agents, a
 gateway backend, and Gemini. Each normalises its own event vocabulary into
 Forge's, so the pipeline above is written once and works regardless of which
 engine produced the events.
+
+Two of those methods may legitimately be unsupported — a backend with no
+streaming endpoint or no retrievable agent record throws a distinct
+`AdapterNotImplementedError`, and callers must treat that as *unavailable*
+rather than as a clean answer. `getAgentInstructions` exists because the agent
+record lives outside Forge's control and has drifted out of step with it before:
+a repository's `AGENTS.md` said "push your work", the agent's own configured
+instructions said "push nothing", the agent obeyed the instructions it was built
+with, and a finished fix was lost. Forge now reads those instructions at dispatch
+and records a warning when they contradict the contract it relies on.
 
 Forge is the puller, not the push target. It polls sessions rather than
 receiving webhooks from them, which means a backend that goes away mid-session
@@ -243,15 +298,29 @@ The clearest demonstration is Forge operating on its own repository.
 An operator creates a mission through the API against a GitHub issue. The
 dispatcher claims it and starts a sandboxed session with the repository cloned
 and a git identity already configured. The agent reads the issue, writes the
-change, commits, and pushes a branch. The reconciler opens the pull request. CI
-runs. The task sits at `awaiting_ci` until the checks complete, then moves to
-whichever gate the repository's policy specifies.
+change, commits, and pushes to `forge/<taskId>`. The reconciler opens the pull
+request. CI runs. The task sits at `awaiting_ci` until the checks complete, then
+moves to whichever gate the repository's policy specifies.
 
 Start to pull request: about four and a half minutes.
 
-The resulting change was a test pinning an assumption that a rate-limiting helper
-mirrors from an upstream library, plus a comment documenting the coupling — the
-work the issue asked for, in the two files it named.
+A more recent run is a better illustration, because the bug was Forge's own. A
+review of the schema found that deleting a task cascaded into the ledger — the
+audit trail could be erased by deleting the thing it recorded, which is a poor
+property for a system whose pitch is auditability. The issue was filed with the
+decision left open: preserve the history, or narrow the promise.
+
+The operator chose preserve, wrote that decision on the issue, and dispatched it.
+The agent changed the foreign key to `set null`, generated the migration, and
+wrote a regression test that deletes a task through the same function the product
+uses and asserts the ledger row survives. CI passed. The gates passed. A human
+merged it. Thirty-one tool calls, about fifteen minutes, roughly two dollars.
+
+Two of the three dispatch attempts that morning failed before the agent ever
+started — one on a stale configuration id, one on a sandbox that died mid-turn.
+Both cost zero tokens, both were retried automatically, and both left an honest
+record: a completed mission with a failure count and no spend. That is the part
+worth showing. A fleet that only works when nothing goes wrong is a demo.
 
 ---
 
