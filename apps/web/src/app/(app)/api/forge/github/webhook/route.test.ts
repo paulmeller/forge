@@ -764,7 +764,7 @@ describe('POST /api/forge/github/webhook — issue_comment delivery dedupe (#41)
   it('replaying the same X-GitHub-Delivery twice creates exactly one Mission', async () => {
     const commentPayload = {
       action: 'created',
-      comment: { body: '@forge fix the flaky test' },
+      comment: { body: '@forge fix the flaky test', author_association: 'OWNER' },
       issue: { number: 41 },
       repository: { full_name: 'acme/dedupe-repo', default_branch: 'main' },
       sender: { login: 'octocat' },
@@ -796,7 +796,7 @@ describe('POST /api/forge/github/webhook — issue_comment delivery dedupe (#41)
   it('a genuinely different delivery for the same comment still dispatches its own Mission', async () => {
     const commentPayload = {
       action: 'created',
-      comment: { body: '@forge fix the other flaky test' },
+      comment: { body: '@forge fix the other flaky test', author_association: 'OWNER' },
       issue: { number: 42 },
       repository: { full_name: 'acme/two-comments-repo', default_branch: 'main' },
       sender: { login: 'octocat' },
@@ -812,5 +812,47 @@ describe('POST /api/forge/github/webhook — issue_comment delivery dedupe (#41)
     const firstBody = (await first.json()) as { missionId: string };
     const secondBody = (await second.json()) as { missionId: string };
     expect(secondBody.missionId).not.toBe(firstBody.missionId);
+  });
+});
+
+// A public repo's webhook receives comments from ANYONE. author_association is
+// the gate between "a stranger typed @forge" and "an agent holding push
+// credentials starts working" — without it, prompt injection is a service.
+describe('POST /api/forge/github/webhook — @forge author gating', () => {
+  const payloadFrom = (association?: string) => ({
+    action: 'created',
+    comment: { body: '@forge do something', ...(association ? { author_association: association } : {}) },
+    issue: { number: 7 },
+    repository: { full_name: 'acme/gated-repo', default_branch: 'main' },
+    sender: { login: 'randomaccount' },
+  });
+
+  it.each(['NONE', 'CONTRIBUTOR', 'FIRST_TIME_CONTRIBUTOR'])(
+    'ignores a directive from a %s comment author',
+    async (association) => {
+      const res = await postSigned('issue_comment', payloadFrom(association), WEBHOOK_SECRET, {
+        'x-github-delivery': `guid-gate-${association}`,
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { ignored?: boolean };
+      expect(body.ignored).toBe(true);
+    },
+  );
+
+  it('ignores a directive whose payload carries no association at all', async () => {
+    // Absence is a rejection, not a pass — the same rule the origin check
+    // follows. A payload shape we do not recognise must not dispatch agents.
+    const res = await postSigned('issue_comment', payloadFrom(undefined), WEBHOOK_SECRET, {
+      'x-github-delivery': 'guid-gate-absent',
+    });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { ignored?: boolean }).ignored).toBe(true);
+  });
+
+  it('accepts a COLLABORATOR directive', async () => {
+    const res = await postSigned('issue_comment', payloadFrom('COLLABORATOR'), WEBHOOK_SECRET, {
+      'x-github-delivery': 'guid-gate-collab',
+    });
+    expect(res.status).toBe(201);
   });
 });
