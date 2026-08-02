@@ -22,7 +22,7 @@ const DELIVERY_HEADER = 'x-github-delivery';
 
 type IssueCommentPayload = {
   action?: string;
-  comment?: { body?: string };
+  comment?: { body?: string; author_association?: string };
   issue?: { number?: number; pull_request?: unknown };
   repository?: {
     full_name?: string;
@@ -92,6 +92,14 @@ export async function POST(request: Request) {
 
 // ── @forge comment dispatch ──────────────────────────────────────────
 
+/**
+ * GitHub associations trusted to command an agent holding push credentials.
+ * NONE / CONTRIBUTOR / FIRST_TIME_CONTRIBUTOR are rejected deliberately:
+ * having had a PR merged does not confer the right to spend the operator's
+ * tokens or drive an agent under their credentials.
+ */
+const ALLOWED_ASSOCIATIONS = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
+
 async function handleIssueComment(rawBody: string, deliveryId: string | null) {
   let payload: IssueCommentPayload;
   try {
@@ -107,6 +115,22 @@ async function handleIssueComment(rawBody: string, deliveryId: string | null) {
   const goal = parseForgeDirective(payload.comment?.body);
   if (!goal) {
     return NextResponse.json({ ignored: true, reason: 'no @forge directive' }, { status: 200 });
+  }
+
+  // Only accounts with real authority over the repo may command an agent that
+  // holds push credentials. author_association is GitHub's own assessment of
+  // the COMMENT author (not the issue author), present on every
+  // issue_comment payload. Without this gate, any account on a public repo
+  // could comment `@forge ...` and dispatch an agent under the operator's
+  // credentials — prompt injection as a service the moment the repo gets
+  // attention. NONE/CONTRIBUTOR/FIRST_TIME* are rejected: having had a PR
+  // merged does not confer the right to spend the operator's tokens.
+  const association = payload.comment?.author_association;
+  if (!association || !ALLOWED_ASSOCIATIONS.has(association)) {
+    return NextResponse.json(
+      { ignored: true, reason: `author_association ${association ?? 'absent'} not permitted` },
+      { status: 200 },
+    );
   }
 
   const repo = payload.repository?.full_name;

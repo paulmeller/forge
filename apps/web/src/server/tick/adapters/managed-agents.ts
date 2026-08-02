@@ -62,7 +62,13 @@ export class ManagedAgentsAdapter implements BackendAdapter {
         {
           type: 'github_repository',
           url: input.repoUrl,
-          authorization_token: input.repoCloneToken,
+          // Omitted when FORGE_NO_CLONE_TOKEN=true: a token on the resource makes
+          // the engine derive a header-transform, which requires TLS-terminating
+          // egress — supported only by the docker provider. On apple-container
+          // (no termination yet, fail-closed) public repos clone tokenless and
+          // push auth comes from a vault env credential + the provisioning-time
+          // git credential helper instead.
+          ...(process.env.FORGE_NO_CLONE_TOKEN === 'true' ? {} : { authorization_token: input.repoCloneToken }),
           checkout: { type: 'branch', name: input.baseBranch },
         },
       ],
