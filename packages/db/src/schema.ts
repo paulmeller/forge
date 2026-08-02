@@ -305,7 +305,10 @@ export const ledgerEvents = sqliteTable(
     missionId: text('mission_id')
       .notNull()
       .references(() => missions.id, { onDelete: 'cascade' }),
-    taskId: text('task_id').references(() => tasks.id, { onDelete: 'cascade' }),
+    // 'set null' (not 'cascade'): the ledger is an append-only audit trail —
+    // deleting a task (e.g. task-edits.ts's removeTask, during planning)
+    // must not erase the events that recorded its history. See issue #95.
+    taskId: text('task_id').references(() => tasks.id, { onDelete: 'set null' }),
     eventType: text('event_type').notNull(),
     payload: text('payload', { mode: 'json' }).$type<Record<string, unknown>>(),
     // Present when the event originates from the backend (e.g. MA's sevt_...).
