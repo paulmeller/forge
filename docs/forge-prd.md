@@ -305,6 +305,8 @@ Memory is the **empirical knowledge base** — facts Forge has learned about a s
 - **Gateway must remain API-compatible with MA** within the subset Forge uses. Contract tests enforce this; divergence is a release blocker.
 - **Storage via libSQL/Turso** — one dependency, not two. No Redis, no Postgres, no queue broker in v1.
 - **Standalone repo, deployed to Google Cloud Run.** Forge is its own OSS project — not embedded in another app. Deployment target is Cloud Run (stateless containers) with Cloud Scheduler driving the tick. See §15 for the concrete stack.
+
+  **Amended 2026-08-03.** This constraint governs *this* repository and still does: Forge stays a standalone OSS project, and nothing here is folded into another codebase. It no longer forbids a **second, independent implementation** of the same product built inside the managed-agents monorepo (the "Factory" app), which is now in design. The two are separate deliverables that share invariants rather than code; the porting contract, the trust model, and the agreed design accords are recorded in `docs/forge-factory-briefing.md` in that repository. Should the Factory app supersede this one, that will be its own decision, recorded here — it is not implied by this amendment.
 - **No merge without policy.** Forge never merges a PR unless the Mission's auto-merge policy explicitly allows it for that diff shape.
 
 ---
