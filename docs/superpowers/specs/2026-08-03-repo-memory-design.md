@@ -177,18 +177,28 @@ promoted content exists to sync. Recommended: A → B → C, three plans.
   review gate instead of unreviewed direct writes; sync handles the store).
 Close all three linking here when the first plan lands.
 
-## Open questions for the MA team (blocking none of Slice A/B)
+## CMA parity — measured, not assumed (2026-08-03)
 
-1. **Upstream limits parity:** issue #14 claimed 30-day version retention
-   and 8 stores/session. Neither exists in the engine (engine has
-   100 KB/memory, 2000 memories/store). Confirm upstream numbers and
-   whether the engine should enforce them for parity — affects how much
-   history the scratch store can carry.
-2. **Version-history listing cost:** Slice C6 wants "what changed in
-   scratch this mission" — `GET /v1/memory_stores/:sid/memory_versions`
-   filtered by time covers it; confirm the engine's filter set matches
-   upstream (`agent-memory-2026-07-22` semantics are implemented; just
-   confirm version-list filtering by created_at is included).
-3. **FYI, no action:** Forge will create two stores per active repo and
-   mount both on every task session — if a per-session mount count limit
-   ever lands (see Q1), Forge consumes 2 of it.
+Probed directly against hosted CMA (`api.anthropic.com`, beta
+`managed-agents-2026-04-01`) with a throwaway store, since the earlier
+open questions were unanswerable from the engine source alone. The probe
+store was deleted afterwards.
+
+| Question | Answer |
+|---|---|
+| Memory content size cap | **102,400 bytes**, enforced with `content: must be at most 102400 bytes` — exactly the engine's `MAX_CONTENT`. Parity confirmed. |
+| `created_at[gte]` on `memory_versions` | **Supported** (200 with the filter; 400 on an unparseable date). Slice C6's promotion path is viable as designed. |
+| Version record shape | Carries `content_sha256`, `content_size_bytes`, `created_at`, `created_by` (`{api_key_id, type:'api_actor'}`), `memory_id` — enough to attribute a scratch write to agent-vs-Forge without extra bookkeeping. |
+| Vaults on hosted CMA | Present (`GET /v1/vaults` → 200). |
+| 30-day version retention (issue #14's claim) | **Still unverified** — not observable through the API in a single session. Treat as unknown; do not design retention-dependent behaviour. |
+| 8 stores per session (issue #14's claim) | **Untested deliberately** — verifying it means starting a real session, which provisions a billed sandbox. Forge needs 2 mounts, so any cap at or above 2 is fine; revisit only if a third store is ever proposed. |
+
+**Unrelated finding worth recording here because it changes a different
+design:** a hosted-CMA Environment's `config` is
+`{type:'cloud', packages:{pip,npm,apt,cargo,gem,go}, networking:{...}}` —
+declarative package lists, with **no arbitrary setup-command field**. The
+engine's `config.setup` (which Forge relies on for the toolchain, and which
+a pre-push credential hook would have used) is therefore an **engine
+extension, not CMA-native**. On hosted CMA the toolchain must be expressed
+as `packages`, and there is no client-controlled hook that runs in the
+sandbox before the agent's first turn.
