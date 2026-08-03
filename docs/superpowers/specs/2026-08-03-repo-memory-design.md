@@ -126,6 +126,18 @@ floor are handled by the already-wired expiry sweep.
 
 ### Slice C — MA stores as delivery (corrected #14)
 
+**Prerequisites, both settled 2026-08-03:**
+- `@anthropic-ai/sdk` **≥ 0.115.0**. Forge was on 0.88.0, whose beta
+  namespace has no memory surface at all — Slice C was unwritable against
+  it. Now bumped and verified live against the engine; the accessor is
+  `client.beta.memoryStores` (camelCase; `memory_stores` is `undefined`).
+- **Do not add the `agent-memory-2026-07-22` beta header.** Upstream
+  rejects it in combination with `managed-agents-*` — "these select
+  incompatible Agent Memory listing contracts. Use only one" — so adding
+  it alongside the header the adapter already sends would 400 every call,
+  memory or otherwise. The MA header's listing contract is the one to
+  build against.
+
 1. **Schema:** new table `repo_memory_stores(repo primary key,
    curated_store_id, scratch_store_id, created_at)` — ids persisted because
    the store API has no name lookup.

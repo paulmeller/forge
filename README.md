@@ -33,7 +33,9 @@ Each stage is error-isolated and returns a structured result. Every state change
 
 A single self-hosted Next.js app, **`forge-web`**, backed by one libSQL/Turso database. It hosts the Console, the public API, the HMAC-verified webhook receiver, and the tick engine (`apps/web/src/server/tick/`). The tick runs whenever something POSTs to `/api/tick` — Cloud Scheduler with OIDC in production, a button or curl locally. Nothing is vendor-exclusive; the same container runs anywhere that hosts a Node process.
 
-Execution backends sit behind one 8-method adapter (`apps/web/src/server/tick/adapters/`): **Managed Agents** is the primary backend, and the adapter is a plain CMA client, so it works against Anthropic's hosted API or any CMA-compatible engine.
+Execution backends sit behind one 8-method adapter (`apps/web/src/server/tick/adapters/`): **Managed Agents** is the primary backend, and the adapter is a plain CMA client built on `@anthropic-ai/sdk` — no private side-channel into the engine.
+
+Honest scope, as of 2026-08-03: every end-to-end run behind this README was against a **self-hosted CMA-compatible engine**. The adapter targets the same wire API as Anthropic's hosted Managed Agents and its calls are shaped for it, but a full dispatch→PR cycle against hosted CMA has not been run, and one known difference bites there — see the environment note in step 3 below.
 
 ```
 forge/
@@ -80,6 +82,13 @@ Put the App id, private key, slug and webhook secret in `.env.local`, then insta
 ### 3. Create the agent
 
 Forge dispatches to an agent record on your Managed Agents backend. Create one whose system prompt tells it to **commit its work and push to the branch Forge names, and never open pull requests itself** — Forge opens them. (Forge validates this at dispatch and records a `dispatch.contract_warning` when an agent's instructions contradict the contract.) Put its id in `FORGE_DEFAULT_AGENT_ID`, and the id of the vault holding its GitHub credential in `FORGE_DEFAULT_GITHUB_VAULT_ID`.
+
+**The environment is where the two backends differ.** An agent that starts with the repo's toolchain already installed spends its turns on the task instead of on `pnpm install` — measured at 2–4× fewer tool calls — so how you express that matters:
+
+- **Hosted CMA** takes declarative package lists. Its Environment `config` is `{type: 'cloud', packages: {npm: [...], pip: [...], apt: [...]}, networking: {...}}`, and there is **no arbitrary setup-command field**.
+- **A self-hosted engine** may instead offer a setup command (`config.setup = {command, allowedHosts}`) that runs after the clone. That is an engine extension, not part of CMA.
+
+Put the resulting environment id in `FORGE_MA_ENVIRONMENT_ID`. Anything you build on a setup command — including a provisioning-time `pre-push` credential hook — is self-hosted-only and will silently not run on hosted CMA, which accepts an unknown `config` and stores it without acting on it.
 
 **Verify your configuration before dispatching anything.** Stale or wrong ids here fail *after* dispatch, as a Task that dies before the agent ever runs — the most confusing failure mode there is:
 
