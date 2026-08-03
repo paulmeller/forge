@@ -19,6 +19,7 @@ import { db } from '@/lib/db';
 import { checkAgentInstructions } from './agent-contract';
 import { getRelevantMemories, formatMemoriesForPrompt } from './memory';
 import { renderOwnedVars, renderPrompt } from './prompt';
+import { fenceUntrustedVars, UNTRUSTED_CONTENT_NOTICE } from '@/lib/untrusted-content';
 import { getSkill, getSkillBySlug } from './skill-loader';
 import { forgeBranchName } from './branch-name';
 import { requeueOrAbandon, shouldWaitForProvisionBackoff } from './provision-retry';
@@ -354,7 +355,7 @@ export async function dispatchOne(mission: Mission, task: Task, log?: Logger): P
           ? await getSkill(mission.skillId)
           : null;
 
-  const vars: Record<string, unknown> = {
+  const rawVars: Record<string, unknown> = {
     repo: task.repo,
     base_branch: task.baseBranch,
     // The branch Forge will open the pull request from. Exposed so a goal
@@ -364,6 +365,13 @@ export async function dispatchOne(mission: Mission, task: Task, log?: Logger): P
     forge_branch: forgeBranchName(task.id),
     ...((task.promptVars as Record<string, unknown>) ?? {}),
   };
+
+  // The issue title and body are written by whoever filed the issue — on a
+  // public repository, anyone — and they are interpolated into the goal
+  // template this agent (which holds push credentials) reads. Fence them so
+  // the model can tell a stranger's bug report from its operator's
+  // instructions. See lib/untrusted-content.ts.
+  const { vars, fenced: fencedVars } = fenceUntrustedVars(rawVars);
 
   // For a triage `fix` Task, thread the upstream reproduce verdict into the
   // prompt so the fixer starts from confirmed evidence (which versions are
@@ -408,6 +416,10 @@ export async function dispatchOne(mission: Mission, task: Task, log?: Logger): P
   // now runs `git config` after cloning), so the agent no longer spends a turn
   // on git housekeeping or self-recovers from a failed first commit.
   const parts: string[] = [];
+  // First, so the rule is established before any fenced text appears.
+  if (fencedVars.length > 0) {
+    parts.push(UNTRUSTED_CONTENT_NOTICE);
+  }
   if (agentsMd.content) {
     // AGENTS.md comes from the target repository, so only Forge's own
     // placeholders are substituted — see renderOwnedVars.

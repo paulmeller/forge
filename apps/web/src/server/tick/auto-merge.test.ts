@@ -300,6 +300,11 @@ describe('tryMerge — native auto-merge gating (via runAutoMerge)', () => {
         head: { sha: 'sha_default' },
       },
     });
+    // tryMerge always reads the PR's files now (path allow-list + credential
+    // scan), and treats an unreadable list as a reason to block — so every
+    // test reaching tryMerge needs this, not only the path-pattern ones.
+    // An empty list is "a diff with nothing to object to".
+    amMocks.octokit.pulls.listFiles.mockResolvedValue({ data: [] });
     requiredChecksSpy.mockReset();
     requiredChecksSpy.mockResolvedValue(['build']);
     graphqlSpy.mockReset();

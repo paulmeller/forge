@@ -14,6 +14,7 @@ import {
 
 import { db } from '@/lib/db';
 import { getOctokitClient } from '@/lib/octokit';
+import { describeSecretFindings, scanPatchesForSecrets } from '@/lib/secret-scan';
 import { resolveAutoMergePolicy } from './auto-merge-policy';
 
 type Logger = {
@@ -173,13 +174,28 @@ async function tryMerge(
     files: null, // populated below if we need to check path patterns
   }, policy);
 
-  if (policy.allowedPathPatterns?.length) {
-    const { data: files } = await gh.pulls.listFiles({
+  // One file listing serves both the path allow-list and the credential scan.
+  // If GitHub will not give us the diff we cannot certify anything about it,
+  // and "could not check" is not "clean" — block rather than merge blind.
+  let files: Array<{ filename: string; patch?: string | undefined }>;
+  try {
+    const listed = await gh.pulls.listFiles({
       owner,
       repo,
       pull_number: pullNumber,
       per_page: 300,
     });
+    files = listed.data;
+  } catch (err) {
+    await markBlocked(task, mission, pullNumber, [
+      `could not read the pull request's files to check it: ${
+        err instanceof Error ? err.message : 'unknown error'
+      }`,
+    ]);
+    return 'blocked';
+  }
+
+  if (policy.allowedPathPatterns?.length) {
     const filenames = files.map((f) => f.filename);
     const offending = filenames.filter(
       (name) => !policy.allowedPathPatterns!.some((p) => globMatch(name, p)),
@@ -187,6 +203,18 @@ async function tryMerge(
     if (offending.length > 0) {
       reasons.push(`paths outside allow-list: ${offending.slice(0, 3).join(', ')}`);
     }
+  }
+
+  // Credential scan over the added lines. Unconditional — unlike the shape and
+  // path gates there is no policy switch to relax it, because "merge a
+  // credential into the default branch automatically" is not a posture any
+  // repository should be able to opt into. A human can still merge the PR by
+  // hand after looking; this only refuses to do it unattended.
+  const secretFindings = scanPatchesForSecrets(
+    files.map((f) => ({ filename: f.filename, patch: f.patch })),
+  );
+  if (secretFindings.length > 0) {
+    reasons.push(describeSecretFindings(secretFindings));
   }
 
   if (reasons.length > 0) {

@@ -149,6 +149,7 @@ describe('runAutoMerge — candidate selection (real query, live SQLite)', () =>
         base: { ref: 'main' },
       },
     });
+    mockOctokit.pulls.listFiles.mockResolvedValue({ data: [] });
     mockOctokit.repos.getBranchProtection.mockResolvedValue({
       data: { required_status_checks: { contexts: ['build'] } },
     });
@@ -221,6 +222,7 @@ describe('runAutoMerge — candidate selection (real query, live SQLite)', () =>
         base: { ref: 'main' },
       },
     });
+    mockOctokit.pulls.listFiles.mockResolvedValue({ data: [] });
     mockOctokit.repos.getBranchProtection.mockResolvedValue({
       data: { required_status_checks: { contexts: ['build'] } },
     });
@@ -268,6 +270,7 @@ describe('runAutoMerge — candidate selection (real query, live SQLite)', () =>
         base: { ref: 'main' },
       },
     });
+    mockOctokit.pulls.listFiles.mockResolvedValue({ data: [] });
     mockOctokit.repos.getBranchProtection.mockResolvedValue({
       data: { required_status_checks: { contexts: ['build'] } },
     });
@@ -309,5 +312,82 @@ describe('runAutoMerge — candidate selection (real query, live SQLite)', () =>
     // A rollback to needs_human must not carry the old approval forward —
     // same rule tryMerge's rollback path follows for auto_merge_failed.
     expect(task?.approvedBy).toBeNull();
+  });
+
+  // Credential scan (Uber's ADR lesson: leaked credentials are a more common
+  // operational failure than prompt injection, and a diff is where they leak).
+  // These run the real runAutoMerge against the real query, with only Octokit
+  // faked, so a regression in the wiring — not just in the pure scanner —
+  // fails here.
+  async function seedMergeableTask() {
+    const missionId = `msn_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    const taskId = `tsk_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+    await insertMission(missionId);
+    await insertTask(taskId, missionId, { status: 'ready_to_merge' });
+    mockOctokit.pulls.get.mockResolvedValue({
+      data: {
+        state: 'open',
+        additions: 5,
+        deletions: 2,
+        changed_files: 1,
+        node_id: 'PR_secret',
+        base: { ref: 'main' },
+      },
+    });
+    mockOctokit.repos.getBranchProtection.mockResolvedValue({
+      data: { required_status_checks: { contexts: ['build'] } },
+    });
+    mockOctokit.graphql.mockResolvedValue({});
+    return taskId;
+  }
+
+  it('refuses to auto-merge a diff that adds a credential', async () => {
+    const taskId = await seedMergeableTask();
+    // Structurally valid, never-issued — assembled so this file holds no literal token.
+    const token = `ghp_${'A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8'}`;
+    mockOctokit.pulls.listFiles.mockResolvedValue({
+      data: [{ filename: 'src/client.ts', patch: `@@\n+const t = "${token}"` }],
+    });
+
+    const result = await runAutoMerge(noopLog);
+
+    expect(result.merged).toBe(0);
+    expect(result.blocked).toBe(1);
+    expect(mockOctokit.graphql).not.toHaveBeenCalled();
+
+    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId));
+    expect(task?.lastError).toContain('github-token in src/client.ts');
+    // The record must report the leak without republishing it: lastError and
+    // the ledger are both exposed through the public API.
+    expect(task?.lastError).not.toContain(token);
+    const events = await db
+      .select()
+      .from(schema.ledgerEvents)
+      .where(eq(schema.ledgerEvents.taskId, taskId));
+    expect(JSON.stringify(events)).not.toContain(token);
+  });
+
+  it('merges a clean diff — the scan does not block ordinary work', async () => {
+    await seedMergeableTask();
+    mockOctokit.pulls.listFiles.mockResolvedValue({
+      data: [{ filename: 'src/util.ts', patch: '@@\n+export const add = (a, b) => a + b;' }],
+    });
+
+    const result = await runAutoMerge(noopLog);
+
+    expect(result.merged).toBe(1);
+  });
+
+  it('blocks rather than merging blind when the file list cannot be read', async () => {
+    // Could-not-check is not clean. A GitHub error here must not fall through
+    // to a merge that skipped the credential scan entirely.
+    await seedMergeableTask();
+    mockOctokit.pulls.listFiles.mockRejectedValue(new Error('502 Bad Gateway'));
+
+    const result = await runAutoMerge(noopLog);
+
+    expect(result.merged).toBe(0);
+    expect(result.blocked).toBe(1);
+    expect(mockOctokit.graphql).not.toHaveBeenCalled();
   });
 });
